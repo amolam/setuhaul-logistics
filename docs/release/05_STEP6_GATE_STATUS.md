@@ -21,4 +21,4 @@ Monitoring that each gate must show working (from DEPLOYMENT_GATES.md) is listed
 **What is verified locally (not gate evidence):** the start-up check refuses `SETUHAUL_BOOKING_ENABLED=true` without
 a FIFO queue, a DLQ, a manifest and current evidence for all six gates (`tests/test_inbound_delivery.py`); the
 fingerprints are computed by `python -m setuhaul.ops.fingerprints`; the evidence table refuses updates, deletes and
-back-dated rows (migration 0013 tests).
+back-dated rows (migration 0013; `tests/test_inbound_delivery.py`).

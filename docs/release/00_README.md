@@ -17,7 +17,7 @@ nothing deployed, no paid model calls, booking switch OFF.
 
 | # | Deliverable | Where |
 |---|---|---|
-| 1 | Repository cleanup summary | Phase A entry in `docs/3-build/README.md`; layout in the root `README.md` |
+| 1 | Repository cleanup summary | §1 below; layout in the root `README.md` |
 | 2 | Architecture and provider dependency map | below, and `docs/2-design/02_architecture.md` (original India design) |
 | 3 | OpenRouter and Bedrock configuration | `docs/3-build/README.md` → "Model provider"; `.env.example` |
 | 4 | Security scan results | `02_SECURITY_SCAN.md` |
@@ -29,6 +29,22 @@ nothing deployed, no paid model calls, booking switch OFF.
 | 10 | Monthly cost estimate | `06_PILOT_OPERATIONS_GUIDE.md` §5 |
 | 11 | Known risks and unresolved decisions | below |
 | 12 | GO / NO-GO | below |
+
+## 1. Repository cleanup (Phase A, commits 51af118 and 77e82cc)
+
+- 25 old review bundles moved out of the repository to `G:\FDE-Projects\setUhaul_archive\`; Python caches removed.
+- Root `.gitignore` (caches, `.env*` except the template, keys, zips, local test-cluster folders) and `.env.example`
+  with placeholders only.
+- Requirements split into `requirements.txt` (runtime), `requirements-aws.txt` (boto3), `requirements-dev.txt` (tests,
+  audit), all pinned.
+- The repository became a local git repository (`51af118`, a snapshot of the build as it was), then was restructured
+  into a standard layout (`77e82cc`): code at the top level (`setuhaul/`, `migrations/`, `tests/`, `evals/`, `demo/`,
+  `scripts/`), write-ups under `docs/` by phase. `.gitattributes` sets `* -text` so migration bytes (and their hashes)
+  never change.
+- Root `README.md` rewritten; current-status blocks added to `docs/3-build/README.md` and `docs/review/REVIEW_REQUEST.md`;
+  stale statements corrected (F5/F6 owner confirmation and the native-speaker review recorded as done; B-AI-3 recorded
+  as superseded by OD-3, without claiming a Sonnet comparison was run).
+- Nothing deleted from tests, fixtures, migrations, evaluation evidence or review history.
 
 ## 2. Provider dependency map
 
@@ -46,8 +62,10 @@ replies ─► fixed templates (OD-3; no phrasing model in production)
 
 ## 6. Documentation changed in this work
 
-`README.md`; `.env.example`; `docs/3-build/README.md`; `docs/operations/COSTS.md`; `docs/2-design/01_decision_register.md`
-(T52); `docs/review/FINDINGS_LEDGER.md`, `TRACEABILITY.md`; `presentation/RUN_SHEET.md`; new `docs/release/00–06`.
+Since the restructure (`git diff --name-only 77e82cc HEAD`): `README.md`; `.env.example`; `docs/3-build/README.md`;
+`docs/operations/COSTS.md`; `docs/2-design/01_decision_register.md` (T52); `docs/review/FINDINGS_LEDGER.md`,
+`REVIEW_REQUEST.md`, `TRACEABILITY.md`; `presentation/` (deck, `build_deck.js`, `RUN_SHEET.md`,
+`demo_changes_prompt.md`); new `docs/release/00–06`.
 
 ## 11. Known risks and unresolved decisions
 

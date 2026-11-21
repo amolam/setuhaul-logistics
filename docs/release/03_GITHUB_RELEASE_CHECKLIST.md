@@ -5,7 +5,7 @@ and the owner's own `gh` / git sign-in.
 
 ## 1. What would be pushed
 
-- **Tracked files:** everything `git ls-files` lists. About 190 files in 4.3 MiB packed; the largest are the challenge
+- **Tracked files:** everything `git ls-files` lists: 189 files, 4.3 MiB packed; the largest are the challenge
   brief PDF (3.0 MB), the SQLite snapshot and ER diagram (~270 KB each), the readout deck (~220 KB).
   - Code: `setuhaul/` (agent, api, db, domain, notify, ops, workflow), `migrations/0001–0023`, `tests/` (23 files),
     `evals/`, `demo/`, `scripts/`
@@ -28,7 +28,8 @@ and the owner's own `gh` / git sign-in.
 |---|---|
 | Secret scan of tracked files and full history | ✅ clean (`02_SECURITY_SCAN.md`) |
 | Dependency audit | ✅ no known vulnerabilities after the pin updates |
-| Full test suite on the release commit | ✅ see `01_TEST_REPORT.md` (one run, after the final change) |
+| Full test suite on the release commit | ✅ see `01_TEST_REPORT.md` (one run, after the final code change; later commits change documents only) |
+| Dependencies portable | ✅ only `name==version` pins, no paths or local wheels; a clean virtual environment installed from them with no conflicts, audited clean, and ran 394 API/agent/provider tests |
 | Booking switch | ✅ `SETUHAUL_BOOKING_ENABLED=false` in `.env.example`; default `false` in `Settings.from_env` |
 | No real data | ✅ synthetic only (`02_SECURITY_SCAN.md` §1) |
 | Commit author e-mail | ⚠ owner's personal address on every commit; optional rewrite to the GitHub `noreply` address before the first push (owner decision; a rewrite changes every commit id) |
@@ -44,7 +45,8 @@ phase-b/openrouter-provider   (main +)
                               47ea57e  Add the faculty readout deck, run sheet and demo-changes brief
                               6392f1f  Phase B review fixes: validate OpenRouter answers, settle unusable answers as errors, classify credit-limit 403s
                               a970616  Demo console presentation mode: AI toggle, race for one slot, reefer no-slot preset
-                              (next)   Phases C, D, E/F docs, G: dependency upgrades, /health, release documents
+                              e307a00  Release plan phases C-G: dependency security upgrades, /health, release documents
+                              (next)   Final-review corrections to the release documents
 ```
 
 Proposed after the owner's final review:

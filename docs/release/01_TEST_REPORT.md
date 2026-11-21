@@ -22,7 +22,8 @@ History for comparison: 743 (before the restructure), 800 (after Phase B), 842 (
 Also run during this work (subsets, not a substitute for the full run): the 132 provider tests after the ledger-status
 fix; 392 API, agent and provider tests right after the dependency upgrade; the changed demo console in rules mode on a
 throwaway database (races with N = 2, 10 and 50: exactly one winner each, every losing driver told, zero overlapping
-dock claims, zero model calls).
+dock claims, zero model calls); and, in the final review, 394 API, agent and provider tests in a clean virtual
+environment installed only from the pinned requirement files (`PYTHONNOUSERSITE=1`), to show the pins are portable.
 
 ## Coverage of the required areas
 
