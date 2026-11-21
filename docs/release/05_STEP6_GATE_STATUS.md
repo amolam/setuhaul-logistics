@@ -1,0 +1,24 @@
+# Phase F: AWS step 6 acceptance, gate by gate (21 Nov 2026)
+
+The six gates are those in `docs/operations/DEPLOYMENT_GATES.md`, unchanged. **No gate has passed**: nothing is
+deployed in AWS yet (`04_SYDNEY_PILOT_DEPLOYMENT_PLAN.md`). Local tests prove the code behind each gate; they are not
+gate evidence. The booking switch stays OFF even when all six pass: turning it on is a separate owner decision.
+
+B-AWS-0 (an AWS account that can call Bedrock in India) stays open but no longer blocks the pilot: decision T52 makes
+OpenRouter the primary provider for synthetic data and keeps all infrastructure in `ap-southeast-2`.
+
+| # | Gate | Requirement (summary) | AWS resources | Verification to perform | Evidence location | Result | Remaining action | Owner decision |
+|---|---|---|---|---|---|---|---|---|
+| 1 | WORKLOAD_IDENTITY (with B-AWS-0) | Each workload maps to exactly one DB role; pipeline only to `setuhaul_deploy_evidence`; no workload reaches `setuhaul_rpc`, owner or superuser; staff context survives a real Data API transaction; ordinary Cognito ops users cannot create an ops_lead context; drift detection on policies | IAM roles and policies, Lambda execution roles, API Gateway IAM, Cognito, Secrets Manager, AWS Config | the five acceptance checks in DEPLOYMENT_GATES.md, run against the deployed roles; IAM policy hash recorded in the manifest | `deployment_evidence` row (gate WORKLOAD_IDENTITY) + artifact in S3 | **NOT TESTED** (blocked: not deployed) | E0, E3, E5 | approve the IAM table in the deployment plan §4 |
+| 2 | AURORA | Aurora PostgreSQL 18.3+; migrations 0001…0023 applied with hashes; RLS and role allowlist tests against it; Data API behind `Db.tx()`; both evidence triggers enabled | Aurora Serverless v2, RDS Data API, Secrets Manager | migration runner; `tests/test_agent_not_operator.py` and `tests/test_db_requests.py` against Aurora; trigger check | evidence row + test log artifact | **NOT TESTED** (blocked) | E0, E3 | none |
+| 3 | AWS_QUEUE | FIFO, content-independent dedup id, FIFO DLQ with redrive 1–10 and retention ≥ queue, tested redrive procedure, visibility ≥ 2 × lease, least-privilege send/receive | SQS FIFO + DLQ, IAM | `SqsFifoQueue` attribute and redrive checks (already in code) against the real queue; a redrive drill | evidence row (fingerprint computed live) | **NOT TESTED** (blocked) | E0 | none |
+| 4 | RECOVERY_WORKER | `recover()` every minute; lease renewal and generation fencing against the real queue; retries; DLQ procedure | EventBridge schedule, Lambda, SQS | the `test_inbound_delivery.py` scenarios driven against the deployed queue | evidence row (valid 7 days) | **NOT TESTED** (blocked) | E2 | none |
+| 5 | BOOKING_WORKFLOW | Step Functions approvals: request, approve, reject, expiry, no auto-approval; idempotency; the published version is the one running | Step Functions, Lambda approval relay | approval tests against the real state machine; version check against the manifest | evidence row | **NOT TESTED** (blocked) | E4 | B-WF-2a rules stay disabled (no change) |
+| 6 | OUTBOUND_DELIVERY | Notifications with retries and provider-side duplicate prevention; the stored reply row is sent; approved templates | Lambda outbound, Meta WhatsApp Cloud API (test number), Secrets Manager | send each template (en / hi / hi-Latn) to a test phone; replay a delivery and see it refused as a duplicate | evidence row (valid 7 days) | **NOT TESTED** (blocked: no Meta test number or templates yet) | E6 | submit the templates to Meta |
+
+Monitoring that each gate must show working (from DEPLOYMENT_GATES.md) is listed in `06_PILOT_OPERATIONS_GUIDE.md` §2.
+
+**What is verified locally (not gate evidence):** the start-up check refuses `SETUHAUL_BOOKING_ENABLED=true` without
+a FIFO queue, a DLQ, a manifest and current evidence for all six gates (`tests/test_inbound_delivery.py`); the
+fingerprints are computed by `python -m setuhaul.ops.fingerprints`; the evidence table refuses updates, deletes and
+back-dated rows (migration 0013 tests).

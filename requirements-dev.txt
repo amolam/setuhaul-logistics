@@ -1,4 +1,5 @@
 # Development and test tools
 -r requirements.txt
-pytest==8.4.2
+pytest==9.2.0
+httpx2==2.16.2           # used by starlette.testclient (Starlette 1.x); the application itself uses httpx
 pip-audit==2.10.1        # dependency vulnerability check (Phase D)

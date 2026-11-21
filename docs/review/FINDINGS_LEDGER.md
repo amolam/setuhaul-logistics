@@ -114,3 +114,10 @@ and response. Phase 2 findings were closed at Phase 2 sign-off (`../docs/2-desig
   `amazon-bedrock` zero-data-retention route, fallbacks off), Secrets Manager credentials in staging/pilot, usage ledger
   and daily budget (migration 0023), rules-reader fallback on every failure, Bedrock optional (`au.` profile in Sydney).
   Supersedes T4/T38 and modifies T24 for this pilot. Tests: `tests/test_providers.py`.
+- **Phase B review (21 Nov 2026), commit 59032f6:** R1 (High) malformed OpenRouter answers could raise outside
+  `ModelError`: **closed** (every field type-checked; unusable answers settled once as `ERROR`/`malformed` with their
+  real cost, then the rules reader; only database errors tolerated by the ledger code). R4 (Medium) credit-limit 403s
+  classed as `auth`: **closed** (`credits`). R2 (Low, caller-supplied cap/cost), R3 (Low, no text length limits),
+  R5 (Info, crashed-process reservations): **open follow-ups**. Tests: `tests/test_providers.py`.
+- **Phase D (21 Nov 2026):** secret scan of files and history clean; 47 dependency advisories closed by upgrading
+  FastAPI, Starlette, PyJWT, cryptography and pytest (`docs/release/02_SECURITY_SCAN.md`).

@@ -9,9 +9,10 @@ the same slot. **All driver, shipment, warehouse and booking data in this reposi
 | Area | Status |
 |---|---|
 | Phase 1 Frame, Phase 2 Design | Done |
-| Phase 3 Build, local | **Done.** 800 tests pass on local PostgreSQL 18 (developer-reported full run after Phase B, 21 Nov 2026) |
+| Phase 3 Build, local | **Done.** Full suite passes on local PostgreSQL 18 (see `docs/release/01_TEST_REPORT.md` for the count and run) |
+| Release plan phases A–D, G | **Done locally** (cleanup, provider architecture, tests, security scan, operating guide). Nothing pushed to GitHub yet: `docs/release/` |
 | Human checks | Demo walkthroughs F1–F9 done; F5 and F6 confirmed by the owner. Native-speaker Hindi/Hinglish review done (S4-R2-08) |
-| AWS deployment (step 6) | **Not started.** B-AWS-0 (the account is limited to Sydney, `ap-southeast-2`) and the six deployment gates in `docs/operations/DEPLOYMENT_GATES.md` are open |
+| AWS deployment (step 6) | **Planned, not started.** Deployment plan and build items E0–E6 in `docs/release/04_SYDNEY_PILOT_DEPLOYMENT_PLAN.md`; all six gates NOT TESTED (`docs/release/05_STEP6_GATE_STATUS.md`). B-AWS-0 no longer blocks the pilot (T52) |
 | Live booking | **Off.** `SETUHAUL_BOOKING_ENABLED` stays off until the six gates pass and the owner approves |
 
 **Local work complete does not mean AWS accepted.** Everything above runs locally with stand-ins for AWS (local queue,
@@ -36,8 +37,8 @@ Details: `docs/3-build/README.md` ("Model provider") and `docs/operations/COSTS.
 | Path | Contents |
 |---|---|
 | `setuhaul/` | The application package: domain rules (ETA fusion, feasibility), API and booking service, agent (extraction, orchestrator, replies), approval workflow, outbound notifications, operations helpers |
-| `migrations/` | PostgreSQL migrations 0001–0022 (database functions own booking and approval state) |
-| `tests/` | The test suite (800 tests) |
+| `migrations/` | PostgreSQL migrations 0001–0023 (database functions own booking and approval state) |
+| `tests/` | The test suite |
 | `evals/` | Golden sets, held-out set, end-to-end replay, cost ledger and recorded results (evaluation evidence) |
 | `demo/` | Local demo console with guided walkthroughs |
 | `scripts/` | One-off tools: Phase 1 audit, feasibility prototype and solver spike (`frame/`), schema validator (`design/`), Bedrock spike (`spike/`) |
@@ -47,7 +48,9 @@ Details: `docs/3-build/README.md` ("Model provider") and `docs/operations/COSTS.
 | `docs/2-design/` | **Phase 2 · Design**: decision register, AWS architecture, data model (`schema.sql`), tool contracts, state machines, agent design, cost; approval (B-WF-2) and outbound (B-WF-3) designs |
 | `docs/3-build/` | **Phase 3 · Build**: the build log (status, step history, evidence) |
 | `docs/review/` | `FINDINGS_LEDGER.md` (every review finding and its status), `TRACEABILITY.md` (requirement → test), `REVIEW_REQUEST.md`, `REVIEW_LOG.md` (review history, kept as written) |
-| `docs/operations/` | `DEPLOYMENT_GATES.md` (what step 6 must prove), `RUNBOOK_0011.md`, `COSTS.md` (model spend so far) |
+| `docs/operations/` | `DEPLOYMENT_GATES.md` (what step 6 must prove), `RUNBOOK_0011.md`, `COSTS.md` (model spend and limits) |
+| `docs/release/` | Release plan deliverables: test report, security scan, GitHub checklist, Sydney deployment plan, step 6 gate status, operating guide and cost |
+| `presentation/` | Faculty readout deck, run sheet and the demo-changes brief |
 
 The project was built in phases (Frame, Design, Build); the code is at the top level and each phase's write-up is under
 `docs/`. Paths in `docs/review/REVIEW_LOG.md` predate this layout and are mapped at the top of that file.

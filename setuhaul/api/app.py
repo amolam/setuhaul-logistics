@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable, Literal
 
+import psycopg
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
@@ -148,6 +149,20 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
     @app.exception_handler(ServiceError)
     async def _service_error(_req, e: ServiceError):
         return JSONResponse({"error": e.code, "detail": e.detail}, status_code=e.http)
+
+    @app.get("/health")
+    def health():
+        """Readiness for the load balancer and the pilot run sheet (Phase G). Public and read-only: it reports whether
+        the database answers and how the booking switch is set, and nothing else (no DSN, key, queue URL or data)."""
+        try:
+            with db.tx("system") as c:
+                c.execute("SELECT 1")
+            database = "ok"
+        except psycopg.Error:
+            database = "unreachable"
+        return JSONResponse({"status": "ok" if database == "ok" else "degraded", "database": database,
+                             "booking_enabled": settings.booking_enabled, "environment": settings.environment,
+                             "version": app.version}, status_code=200 if database == "ok" else 503)
 
     def staff(authorization: str | None = Header(default=None)) -> Principal:
         if not authorization or not authorization.startswith("Bearer "):

@@ -755,3 +755,25 @@ def test_b2_17_options_are_not_shown_for_a_shipment_the_thread_just_left(client,
                          AND expires_at > now()""", (d.thread, s1)).fetchone()[0]
         state = c.execute("SELECT state FROM setuhaul.thread_flow WHERE thread_id=%s", (d.thread,)).fetchone()[0]
     assert n == 0 and state == "NO_OPTIONS"                         # nothing live for s1, flow not moved to OPTIONS
+
+
+# ================================================================ Phase G: health check
+def test_health_reports_the_database_and_the_booking_switch_and_nothing_secret(dsn, keys):
+    off = TestClient(create_app(Settings(dsn=dsn, cognito_issuer=ISSUER, cognito_client_ids={CLIENT},
+                                         session_secret=SESSION_SECRET, meta_app_secret=META_SECRET,
+                                         facilities=(JAI, GGN), jwks=keys["jwks"], environment="pilot-ap-southeast-2")))
+    r = off.get("/health")
+    assert r.status_code == 200
+    assert r.json() == {"status": "ok", "database": "ok", "booking_enabled": False,
+                        "environment": "pilot-ap-southeast-2", "version": "0.2.0"}
+    assert "password" not in r.text and "host=" not in r.text and "postgres" not in r.text
+
+
+def test_health_is_503_when_the_database_does_not_answer(keys):
+    down = TestClient(create_app(Settings(dsn="host=127.0.0.1 port=1 user=nobody connect_timeout=1",
+                                          cognito_issuer=ISSUER, cognito_client_ids={CLIENT},
+                                          session_secret=SESSION_SECRET, meta_app_secret=META_SECRET,
+                                          facilities=(JAI, GGN), jwks=keys["jwks"])))
+    r = down.get("/health")
+    assert r.status_code == 503 and r.json()["database"] == "unreachable" and r.json()["booking_enabled"] is False
+    assert "port=1" not in r.text and "nobody" not in r.text
