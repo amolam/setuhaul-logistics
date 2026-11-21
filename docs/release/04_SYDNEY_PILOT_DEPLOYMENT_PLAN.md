@@ -64,10 +64,10 @@ These are code changes; each will come with tests and a review before deployment
 
 | Workload | Allowed | Database role |
 |---|---|---|
-| api | `sqs:SendMessage` on the inbound queue; read its own DB secrets | ingest, console; agent + feasibility for `/tools` only |
+| api | `sqs:SendMessage` on the inbound queue; read its own DB secrets | ingest, console (`/tools` is off in staging and pilot) |
 | agent | `sqs:ReceiveMessage`, `DeleteMessage`, `ChangeMessageVisibility` on the inbound queue; read the OpenRouter secret and its own DB secrets | agent, feasibility, ingest |
 | recovery | `sqs:SendMessage`; its DB secrets | system, ingest |
-| outbound | read the Meta token secret; its DB secret | system |
+| outbound | read the WhatsApp token secret (the only function that can); its DB secret | system |
 | approval-relay | `states:StartExecution` on the published state machine version; its DB secret | system |
 | pipeline | `rds-data` for `setuhaul_deploy_evidence` only | deploy_evidence |
 
@@ -90,14 +90,18 @@ identity acceptance 1–5).
 
 1. The owner signs in to the AWS CLI for the Sydney account (Claude never enters credentials).
 2. `cdk bootstrap` and `cdk deploy` the stacks into `ap-southeast-2`.
-3. Run migrations 0001–0023 against Aurora through the migration runner as the owner role, once.
+3. Run migrations 0001–0024 against Aurora through the migration runner as the owner role, once.
 4. Store the OpenRouter key and the Meta token in Secrets Manager (owner, from their own machine).
 5. Smoke test: `GET /health` → `{"status": "ok", "booking_enabled": false}`; one synthetic driver message through the
    Meta test number; check the usage ledger row and the reply.
 6. Run the gate checks in the order in `05_STEP6_GATE_STATUS.md` and record evidence.
-7. **Rollback:** Lambda aliases point at the previous version (instant); the state machine alias points at the previous
-   published version; migrations are forward-only, so a schema problem is fixed by a new migration, never by editing
-   one. Aurora point-in-time restore is the last resort (synthetic data, so no data-loss risk).
+7. **Rollback:** the stack publishes no Lambda versions or aliases (review E5-05), so rolling back the application
+   means redeploying the previous reviewed Cloud Assembly: `cdk deploy --app cdk.out` with the `pilot-build` artifact
+   of that earlier run, whose assembly check and manifest were already recorded. That replaces the functions' code and
+   configuration together (minutes, not instant). The state machine's `live` alias moves with that deployment to the
+   version that assembly published. Migrations are forward-only, so a schema problem is fixed by a new migration, never
+   by editing one, and an older assembly must still work with the newer schema. Aurora point-in-time restore is the
+   last resort (synthetic data, so no data-loss risk).
 
 ## 7. WhatsApp in the pilot
 

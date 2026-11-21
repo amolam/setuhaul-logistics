@@ -126,3 +126,12 @@ and response. Phase 2 findings were closed at Phase 2 sign-off (`../docs/2-desig
   string parameters (fixed by literal binding); `/health` used the system role (now ingest); a CDK dependency cycle;
   a non-reproducible Lambda zip. Open: notices outside the 24-hour WhatsApp window need template sending (owner
   decision); application secret split; `/tools` roles on the API workload; action SHA pins.
+- **Phase E consolidated review of 250b794 (22 Nov 2026), branch phase-e/aws-implementation-fixes:** fixed locally:
+  E5-01 synthesis output directory, E5-02 deploy the checked assembly (`cdk deploy --app cdk.out`), E5-03 the zip is
+  the Lambda asset and a credential-free check hashes the staged asset (`setuhaul/ops/assembly.py`), E6-01 approved
+  templates outside the 24-hour window with escalation when none is approved, IAM-01 WhatsApp token in its own secret
+  (outbound only), IAM-02 `/tools` off in staging and pilot (API logins ingest + console), E4-01 callback completion
+  tracking (migration 0024, `approval_callbacks`), E5-04 actions pinned by SHA and the CDK CLI by exact version, E5-05
+  rollback documented as redeploying the previous assembly, E0-01 4xx alarm renamed. Outstanding: E5-06 (Ubuntu
+  reproducibility, runs in CI), E3-01 to E3-04 (AURORA gate), the OIDC deploy role, Meta submission and the Hinglish
+  gate. Record: `docs/release/07_AWS_IMPLEMENTATION.md`; tests: `docs/release/01_TEST_REPORT.md`.

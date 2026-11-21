@@ -5,10 +5,13 @@ submitted to Meta; the owner submits them in WhatsApp Manager (or the Graph API)
 
 Generated from the reviewed notice texts in `setuhaul/notify/outbound.py` (English, Hindi, Hinglish; S4-R2-08), so
 the submitted wording can never drift from what the code sends (`tests/test_infra.py` checks the file is current).
-Category UTILITY (transactional notices about a booking the driver asked for). No variables: the texts are fixed.
+Category UTILITY (transactional notices about a booking the driver asked for). No variables: the texts are fixed
+(`setuhaul.notify.outbound.TEMPLATE_VARIABLES` is empty, and `template_params` checks the count at send time).
 
-Hinglish has no language code of its own at Meta. It is listed under `en` (Latin script) with the suffix `_hl`; the
-owner confirms that choice at submission (an owner decision recorded in docs/release/05_STEP6_GATE_STATUS.md).
+Hinglish (review decision, 22 Nov 2026): the seven definitions are kept, named `setuhaul_<notice>_hl`, but no language
+code is assumed for them (`"language": null`). Which code Meta accepts for Latin-script Hindi, and whether it approves
+these texts, is decided at a separate gate (HINGLISH_TEMPLATES) when the owner submits them. Until a Hinglish
+template is recorded as approved, a Hinglish driver outside the 24-hour window gets the approved English template.
 """
 from __future__ import annotations
 
@@ -25,10 +28,13 @@ OUT = ROOT / "infra" / "whatsapp_templates.json"
 
 def definitions() -> list[dict]:
     out = []
-    for table, lang, suffix in ((TEMPLATES, "en", ""), (TEMPLATES_HI, "hi", ""), (TEMPLATES_HL, "en", "_hl")):
+    for table, lang, suffix in ((TEMPLATES, "en", ""), (TEMPLATES_HI, "hi", ""), (TEMPLATES_HL, None, "_hl")):
         for key in sorted(table):
-            out.append({"name": f"setuhaul_{key}{suffix}", "language": lang, "category": "UTILITY",
-                        "components": [{"type": "BODY", "text": table[key]}]})
+            d = {"name": f"setuhaul_{key}{suffix}", "language": lang, "category": "UTILITY",
+                 "components": [{"type": "BODY", "text": table[key]}]}
+            if lang is None:
+                d["submission_gate"] = "HINGLISH_TEMPLATES"
+            out.append(d)
     return out
 
 

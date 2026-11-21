@@ -6,11 +6,18 @@ recorded in PostgreSQL first, and PostgreSQL wins every disagreement (B-WF-2 des
 
 * `start` = StartExecution named after the approval id, so a second start is a no-op (ExecutionAlreadyExists).
 * The WaitForDecision task stores its task token through `record_task_token` (migration 0015). If the request is
-  already closed when the token arrives, the token is answered at once, so the execution never waits for nothing.
+  already closed when the token arrives, the token is kept with `record_late_task_token` (0024) and answered at once,
+  so the execution never waits for nothing; if that answer fails, the reconciler retries it.
 * `callback` reads the token and calls SendTaskSuccess. A finished, timed-out or unknown task is treated as done.
 * The timeout path calls `expire_approval`; NOT_DUE (the database clock is behind) raises, so the state machine's
   Retry tries again a few seconds later.
-* `reconcile` re-sends callbacks for requests that are no longer OPEN but still have a token (a lost callback).
+* Completion tracking (review E4-01, migration 0024): a callback counts as done only on a definite answer from Step
+  Functions (SendTaskSuccess returned, or the task had already finished), recorded by `complete_task_callback` in
+  `approval_callbacks` (a decided approval row itself never changes). Throttling, a network error or any other unclear
+  outcome records nothing, so the callback stays due.
+* `reconcile` claims the closed requests whose callback is not confirmed and is due (`claim_task_callbacks`: each
+  claim counts an attempt and backs off 1, 2, 4 ... 30 minutes), so a confirmed callback is never re-sent and an
+  unconfirmed one is retried at a falling rate instead of every minute.
 """
 from __future__ import annotations
 
@@ -62,31 +69,48 @@ class StepFunctionsApprovalWorkflow:
                             (str(approval_id),)).fetchone()
         if not row or not row[0]:
             return False                                           # no token yet; the token handler answers it
-        return self._send(row[0])
+        return self._answer(approval_id, row[0])
 
-    def _send(self, token: str) -> bool:
+    def _answer(self, approval_id, token: str) -> bool:
+        """SendTaskSuccess, then record the definite answer. Anything unclear raises before anything is recorded, so
+        the token is kept and the reconciler tries again. True only when this call delivered the callback."""
         try:
             self.sfn.send_task_success(taskToken=token, output="{}")
-            return True
+            outcome = "DELIVERED"
         except Exception as e:
-            if _code(e) in _DONE:
-                return False
-            raise
+            if _code(e) not in _DONE:
+                raise
+            outcome = "TASK_FINISHED"                              # finished, timed out or unknown: nothing to wake
+        with self.db.tx("system", self._facilities()) as c:
+            c.execute("SELECT complete_task_callback(%s::uuid, %s)", (str(approval_id), outcome))
+        return outcome == "DELIVERED"
 
-    def reconcile(self, within_hours: int = 24) -> int:
-        with self.db.tx("system", self._facilities(), readonly=True) as c:
-            tokens = [r[0] for r in c.execute(
-                """SELECT task_token FROM approval_requests
-                    WHERE status <> 'OPEN' AND task_token IS NOT NULL
-                      AND decided_at > clock_timestamp() - make_interval(hours => %s)""", (within_hours,))]
-        return sum(self._send(t) for t in tokens)
+    def reconcile(self, within_hours: int = 24, limit: int = 50) -> int:
+        """Re-sends callbacks that are not confirmed and are due. Returns how many were delivered now."""
+        with self.db.tx("system", self._facilities()) as c:          # the claim commits before anything is sent
+            due = c.execute("SELECT approval_id, task_token FROM claim_task_callbacks(%s, %s)",
+                            (within_hours, limit)).fetchall()
+        delivered = 0
+        for approval_id, token in due:
+            try:
+                delivered += self._answer(approval_id, token)
+            except Exception as e:                                 # kept for the next due time; never swallowed silently
+                log.warning("callback for approval %s not confirmed (%s); retried after the backoff",
+                            approval_id, _code(e) or type(e).__name__)
+        return delivered
 
     # ---------------------------------------------------------------- state machine task handlers
     def record_token(self, approval_id: str, token: str) -> bool:
         with self.db.tx("system", self._facilities()) as c:
             open_ = c.execute("SELECT record_task_token(%s::uuid, %s)", (str(approval_id), token)).fetchone()[0]
-        if not open_:
-            self._send(token)                                      # already decided: do not wait for the timeout
+        if not open_:                                              # already decided: do not wait for the timeout
+            with self.db.tx("system", self._facilities()) as c:
+                c.execute("SELECT record_late_task_token(%s::uuid, %s)", (str(approval_id), token))
+            try:
+                self._answer(approval_id, token)
+            except Exception as e:                                 # the token is stored; the reconciler retries it
+                log.warning("late token for approval %s not answered yet (%s)", approval_id,
+                            _code(e) or type(e).__name__)
         return open_
 
     def expire(self, approval_id: str) -> str:

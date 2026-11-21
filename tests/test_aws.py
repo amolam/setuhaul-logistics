@@ -28,7 +28,7 @@ from test_db_requests import decide, short_deadline
 ARN = "arn:aws:rds:ap-southeast-2:000000000000:cluster:setuhaul"
 # The database roles each Lambda is given a login for (one Secrets Manager secret per role).
 WORKLOAD_ROLES = {
-    "api": ("ingest", "console", "agent", "feasibility"),  # agent + feasibility only for the /tools route
+    "api": ("ingest", "console"),                          # /tools is off in staging and pilot (review IAM-02)
     "agent": ("agent", "feasibility", "ingest"),          # no system role: the turn never needs it
     "recovery": ("system", "ingest"),
     "outbound": ("system",),
@@ -44,7 +44,7 @@ class AwsError(Exception):
 
 class StubSfn:
     def __init__(self):
-        self.started, self.answered = {}, []
+        self.started, self.answered, self.calls, self.fail_next = {}, [], [], []
 
     def start_execution(self, stateMachineArn, name, input):
         if name in self.started:
@@ -52,6 +52,9 @@ class StubSfn:
         self.started[name] = json.loads(input)
 
     def send_task_success(self, taskToken, output):
+        self.calls.append(taskToken)
+        if self.fail_next:
+            raise AwsError(self.fail_next.pop(0))                # e.g. ThrottlingException: outcome unclear
         if taskToken in self.answered:
             raise AwsError("TaskTimedOut")                       # a finished task
         self.answered.append(taskToken)
@@ -122,6 +125,105 @@ def test_the_reconciler_resends_a_lost_callback(conn, wf):
     assert wf.reconcile() >= 1 and "tok-lost" in wf.sfn.answered
 
 
+# ---------------------------------------------------------------- E4-01: callback completion tracking (migration 0024)
+def _callback_row(conn, appointment_id):
+    """(token the reconciler would use, attempts, confirmed, outcome, backing off) for one approval."""
+    row = conn.execute("""SELECT coalesce(ar.task_token, cb.late_token), coalesce(cb.attempts, 0),
+                                 cb.completed_at IS NOT NULL, cb.outcome, coalesce(cb.next_at > clock_timestamp(), false)
+                            FROM setuhaul.approval_requests ar
+                            LEFT JOIN setuhaul.approval_callbacks cb ON cb.approval_id = ar.approval_id
+                           WHERE ar.appointment_id = %s""", (appointment_id,)).fetchone()
+    return tuple(row)
+
+
+def _make_due(conn, appointment_id):
+    conn.execute("""UPDATE setuhaul.approval_callbacks SET next_at = clock_timestamp() - interval '1 second'
+                     WHERE approval_id = (SELECT approval_id FROM setuhaul.approval_requests WHERE appointment_id = %s)""",
+                 (appointment_id,))
+
+
+def test_a_confirmed_callback_is_never_sent_again(conn, wf):
+    _, r = pending(conn)
+    wf.record_token(r["approval_id"], "tok-once")
+    decide(conn, r["appointment_id"], "CONFIRM")
+    assert wf.callback(r["approval_id"]) is True
+    assert _callback_row(conn, r["appointment_id"])[1:4] == (0, True, "DELIVERED")       # confirmed on the first send
+    for _ in range(3):
+        wf.reconcile()
+    assert wf.sfn.calls.count("tok-once") == 1
+
+
+def test_a_lost_callback_is_resent_once_then_left_alone(conn, wf):
+    _, r = pending(conn)
+    wf.record_token(r["approval_id"], "tok-lost-1")
+    decide(conn, r["appointment_id"], "CONFIRM")
+    wf.reconcile()
+    wf.reconcile()
+    assert wf.sfn.calls.count("tok-lost-1") == 1
+    assert _callback_row(conn, r["appointment_id"])[1:4] == (1, True, "DELIVERED")
+
+
+def test_a_failed_callback_keeps_the_token_and_is_retried_after_the_backoff(conn, wf):
+    _, r = pending(conn)
+    wf.record_token(r["approval_id"], "tok-retry")
+    decide(conn, r["appointment_id"], "CONFIRM")
+    wf.sfn.fail_next = ["ThrottlingException"]
+    with pytest.raises(Exception):
+        wf.callback(r["approval_id"])                                  # unclear: nothing recorded, token kept
+    assert _callback_row(conn, r["appointment_id"])[:3] == ("tok-retry", 0, False)
+    wf.sfn.fail_next = ["ServiceUnavailable"]
+    assert wf.reconcile() == 0                                         # attempt counted, still unconfirmed
+    token, attempts, done, _, backing_off = _callback_row(conn, r["appointment_id"])
+    assert (token, attempts, done, backing_off) == ("tok-retry", 1, False, True)
+    assert wf.reconcile() == 0 and wf.sfn.calls.count("tok-retry") == 2    # not due yet: not re-sent every minute
+    _make_due(conn, r["appointment_id"])
+    assert wf.reconcile() == 1
+    assert _callback_row(conn, r["appointment_id"])[1:4] == (2, True, "DELIVERED")
+    assert approval(conn, r["appointment_id"])["status"] == "APPROVED"     # the decided row itself never changed
+
+
+def test_a_task_that_already_finished_is_recorded_and_not_retried(conn, wf):
+    _, r = pending(conn)
+    wf.record_token(r["approval_id"], "tok-done")
+    decide(conn, r["appointment_id"], "REJECT")
+    wf.sfn.answered.append("tok-done")                                 # Step Functions already closed the task
+    assert wf.reconcile() == 0
+    assert _callback_row(conn, r["appointment_id"])[1:4] == (1, True, "TASK_FINISHED")
+    _make_due(conn, r["appointment_id"])
+    wf.reconcile()
+    assert wf.sfn.calls.count("tok-done") == 1
+
+
+def test_a_late_token_whose_answer_fails_is_kept_for_the_reconciler(conn, wf):
+    _, r = pending(conn)
+    decide(conn, r["appointment_id"], "REJECT")
+    wf.sfn.fail_next = ["ThrottlingException"]
+    assert wf.record_token(r["approval_id"], "tok-late-fail") is False    # no exception into Step Functions
+    assert _callback_row(conn, r["appointment_id"])[:3] == ("tok-late-fail", 0, False)
+    assert wf.reconcile() == 1 and "tok-late-fail" in wf.sfn.answered
+
+
+def test_an_open_request_is_never_claimed_or_completed(conn, wf):
+    _, r = pending(conn)
+    wf.record_token(r["approval_id"], "tok-open")
+    assert wf.reconcile() == 0 and wf.sfn.calls == []
+    with conn.transaction():
+        conn.execute("SET LOCAL ROLE setuhaul_system")
+        conn.execute("SELECT set_config('app.facility_scope', 'FAC-JAI-01,FAC-GGN-01', true)")
+        assert conn.execute("SELECT setuhaul.complete_task_callback(%s::uuid, 'DELIVERED')",
+                            (str(r["approval_id"]),)).fetchone()[0] is False
+        assert conn.execute("SELECT setuhaul.record_late_task_token(%s::uuid, 'x')",
+                            (str(r["approval_id"]),)).fetchone()[0] is False
+    assert _callback_row(conn, r["appointment_id"])[:3] == ("tok-open", 0, False)
+
+
+def test_only_the_definer_functions_touch_the_callback_table(conn):
+    for role in ("setuhaul_system", "setuhaul_agent", "setuhaul_console", "setuhaul_ingest", "setuhaul_feasibility"):
+        for priv in ("SELECT", "INSERT", "UPDATE", "DELETE"):
+            assert not conn.execute("SELECT has_table_privilege(%s, 'setuhaul.approval_callbacks', %s)",
+                                    (role, priv)).fetchone()[0], (role, priv)
+
+
 def test_expiry_runs_in_postgres_and_retries_when_not_yet_due(conn, wf):
     _, r = pending(conn)
     with pytest.raises(NotDueYet):
@@ -153,7 +255,7 @@ def lambda_env(monkeypatch, dsn):
 
 
 def _clear():
-    for f in (lambdas.runtime, lambdas._asgi, lambdas._orchestrator, lambdas._workflow):
+    for f in (lambdas.runtime, lambdas._asgi, lambdas._orchestrator, lambdas._workflow, lambdas._whatsapp_token):
         getattr(f, "cache_clear", lambda: None)()                     # a test may have replaced one
 
 
@@ -195,6 +297,21 @@ def test_a_driver_message_through_the_api_lambda_and_the_agent_lambda(lambda_env
         n = c.execute("""SELECT count(*) FROM setuhaul.chat_messages WHERE sender_type='AGENT' AND reply_to=%s""",
                       (queued["message_id"],)).fetchone()[0]
     assert n == 1                                                       # one stored reply for the driver
+
+
+def test_the_tools_route_is_off_when_configured_and_always_off_in_staging_and_pilot(lambda_env, monkeypatch):
+    """Review IAM-02: without /tools the API workload needs no agent or feasibility login."""
+    from setuhaul.api.app import Settings
+    monkeypatch.setenv("SETUHAUL_TOOLS_ROUTE", "off")
+    lambda_env("api")
+    r = lambdas.api_handler(http_event("POST", "/tools/eta", b'{"turn_id": 0, "args": {}}'), None)
+    assert r["statusCode"] == 404
+    for env_name in ("staging", "pilot"):
+        monkeypatch.setenv("SETUHAUL_ENV", env_name)
+        monkeypatch.setenv("SETUHAUL_TOOLS_ROUTE", "on")
+        assert Settings.from_env().tools_route is False
+    monkeypatch.setenv("SETUHAUL_ENV", "ci")
+    assert Settings.from_env().tools_route is True
 
 
 def test_a_failed_turn_is_reported_for_redelivery_not_swallowed(lambda_env, monkeypatch):
@@ -259,8 +376,31 @@ def test_pilot_secrets_come_from_secrets_manager_only():
     with pytest.raises(RuntimeError, match="SETUHAUL_APP_SECRET_ID is required"):
         lambdas.load_app_secrets({"SETUHAUL_ENV": "pilot"})
     env = lambdas.load_app_secrets({"SETUHAUL_ENV": "pilot", "SETUHAUL_APP_SECRET_ID": "id"},
-                                   Secrets({"SESSION_SECRET": "s", "META_APP_SECRET": "m", "WHATSAPP_TOKEN": "w", "other": "x"}))
-    assert (env["SESSION_SECRET"], env["META_APP_SECRET"], env["WHATSAPP_TOKEN"]) == ("s", "m", "w") and "other" not in env
+                                   Secrets({"SESSION_SECRET": "s", "META_APP_SECRET": "m", "other": "x"}))
+    assert (env["SESSION_SECRET"], env["META_APP_SECRET"]) == ("s", "m") and "other" not in env
+    assert "WHATSAPP_TOKEN" not in env                             # IAM-01: only the outbound function's own secret
+
+
+def test_the_whatsapp_token_is_not_accepted_in_the_application_secret_or_the_pilot_environment():
+    """Review IAM-01: the token is read only from its own secret, which only the outbound function may read."""
+    with pytest.raises(RuntimeError, match="WhatsApp secret, not the application secret"):
+        lambdas.load_app_secrets({"SETUHAUL_ENV": "pilot", "SETUHAUL_APP_SECRET_ID": "id"},
+                                 Secrets({"SESSION_SECRET": "s", "META_APP_SECRET": "m", "WHATSAPP_TOKEN": "w"}))
+    with pytest.raises(RuntimeError, match="must come from Secrets Manager"):
+        lambdas.load_app_secrets({"SETUHAUL_ENV": "pilot", "SETUHAUL_APP_SECRET_ID": "id", "WHATSAPP_TOKEN": "w"})
+    env = lambdas.load_app_secrets({"SETUHAUL_ENV": "pilot", "SETUHAUL_APP_SECRET_ID": "id"},
+                                   Secrets({"SESSION_SECRET": "s", "META_APP_SECRET": "m"}))
+    assert "WHATSAPP_TOKEN" not in env
+    with pytest.raises(RuntimeError, match="SETUHAUL_WHATSAPP_SECRET_ID is required"):
+        lambdas.load_whatsapp_token({"SETUHAUL_ENV": "pilot", "WHATSAPP_TOKEN": "w"})
+    assert lambdas.load_whatsapp_token({"SETUHAUL_ENV": "pilot", "SETUHAUL_WHATSAPP_SECRET_ID": "wa"},
+                                       Secrets({"WHATSAPP_TOKEN": "tok"})) == "tok"
+    with pytest.raises(RuntimeError, match="empty"):
+        lambdas.load_whatsapp_token({"SETUHAUL_ENV": "pilot", "SETUHAUL_WHATSAPP_SECRET_ID": "wa"}, Secrets({}))
+    with pytest.raises(RuntimeError) as e:
+        lambdas.load_whatsapp_token({"SETUHAUL_ENV": "pilot", "SETUHAUL_WHATSAPP_SECRET_ID": "arn:wa-name"},
+                                    Secrets(fail=True))
+    assert "arn:wa-name" not in str(e.value)
 
 
 def test_an_unreadable_secret_fails_without_revealing_anything():

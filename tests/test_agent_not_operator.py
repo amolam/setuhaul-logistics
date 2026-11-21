@@ -32,7 +32,8 @@ PROTECTED = {"dock_occupancy", "appointments", "approval_requests", "notificatio
              "idempotency_keys", "option_selections", "confirmation_attestations",
              "inbound_receipts", "deployment_evidence",
              "staff_context", "approval_role_rules", "booking_holds", "confirmation_rules", "outbox_consumptions",  # 0015
-             "model_budget_day", "model_usage"}                                                        # 0023
+             "model_budget_day", "model_usage",                                                        # 0023
+             "approval_callbacks"}                                                                     # 0024
 
 
 def test_agent_role_attributes(conn):
@@ -114,7 +115,10 @@ def test_every_table_is_rls_forced_or_reasoned(conn):
              "confirmation_rules",    # versioned policy configuration, append-only
              "outbox_consumptions",   # consumer bookkeeping (consumer, event id), no facility data
              # 0023 (T52): model usage ledger; no facility or driver data, written only by the definer functions
-             "model_budget_day", "model_usage"}
+             "model_budget_day", "model_usage",
+             # 0024 (E4-01): Step Functions callback bookkeeping (approval id, token, attempts); no facility data,
+             # no application role has any privilege on it, only the definer functions use it
+             "approval_callbacks"}
     bad = [r[0] for r in conn.execute("""SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
                                          WHERE n.nspname='setuhaul' AND c.relkind='r'
                                            AND NOT (c.relrowsecurity AND c.relforcerowsecurity)""") if r[0] not in allow]

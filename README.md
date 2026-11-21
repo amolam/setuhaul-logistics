@@ -37,7 +37,7 @@ Details: `docs/3-build/README.md` ("Model provider") and `docs/operations/COSTS.
 | Path | Contents |
 |---|---|
 | `setuhaul/` | The application package: domain rules (ETA fusion, feasibility), API and booking service, agent (extraction, orchestrator, replies), approval workflow, outbound notifications, operations helpers |
-| `migrations/` | PostgreSQL migrations 0001–0023 (database functions own booking and approval state) |
+| `migrations/` | PostgreSQL migrations 0001–0024 (database functions own booking and approval state) |
 | `tests/` | The test suite |
 | `evals/` | Golden sets, held-out set, end-to-end replay, cost ledger and recorded results (evaluation evidence) |
 | `demo/` | Local demo console with guided walkthroughs |

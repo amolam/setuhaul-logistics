@@ -10,7 +10,7 @@ OpenRouter the primary provider for synthetic data and keeps all infrastructure 
 | # | Gate | Requirement (summary) | AWS resources | Verification to perform | Evidence location | Result | Remaining action | Owner decision |
 |---|---|---|---|---|---|---|---|---|
 | 1 | WORKLOAD_IDENTITY (with B-AWS-0) | Each workload maps to exactly one DB role; pipeline only to `setuhaul_deploy_evidence`; no workload reaches `setuhaul_rpc`, owner or superuser; staff context survives a real Data API transaction; ordinary Cognito ops users cannot create an ops_lead context; drift detection on policies | IAM roles and policies, Lambda execution roles, API Gateway IAM, Cognito, Secrets Manager, AWS Config | the five acceptance checks in DEPLOYMENT_GATES.md, run against the deployed roles; IAM policy hash recorded in the manifest | `deployment_evidence` row (gate WORKLOAD_IDENTITY) + artifact in S3 | **NOT TESTED** (blocked: not deployed) | E0, E3, E5 | approve the IAM table in the deployment plan §4 |
-| 2 | AURORA | Aurora PostgreSQL 18.3+; migrations 0001…0023 applied with hashes; RLS and role allowlist tests against it; Data API behind `Db.tx()`; both evidence triggers enabled | Aurora Serverless v2, RDS Data API, Secrets Manager | migration runner; `tests/test_agent_not_operator.py` and `tests/test_db_requests.py` against Aurora; trigger check | evidence row + test log artifact | **NOT TESTED** (blocked) | E0, E3 | none |
+| 2 | AURORA | Aurora PostgreSQL 18.3+; migrations 0001…0024 applied with hashes; RLS and role allowlist tests against it; Data API behind `Db.tx()`; both evidence triggers enabled | Aurora Serverless v2, RDS Data API, Secrets Manager | migration runner; `tests/test_agent_not_operator.py` and `tests/test_db_requests.py` against Aurora; trigger check | evidence row + test log artifact | **NOT TESTED** (blocked) | E0, E3 | none |
 | 3 | AWS_QUEUE | FIFO, content-independent dedup id, FIFO DLQ with redrive 1–10 and retention ≥ queue, tested redrive procedure, visibility ≥ 2 × lease, least-privilege send/receive | SQS FIFO + DLQ, IAM | `SqsFifoQueue` attribute and redrive checks (already in code) against the real queue; a redrive drill | evidence row (fingerprint computed live) | **NOT TESTED** (blocked) | E0 | none |
 | 4 | RECOVERY_WORKER | `recover()` every minute; lease renewal and generation fencing against the real queue; retries; DLQ procedure | EventBridge schedule, Lambda, SQS | the `test_inbound_delivery.py` scenarios driven against the deployed queue | evidence row (valid 7 days) | **NOT TESTED** (blocked) | E2 | none |
 | 5 | BOOKING_WORKFLOW | Step Functions approvals: request, approve, reject, expiry, no auto-approval; idempotency; the published version is the one running | Step Functions, Lambda approval relay | approval tests against the real state machine; version check against the manifest | evidence row | **NOT TESTED** (blocked) | E4 | B-WF-2a rules stay disabled (no change) |
@@ -20,8 +20,11 @@ OpenRouter the primary provider for synthetic data and keeps all infrastructure 
 `07_AWS_IMPLEMENTATION.md` (infrastructure template assertions, Data API backend, Lambda entry points, Step Functions
 adapter, Data API migrations, one login per role, manifest builder). Results stay NOT TESTED until run in AWS.
 
-**Owner decisions added:** how notices outside WhatsApp's 24-hour window are sent (templates; a provider change is
-needed); the language code for the Hinglish templates (`en` with a `_hl` suffix is proposed).
+**Owner decisions (22 Nov 2026):** notices outside WhatsApp's 24-hour window go as Meta-approved templates, and with
+no approved template they fail with an escalation, never silently (built: `07_AWS_IMPLEMENTATION.md`, E6-01). The
+Hinglish template definitions are kept, but no language code is assumed for them: their submission and approval are
+a separate gate (HINGLISH_TEMPLATES), and until then a Hinglish driver outside the window gets the approved English
+template.
 
 Monitoring that each gate must show working (from DEPLOYMENT_GATES.md) is listed in `06_PILOT_OPERATIONS_GUIDE.md` §2.
 

@@ -1,7 +1,8 @@
 """SetuHaul Sydney pilot infrastructure (build item E0). AWS CDK v2, Python. Region ap-southeast-2 only.
 
-Not deployed. `python infra/app.py` (or `cdk synth`) produces the CloudFormation template; `tests/test_infra.py`
-asserts the properties the six deployment gates depend on. Deploying needs the owner's approval and sign-in.
+Not deployed. `python infra/app.py` writes the Cloud Assembly to `cdk.out/`; `tests/test_infra.py` asserts the
+properties the six deployment gates depend on, and `setuhaul/ops/assembly.py` checks that every function's code is the
+one staged `build/lambda.zip`. Deploying needs the owner's approval and sign-in, and deploys that assembly as built.
 
 Shape (docs/release/04_SYDNEY_PILOT_DEPLOYMENT_PLAN.md §2):
   REST API (WAF, throttling) → api Lambda → SQS FIFO (+ FIFO DLQ) → agent Lambda
@@ -37,7 +38,7 @@ LEASE_S = 120                                      # orchestrator processing lea
 DB_ROLES = ("agent", "console", "ingest", "feasibility", "system")
 # Database logins per workload: proven minimal by tests/test_aws.py (each handler runs with only these).
 WORKLOAD_ROLES = {
-    "api": ("ingest", "console", "agent", "feasibility"),   # agent + feasibility only for the /tools route
+    "api": ("ingest", "console"),                            # /tools is off in staging and pilot (review IAM-02)
     "agent": ("agent", "feasibility", "ingest"),
     "recovery": ("system", "ingest"),
     "outbound": ("system",),
@@ -48,7 +49,7 @@ WORKLOAD_ROLES = {
 class SetuHaulPilotStack(Stack):
     def __init__(self, scope: Construct, cid: str, *, lambda_asset: str, environment_name: str = "pilot",
                  whatsapp_phone_number_id: str = "", alarm_email: str = "", llm_daily_budget_usd: str = "0.25",
-                 **kw) -> None:
+                 approved_templates: str = "[]", **kw) -> None:
         super().__init__(scope, cid, **kw)
         env_label = f"{environment_name}-{REGION}"
         for k, v in {"Project": "SetuHaul", "Environment": environment_name, "DataClass": "synthetic"}.items():
@@ -76,7 +77,13 @@ class SetuHaulPilotStack(Stack):
             storage_encrypted=True, storage_encryption_key=key, parameter_group=params,
             backup=rds.BackupProps(retention=Duration.days(7)), deletion_protection=True,
             removal_policy=RemovalPolicy.SNAPSHOT, cloudwatch_logs_exports=["postgresql"],
-            cloudwatch_logs_retention=logs.RetentionDays.ONE_MONTH)
+            cluster_identifier=f"setuhaul-{environment_name}")
+        # The database log group is created here with its retention, instead of `cloudwatch_logs_retention`, which adds
+        # a CDK-provided Lambda (LogRetention) whose code is not the verified artifact (review E5-03). It must exist
+        # before the cluster starts exporting, or RDS creates it first and this resource fails.
+        db_logs = logs.LogGroup(self, "DbLogs", log_group_name=f"/aws/rds/cluster/setuhaul-{environment_name}/postgresql",
+                                retention=logs.RetentionDays.ONE_MONTH, removal_policy=RemovalPolicy.RETAIN)
+        cluster.node.add_dependency(db_logs)
 
         # one login per application role, plus the pipeline's evidence writer (WORKLOAD_IDENTITY gate)
         self.login_secrets = {}
@@ -88,10 +95,13 @@ class SetuHaulPilotStack(Stack):
                                                        "dbname": "setuhaul"}),
                     generate_string_key="password", exclude_punctuation=True, password_length=40))
         app_secret = sm.Secret(self, "AppSecret", secret_name=f"setuhaul/{environment_name}/app", encryption_key=key,
-                               description="SESSION_SECRET, META_APP_SECRET, WHATSAPP_TOKEN (owner fills the last two)",
+                               description="SESSION_SECRET, META_APP_SECRET (owner fills the second)",
                                generate_secret_string=sm.SecretStringGenerator(
-                                   secret_string_template=json.dumps({"META_APP_SECRET": "", "WHATSAPP_TOKEN": ""}),
+                                   secret_string_template=json.dumps({"META_APP_SECRET": ""}),
                                    generate_string_key="SESSION_SECRET", exclude_punctuation=True, password_length=48))
+        # The WhatsApp sending token has its own secret, readable by the outbound function only (review IAM-01).
+        whatsapp_secret = sm.Secret(self, "WhatsAppToken", secret_name=f"setuhaul/{environment_name}/whatsapp",
+                                    encryption_key=key, description="WHATSAPP_TOKEN (owner sets the value)")
         openrouter = sm.Secret(self, "OpenRouterKey", secret_name=f"setuhaul/{environment_name}/openrouter",
                                encryption_key=key, description="OpenRouter API key (owner sets the value)")
 
@@ -117,6 +127,9 @@ class SetuHaulPilotStack(Stack):
         client = pool.add_client("Console", auth_flows=cognito.AuthFlow(user_srp=True), generate_secret=False)
 
         # ------------------------------------------------------------ functions
+        if not (lambda_asset.endswith(".zip") and Path(lambda_asset).is_file()):
+            # A folder would be zipped by CDK itself, and its bytes would not be the artifact the manifest records.
+            raise ValueError(f"lambda_asset must be the built zip file (scripts/build_lambda.py), got {lambda_asset!r}")
         code = lambda_.Code.from_asset(lambda_asset)
         base_env = {
             "SETUHAUL_ENV": environment_name, "SETUHAUL_ENVIRONMENT": env_label, "SETUHAUL_DATA_CLASS": "synthetic",
@@ -148,19 +161,23 @@ class SetuHaulPilotStack(Stack):
             self.functions[name] = f
             return f
 
-        api_fn = fn("api", "api_handler", "api", timeout_s=29)
+        api_fn = fn("api", "api_handler", "api", timeout_s=29, extra={"SETUHAUL_TOOLS_ROUTE": "off"})
         agent_fn = fn("agent", "agent_handler", "agent", timeout_s=LEASE_S + 60, memory=1024, extra={
             "SETUHAUL_MODEL_PROVIDER": "openrouter", "SETUHAUL_OPENROUTER_SECRET_ID": openrouter.secret_arn,
             "SETUHAUL_OR_EXTRACT_MODEL": "anthropic/claude-haiku-4.5", "SETUHAUL_OR_PROVIDER": "amazon-bedrock",
             "SETUHAUL_LLM_DAILY_BUDGET_USD": llm_daily_budget_usd})
         recovery_fn = fn("recovery", "recovery_handler", "recovery", timeout_s=60)
         outbound_fn = fn("outbound", "outbound_handler", "outbound", timeout_s=60,
-                         extra={"SETUHAUL_WHATSAPP_PHONE_NUMBER_ID": whatsapp_phone_number_id})
+                         extra={"SETUHAUL_WHATSAPP_PHONE_NUMBER_ID": whatsapp_phone_number_id,
+                                "SETUHAUL_WHATSAPP_SECRET_ID": whatsapp_secret.secret_arn,
+                                # names of templates Meta has approved, as "name:language"; none until E6 submission
+                                "SETUHAUL_WA_APPROVED_TEMPLATES": approved_templates})
         notify_fn = fn("approval-notify", "notify_approvers_handler", "approval")
         token_fn = fn("approval-token", "record_task_token_handler", "approval")
         expire_fn = fn("approval-expire", "expire_approval_handler", "approval")
 
         openrouter.grant_read(agent_fn)
+        whatsapp_secret.grant_read(outbound_fn)
         queue.grant_send_messages(api_fn)
         queue.grant_send_messages(recovery_fn)
         agent_fn.add_event_source(sources.SqsEventSource(queue, batch_size=1, report_batch_item_failures=True,
@@ -228,8 +245,9 @@ class SetuHaulPilotStack(Stack):
             topic.add_subscription(subs.EmailSubscription(alarm_email))
         action = cw_actions.SnsAction(topic)
 
-        def alarm(name, metric, threshold, periods=1):
+        def alarm(name, metric, threshold, periods=1, description=None):
             a = cw.Alarm(self, name, metric=metric, threshold=threshold, evaluation_periods=periods,
+                         alarm_description=description,
                          comparison_operator=cw.ComparisonOperator.GREATER_THAN_THRESHOLD,
                          treat_missing_data=cw.TreatMissingData.NOT_BREACHING)
             a.add_alarm_action(action)
@@ -237,7 +255,11 @@ class SetuHaulPilotStack(Stack):
         alarm("QueueOldestMessage", queue.metric_approximate_age_of_oldest_message(period=Duration.minutes(5)), 300)
         alarm("DlqNotEmpty", dlq.metric_approximate_number_of_messages_visible(period=Duration.minutes(5)), 0)
         alarm("Api5xx", api.metric_server_error(period=Duration.minutes(5)), 5, periods=2)
-        alarm("Api4xxAuth", api.metric_client_error(period=Duration.minutes(5)), 50, periods=2)
+        # API Gateway publishes 4xx as one metric, so this alarm is named for what it counts (review E0-01): every
+        # client error, of which refused authentication (401/403) is one kind.
+        alarm("Api4xxClientErrors", api.metric_client_error(period=Duration.minutes(5)), 50, periods=2,
+              description="More than 50 API 4xx responses in each of two 5-minute periods (all client errors, "
+                          "including but not limited to 401/403)")
         alarm("ApprovalFailed", machine.metric_failed(period=Duration.minutes(5)), 0)
         alarm("ApprovalTimedOut", machine.metric_timed_out(period=Duration.minutes(5)), 0)
         for name, f in self.functions.items():
@@ -247,7 +269,7 @@ class SetuHaulPilotStack(Stack):
                      "OwnerSecretArn": cluster.secret.secret_arn, "ApprovalAliasArn": alias.attr_arn,
                      "ApprovalVersionArn": version.attr_arn,
                      "UserPoolId": pool.user_pool_id, "OpenRouterSecretArn": openrouter.secret_arn,
-                     "AppSecretArn": app_secret.secret_arn,
+                     "AppSecretArn": app_secret.secret_arn, "WhatsAppSecretArn": whatsapp_secret.secret_arn,
                      "LoginSecretArns": self.to_json_string({r: s.secret_arn for r, s in self.login_secrets.items()})}.items():
             CfnOutput(self, k, value=v)
 

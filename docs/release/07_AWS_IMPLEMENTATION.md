@@ -1,25 +1,30 @@
 # AWS build items E0–E6: implementation record (22 Nov 2026)
 
-**Implemented and tested locally. Not deployed.** Tests: full suite 924 passed, 1 skipped; the database test files
-through the Data API backend 347 passed (`01_TEST_REPORT.md`). Nothing was created in AWS, no paid model call was made, no template
+**Implemented and tested locally. Not deployed.** Nothing was created in AWS, no paid model call was made, no template
 was submitted to Meta, and `SETUHAUL_BOOKING_ENABLED` is `false` everywhere. The six step 6 gates are still
 **NOT TESTED**: everything below is local evidence that the code is ready to be tested in AWS, not gate evidence.
-Branch `phase-e/aws-implementation`.
 
-Labels: **verified** = run here and read; **emulated** = run against a local stand-in whose fidelity to AWS is an
-assumption; **not tested**.
+Two commits, kept apart so the reviewed baseline stays reproducible:
+
+| Commit | Branch | Contents | Tests on that exact code |
+|---|---|---|---|
+| `250b794` (review baseline, unchanged) | `phase-e/aws-implementation` | E0–E6 as first built | full normal suite **not** run on it: the 924-passed run predates its last change (Data API error classes); the Data API run of the database test files (347 passed) and the four AWS test files in normal mode (63 passed, 1 skipped) do cover it |
+| fix commit (this record) | `phase-e/aws-implementation-fixes`, from exactly `250b794` | the review fixes below | full normal suite and Data API mode, both run once after the last code change: `01_TEST_REPORT.md` |
+
+Labels used for evidence: **verified** = run here and read; **emulated** = run against a local stand-in whose fidelity
+to AWS is an assumption; **AWS-verified** = run against real AWS (nothing is, yet); **not tested**.
 
 ## What was built
 
 | Item | Files | Evidence | Label |
 |---|---|---|---|
-| **E0** Infrastructure as code (CDK v2, Python), `ap-southeast-2` only | `infra/app.py`, `infra/setuhaul_stack.py`, `cdk.json`, `requirements-infra.txt` | `tests/test_infra.py` synthesises the stack and asserts: Sydney; booking switch `false`, data class synthetic and no plain-text secret on all 8 functions; Aurora PostgreSQL 18.3 Serverless v2 with the Data API, encrypted, deletion-protected, pgaudit (`ddl,role`, no parameters), `standard_conforming_strings` on; no NAT or internet gateway; FIFO queue + FIFO DLQ meeting the AWS_QUEUE contract; each function can read only its own database logins; the repository state machine with a published version and `live` alias; WAF and throttling on the API; Cognito MFA required, admin-created users only, the three staff groups; the gate monitoring alarms with an SNS action | verified (synth), not deployed |
+| **E0** Infrastructure as code (CDK v2, Python), `ap-southeast-2` only | `infra/app.py`, `infra/setuhaul_stack.py`, `cdk.json`, `requirements-infra.txt` | `tests/test_infra.py` synthesises the stack and asserts: Sydney; booking switch `false`, data class synthetic and no plain-text secret on all 8 functions; Aurora PostgreSQL 18.3 Serverless v2 with the Data API, encrypted, deletion-protected, pgaudit (`ddl,role`, no parameters), `standard_conforming_strings` on, its log group created by the stack (no CDK helper Lambda); no NAT or internet gateway; FIFO queue + FIFO DLQ meeting the AWS_QUEUE contract; each function can read only its own database logins; only the outbound function can read the WhatsApp token; the pilot API has `/tools` off; the repository state machine with a published version and `live` alias; WAF and throttling on the API; Cognito MFA required, admin-created users only, the three staff groups; the gate monitoring alarms with an SNS action, the 4xx alarm named for what it counts | verified (synth), not deployed |
 | **E1** API entry point | `setuhaul/aws/lambdas.py` (`api_handler`, Mangum) | `tests/test_aws.py`: `/health` and a signed WhatsApp webhook through the handler | verified |
 | **E2** Worker entry points | `lambdas.py`: `agent_handler` (SQS batch 1, visibility extended by the orchestrator heartbeat, failures reported for redelivery), `recovery_handler`, `outbound_handler`, `approval_relay_handler`; application secrets from Secrets Manager at cold start (refused from the environment in staging/pilot) | `tests/test_aws.py`: a driver message from webhook to stored agent reply; a failing turn reported, not swallowed; recovery, approval and outbound handlers | verified (SQS and Meta stubbed) |
 | **E3** Database over the RDS Data API | `setuhaul/aws/data_api.py`; `SETUHAUL_DSN=rds-data` selects it (`make_db`) | `tests/test_data_api.py` (hostile strings, every result type equal to psycopg's, error codes, rollback, per-role refusal, two-round-trip setup); the database test files also run through it (`SETUHAUL_TEST_DATA_API=1`) | emulated |
-| **E4** Step Functions approval workflow | `setuhaul/aws/stepfunctions.py` | `tests/test_aws.py`: idempotent start, token stored and answered once, late token answered at once, lost callback re-sent by the reconciler, expiry in PostgreSQL with retry when not yet due | verified (Step Functions stubbed) |
-| **E5** Pipeline | `.github/workflows/ci.yml`; `scripts/build_lambda.py`; `setuhaul/aws/migrate_data_api.py`; `setuhaul/aws/provision_logins.py`; `setuhaul/ops/manifest.py` | Migrations over the Data API build a catalog identical to the psycopg runner's; edited migrations refused; logins end up in exactly one role (drift removed) and cannot switch to another; the manifest from the synthesised template passes the start-up check and changes with the artifact or any IAM change; the Lambda zip is byte-reproducible (two builds, same SHA-256) and holds Linux wheels only | verified (CI itself has not run yet) |
-| **E6** Meta preparation | `scripts/whatsapp_templates.py`, `infra/whatsapp_templates.json` (21 definitions, `"submitted": false`) | `tests/test_infra.py`: the file equals what the reviewed texts generate | verified; not submitted |
+| **E4** Step Functions approval workflow | `setuhaul/aws/stepfunctions.py`; migration `0024_task_callback_tracking.sql` | `tests/test_aws.py`: idempotent start, token stored and answered once, late token answered at once, lost callback re-sent by the reconciler, a confirmed callback never re-sent, an unclear outcome retried after a backoff with the token kept, a finished task recorded and left alone, expiry in PostgreSQL with retry when not yet due | verified (Step Functions stubbed) |
+| **E5** Pipeline | `.github/workflows/ci.yml`; `scripts/build_lambda.py`; `setuhaul/ops/assembly.py`; `setuhaul/aws/migrate_data_api.py`; `setuhaul/aws/provision_logins.py`; `setuhaul/ops/manifest.py` | The app writes its Cloud Assembly to `cdk.out/`; every Lambda in the template uses the one staged zip, and the credential-free check finds the template, asset manifest, staged zip, `build/lambda.zip` and the deployment manifest agree (and fails when any of them is altered); migrations over the Data API build a catalog identical to the psycopg runner's; edited migrations refused; logins end up in exactly one role and cannot switch; the manifest passes the start-up check and changes with the artifact or any IAM change; the Lambda zip is byte-reproducible on Windows (two builds, same SHA-256); the pinned CDK CLI reads the assembly | verified locally on Windows; **CI (Ubuntu) has not run yet** |
+| **E6** Meta preparation and template sending | `scripts/whatsapp_templates.py`, `infra/whatsapp_templates.json` (21 definitions, `"submitted": false`); `setuhaul/notify/outbound.py` | `tests/test_infra.py`: the file equals what the reviewed texts generate, Hinglish has no assumed language code; `tests/test_outbound.py`: inside the 24-hour window text, outside it the approved template in the driver's language or English, no approved template or an agent reply outside the window fails with an escalation, the safety margin, Meta's refusal code kept | verified (Meta stubbed); not submitted |
 
 ## Design decisions made in this phase
 
@@ -39,7 +44,7 @@ Each handler test runs with logins for only these roles; a handler that touched 
 
 | Workload | Database roles | Why |
 |---|---|---|
-| api | ingest, console, agent, feasibility | webhook (ingest), console routes (console); agent + feasibility **only** for the `/tools` route |
+| api | ingest, console | webhook (ingest), console routes (console); `/tools` is off in staging and pilot, so no agent or feasibility login (IAM-02) |
 | agent | agent, feasibility, ingest | tools (agent, feasibility), turn leases (ingest); **no system** |
 | recovery | system, ingest | sweep (system), re-publishing inbound events (ingest) |
 | outbound | system | |
@@ -54,7 +59,10 @@ Each handler test runs with logins for only these roles; a handler that touched 
 | Secrets in logs | Login passwords appear only in `CREATE/ALTER ROLE`, run with `pgaudit.log = 'none'` for that transaction; pgaudit logs DDL and role changes, never statement parameters; application secrets never logged; an unreadable secret's error names no secret | tested where local |
 | Plain-text secrets | None in any function environment (asserted on the template); staging/pilot refuse them from the environment | tested |
 | Booking switch | `"false"` on every function; nothing in the stack or pipeline can set it | tested |
-| Open items | (1) every function reads the one application secret, which also holds the WhatsApp token: split it so only `outbound` can read the token; (2) the API workload has agent + feasibility logins only because of `/tools`: disable that route in the pilot to drop them; (3) GitHub Actions are pinned by major version: pin by commit SHA before the first deploy; (4) `npx aws-cdk@2` is a major-version pin: pin the exact CLI version; (5) the GitHub OIDC provider and deploy role are not in the stack (the owner creates them, scoped to `ap-southeast-2`); (6) the AWS Managed Rules common rule set could block an unusually large webhook body: watch the WAF metrics in the first week | follow-ups |
+| WhatsApp token | Own secret `setuhaul/<env>/whatsapp`; only the outbound function has the IAM grant and the secret id; refused in the application secret and in a staging/pilot environment | tested (template and loader) |
+| `/tools` | Not registered in staging and pilot whatever the environment says; the API has ingest and console logins only | tested |
+| Supply chain | Every GitHub Action pinned to a full commit SHA (release in the comment); CDK CLI pinned to `aws-cdk@2.1148.0` | done; Dependabot alerts on |
+| Still open | (1) the GitHub OIDC provider and deploy role are not in the stack: the owner creates them, restricted to this repository, the `pilot` environment and `ap-southeast-2`, and verifies them; (2) the AWS Managed Rules common rule set could block an unusually large webhook body: watch the WAF metrics during initial testing; (3) the deploy gate is a typed confirmation in an environment without required reviewers (free private repository): an owner-controlled gate, not two-person approval; (4) the application secret (session and Meta app secrets) is still read by every function, because every function builds the app | follow-ups before or at deployment |
 
 ## Cost review (changes against `06_PILOT_OPERATIONS_GUIDE.md` §5)
 
@@ -63,7 +71,7 @@ Each handler test runs with logins for only these roles; a handler that touched 
 | WAF | on a REST API: web ACL + 3 rules + requests | ≈ $8–9 (was $10–12) |
 | API Gateway REST | ~$4.25 per million requests in Sydney; pilot volume is tiny | < $1 |
 | RDS Data API | ≈ $0.35 per million requests; about 10 requests per transaction after the setup change | < $1 at pilot volume |
-| Secrets Manager | 9 secrets (owner, 6 logins, application, OpenRouter) | ≈ $3.60 |
+| Secrets Manager | 10 secrets (owner, 6 logins, application, WhatsApp, OpenRouter) | ≈ $4.00 |
 | CloudWatch alarms | 14 alarms | ≈ $1.40 |
 | **Total** | still **≈ $75–120 a month** (Aurora's 0.5 ACU minimum is most of it) | estimate |
 
@@ -71,8 +79,35 @@ Each handler test runs with logins for only these roles; a handler that touched 
 
 | Gap | Needs |
 |---|---|
-| WhatsApp messages outside the 24-hour window must be **template** messages; the provider sends free-form text today, so a late approval notice would be refused by Meta | owner decision on the approach; then a small change to `WhatsAppCloudProvider` and its tests |
-| Hinglish templates are listed under language `en` with a `_hl` suffix | owner confirms at submission |
-| The exact text form the real Data API returns for `timestamptz` (the decoder accepts an offset, else UTC) | checked in the AURORA gate |
-| CI has not run on GitHub yet (it runs on the first push of this branch) | owner approval to push the branch |
+| Templates submitted to Meta and approved; the owner then lists the approved ones in the `whatsapp_approved_templates` context (until then every notice outside the window fails with an escalation, by design) | owner, at the Meta submission gate |
+| Hinglish: which language code Meta accepts and whether it approves the texts (separate gate HINGLISH_TEMPLATES; no code is assumed) | owner, at submission |
+| E3-01 to E3-04 below | the AURORA gate |
+| CI has not run on GitHub yet: the Ubuntu build reproducibility (E5-06), synthesis and the assembly check on the runner | owner approval to push the branch |
 | Deployment itself, migrations against Aurora, login provisioning, the six gates | owner approval and AWS sign-in |
+
+## Review fixes (consolidated review of `250b794`, 22 Nov 2026)
+
+Branch `phase-e/aws-implementation-fixes`, from exactly `250b794`. `main` stays at `996c602`.
+
+| ID | Priority | Finding | Fix | Evidence | Label |
+|---|---|---|---|---|---|
+| E5-01 | High | `python infra/app.py` run outside the CDK CLI writes the assembly to a temporary directory, so `cdk.out/` did not exist to upload; the docstring said otherwise | The app writes to `$CDK_OUTDIR`, default `cdk.out/`; the synth job sets `CDK_OUTDIR=cdk.out`; docstring corrected | `test_the_app_writes_its_assembly_to_the_named_directory` (runs the app as the pipeline does); local run wrote `cdk.out/` | verified locally |
+| E5-02 | High | The deploy job re-synthesised from source (and lacked `build/lambda/`) instead of deploying the reviewed assembly | The synth job uploads the complete `cdk.out/` (template, asset manifest, staged zip) with `build/lambda.zip`; the deploy job re-runs the check on the download, compares it with the synth job's result, and runs `cdk deploy --app cdk.out` | workflow; the pinned CLI lists the stack from `cdk.out/` with no AWS call | verified locally; CI not run |
+| E5-03 | High | CDK zipped the `build/lambda/` folder itself while the manifest hashed `build/lambda.zip` | The Lambda asset is the zip file (a folder is refused); CDK stages it byte for byte. Aurora's log retention no longer adds a CDK helper Lambda, so all 8 functions use the one staged zip. `setuhaul/ops/assembly.py` follows template → asset manifest → staged file and hashes the bytes; the manifest is built from that staged file | `test_the_assembly_check_*` (passes; fails on an altered zip, a function pointing elsewhere, a missing staged file, a mismatched manifest); local: staged zip, `build/lambda.zip` and manifest all `d0761360…abcd` | verified locally |
+| E6-01 | High | Free-form text outside WhatsApp's 24-hour window would be refused, so a late approval notice could disappear | The relay checks the window in the database (30-minute margin). Outside it a notice goes as the Meta-approved template (driver's language if approved, else English), with variables checked against the text; with no approved template, or for an agent reply, the notification fails and a NOTIFICATION_FAILED escalation tells a person. Meta refusals keep their error code | 12 new tests in `tests/test_outbound.py` | verified (Meta stubbed) |
+| IAM-01 | High | Every function read the secret holding the WhatsApp token | Separate `setuhaul/<env>/whatsapp` secret, readable by the outbound function only | `test_only_the_outbound_function_can_read_the_whatsapp_token`; loader tests | verified (synth) |
+| IAM-02 | High | The API kept agent and feasibility logins for `/tools` | `/tools` off in staging and pilot; API logins are ingest and console | `test_the_tools_route_is_off_…`; the API handler tests run with only those two logins | verified |
+| E4-01 | Medium | The reconciler re-sent every closed callback of the last 24 hours every minute | Migration 0024: `approval_callbacks` records attempts, the next due time and a definite outcome. A claim counts the attempt and backs off before sending; only a definite answer from Step Functions completes it, so a failed or unclear send stays due. A decided approval row is still never modified | 7 new tests in `tests/test_aws.py`; catalog tests (no application role can touch the table) | verified (Step Functions stubbed) |
+| E5-04 | Medium | Actions pinned by major version, CDK CLI by major version | Commit SHAs for every action; `aws-cdk@2.1148.0` | workflow | done |
+| E5-05 | Medium | The guides described Lambda alias rollback, but the stack publishes no Lambda versions or aliases | Documents corrected: rollback = redeploy the previous reviewed assembly (`cdk deploy --app <its cdk.out>`, from that run's artifact); the state machine alias is the only alias | `04` §6, `06` §4 | corrected |
+| E5-06 | Medium | Build reproducibility verified on Windows only | The synth job builds the zip twice on Ubuntu and fails if they differ | workflow step | **outstanding until CI runs** |
+| E0-01 | Medium | `Api4xxAuth` counted every 4xx | Renamed `Api4xxClientErrors`, with a description saying it counts all client errors | `test_the_4xx_alarm_is_named_for_what_it_counts` | verified (synth) |
+
+### Data API conditions for the AURORA gate (not local failures)
+
+| ID | Condition | How it is checked |
+|---|---|---|
+| E3-01 | Real Aurora error messages carry the `SQLState:` suffix the translation reads | run the error-class tests of `tests/test_data_api.py` against Aurora |
+| E3-02 | The real text form of `timestamptz` results and its time zone | the type-parity test against Aurora |
+| E3-03 | The 1 MiB Data API response limit is not handled | before the pilot: a tested bound on the largest console listing at pilot scale, or paging |
+| E3-04 | Latency, throttling and the 3-minute idle-transaction timeout | measured during the AURORA and RECOVERY_WORKER gates |

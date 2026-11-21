@@ -1,13 +1,21 @@
 # SetuHaul CI and the (manual, approval-gated) pilot deployment pipeline. Build item E5.
 #
 # On every push and pull request: the full test suite on PostgreSQL 18, the database tests again through the RDS Data
-# API backend (emulated), the dependency audit, the CDK synth and its assertion tests. Nothing touches AWS.
+# API backend (emulated), the dependency audit, then the build: the Lambda zip is built twice and compared on the
+# Ubuntu runner, the stack is synthesised ONCE into cdk.out/, and a credential-free check proves that the template,
+# the asset manifest, the staged Lambda zip and build/lambda.zip all identify the same artifact. Nothing touches AWS.
 #
 # Deployment is a separate, manually started job (workflow_dispatch) that must be confirmed by typing the environment
-# name, runs in the GitHub environment "pilot" (add required reviewers there when the plan allows it), and signs in to
-# AWS with short-lived OIDC credentials (no stored keys). It deploys infrastructure, applies migrations and provisions
-# database logins. It never sets SETUHAUL_BOOKING_ENABLED: the stack hard-codes "false". It records no gate evidence;
-# that is the step 6 gate procedure (docs/release/05_STEP6_GATE_STATUS.md).
+# name and runs in the GitHub environment "pilot". On a free private repository that environment cannot require a
+# second reviewer, so this is an owner-controlled gate, not two-person approval. The job signs in to AWS with
+# short-lived OIDC credentials (no stored keys) and deploys the Cloud Assembly the synth job built and checked
+# (`cdk deploy --app cdk.out`): it never synthesises from source (review E5-02). It applies migrations, provisions
+# database logins and writes the deployment manifest from that same assembly. It never sets SETUHAUL_BOOKING_ENABLED:
+# the stack hard-codes "false". It records no gate evidence; that is the step 6 gate procedure
+# (docs/release/05_STEP6_GATE_STATUS.md).
+#
+# Supply chain (review E5-04): every action is pinned to a full commit SHA (the release it was resolved from is in the
+# comment, resolved 22 Nov 2026) and the CDK CLI to an exact version. Dependabot alerts cover the actions.
 name: ci
 
 on:
@@ -24,6 +32,9 @@ on:
 permissions:
   contents: read
 
+env:
+  CDK_CLI: aws-cdk@2.1148.0                  # exact CDK CLI version (released 5 Nov 2026); reads aws-cdk-lib 2.278.0
+
 jobs:
   test:
     runs-on: ubuntu-24.04
@@ -37,11 +48,11 @@ jobs:
     env:
       SETUHAUL_TEST_DSN: "host=localhost port=5432 user=postgres"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262        # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065    # v5.6.0
         with:
           python-version: "3.13"            # the Lambda runtime
-      - uses: actions/setup-node@v4          # jsii (aws-cdk-lib) runs on Node
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020      # v4.4.0; jsii (aws-cdk-lib) runs on Node
         with:
           node-version: "22"
       - run: pip install -r requirements-dev.txt -r requirements-aws.txt -r requirements-infra.txt
@@ -60,23 +71,39 @@ jobs:
   synth:
     needs: test
     runs-on: ubuntu-24.04
+    env:
+      CDK_OUTDIR: cdk.out                    # explicit (review E5-01); infra/app.py also defaults to it
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262        # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065    # v5.6.0
         with:
           python-version: "3.13"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020      # v4.4.0
         with:
           node-version: "22"
       - run: pip install -r requirements.txt -r requirements-infra.txt
-      - run: python scripts/build_lambda.py
-      - run: python infra/app.py
-      - uses: actions/upload-artifact@v4
+      - name: Build the Lambda zip twice and compare (reproducible on this runner, review E5-06)
+        run: |
+          python scripts/build_lambda.py
+          cp build/lambda.zip first-build.zip
+          python scripts/build_lambda.py
+          sha256sum first-build.zip build/lambda.zip
+          cmp first-build.zip build/lambda.zip
+          rm first-build.zip
+      - name: Synthesise the Cloud Assembly once, into cdk.out/ (no AWS call)
+        run: python infra/app.py
+      - name: Check the assembly without AWS credentials
+        run: python -m setuhaul.ops.assembly cdk.out --zip build/lambda.zip | tee build/assembly.json
+      - name: The pinned CDK CLI reads the assembly (no AWS call)
+        run: npx --yes "$CDK_CLI" ls --app cdk.out
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: pilot-build
+          if-no-files-found: error
           path: |
-            build/lambda.zip
             cdk.out/
+            build/lambda.zip
+            build/assembly.json
 
   deploy:
     needs: synth
@@ -89,23 +116,27 @@ jobs:
     env:
       AWS_REGION: ap-southeast-2
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262        # v4.4.0 (migrations and scripts)
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065    # v5.6.0
         with:
           python-version: "3.13"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020      # v4.4.0
         with:
           node-version: "22"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           name: pilot-build
       - run: pip install -r requirements-aws.txt -r requirements-infra.txt
-      - uses: aws-actions/configure-aws-credentials@v4
+      - name: Re-check the downloaded assembly before signing in (same result as the synth job)
+        run: |
+          python -m setuhaul.ops.assembly cdk.out --zip build/lambda.zip > build/assembly.deploy.json
+          cmp build/assembly.json build/assembly.deploy.json
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a  # v4.3.1
         with:
           role-to-assume: ${{ vars.SETUHAUL_DEPLOY_ROLE_ARN }}     # set by the owner; ap-southeast-2 only
           aws-region: ap-southeast-2
-      - name: Deploy infrastructure (booking switch stays false)
-        run: npx --yes aws-cdk@2 deploy SetuHaulPilot --require-approval broadening --outputs-file outputs.json --app "python infra/app.py"
+      - name: Deploy the checked assembly (no synthesis from source; booking switch stays false)
+        run: npx --yes "$CDK_CLI" deploy SetuHaulPilot --app cdk.out --require-approval broadening --outputs-file outputs.json
       - name: Migrations over the Data API
         run: |
           export SETUHAUL_DB_CLUSTER_ARN=$(jq -r '.SetuHaulPilot.ClusterArn' outputs.json)
@@ -117,9 +148,12 @@ jobs:
           export SETUHAUL_DB_OWNER_SECRET_ARN=$(jq -r '.SetuHaulPilot.OwnerSecretArn' outputs.json)
           export SETUHAUL_DB_SECRET_ARNS=$(jq -r '.SetuHaulPilot.LoginSecretArns' outputs.json)
           python -m setuhaul.aws.provision_logins
-      - name: Deployment manifest
-        run: python -m setuhaul.ops.manifest cdk.out/SetuHaulPilot.template.json outputs.json build/lambda.zip > manifest.json
-      - uses: actions/upload-artifact@v4
+      - name: Deployment manifest from the deployed assembly, checked against its staged zip
+        run: |
+          python -m setuhaul.ops.manifest cdk.out outputs.json > manifest.json
+          python -m setuhaul.ops.assembly cdk.out --zip build/lambda.zip --manifest manifest.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: pilot-manifest
+          if-no-files-found: error
           path: manifest.json

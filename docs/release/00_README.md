@@ -71,7 +71,7 @@ Since the restructure (`git diff --name-only 77e82cc HEAD`): `README.md`; `.env.
 
 | Item | Kind | Note |
 |---|---|---|
-| E0–E6 built and tested locally, not deployed; open items in `07_AWS_IMPLEMENTATION.md` (template sending outside the 24-hour window, secret split, `/tools` roles, action SHA pins) | blocking for the gates | owner approvals |
+| E0–E6 built and tested locally, not deployed; the consolidated review of `250b794` is fixed on `phase-e/aws-implementation-fixes` (`07_AWS_IMPLEMENTATION.md`, "Review fixes"); still open there: CI on Ubuntu (E5-06), the OIDC deploy role, the AURORA-gate Data API conditions E3-01 to E3-04, template submission and the Hinglish gate | blocking for the gates | owner approvals |
 | R2 (low): spending cap and cost are supplied by the calling code | follow-up | the $3/month key limit is an independent backstop; the cap could move into a database configuration table |
 | R3 (low): no length limits on extracted text arguments | follow-up | schema validation still applies |
 | R5 (info): a crashed process leaves its reservation counted for the day | follow-up | conservative; reset at 00:00 UTC |

@@ -1,7 +1,7 @@
 """HTTP surface. Three audiences, three authentication mechanisms, no shared endpoints.
 
     /webhooks/whatsapp   Meta → us            X-Hub-Signature-256 (HMAC of the raw body)
-    /tools/{tool}        agent orchestrator   X-Setuhaul-Session (driver session token) [+ IAM SigV4 at API Gateway]
+    /tools/{tool}        agent orchestrator   X-Setuhaul-Session (driver session token); off in staging and pilot
     /console/...         planners, ops        Authorization: Bearer <Cognito access token> [+ API Gateway JWT authorizer]
 
 Run locally:  uvicorn setuhaul.api.app:app  (settings from environment, see Settings.from_env)
@@ -45,6 +45,10 @@ class Settings:
     # Tests and the replay only: lets the booking path run on LocalQueue without deployment gates. from_env never
     # sets it, so a deployed service with the switch on always goes through check_booking_preconditions (S4-05).
     local_test_harness: bool = False
+    # /tools/{tool} serves an orchestrator that runs outside AWS. In AWS the agent Lambda calls the service directly,
+    # so the route is off in staging and pilot whatever the environment says (review IAM-02): the API function then
+    # needs no agent or feasibility database login.
+    tools_route: bool = True
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -57,7 +61,9 @@ class Settings:
                    processing_lease_s=int(os.environ.get("SETUHAUL_PROCESSING_LEASE_S", "120")),
                    environment=os.environ.get("SETUHAUL_ENVIRONMENT") or None,
                    deployment_id=os.environ.get("SETUHAUL_DEPLOYMENT_ID") or None,
-                   deployment_manifest=os.environ.get("SETUHAUL_DEPLOYMENT_MANIFEST") or None)
+                   deployment_manifest=os.environ.get("SETUHAUL_DEPLOYMENT_MANIFEST") or None,
+                   tools_route=(os.environ.get("SETUHAUL_TOOLS_ROUTE", "on").lower() not in ("off", "false", "0")
+                                and os.environ.get("SETUHAUL_ENV") not in ("staging", "pilot")))
 
 
 class ToolCall(BaseModel):
@@ -237,9 +243,10 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
         return {"status": "received"}
 
     # ---------------------------------------------------------------- agent tools
-    @app.post("/tools/{tool}")
-    def tool(tool: str, call: ToolCall, p: Principal = Depends(driver)):
-        return svc.call_tool(p, tool, call.turn_id, call.args)
+    if settings.tools_route:
+        @app.post("/tools/{tool}")
+        def tool(tool: str, call: ToolCall, p: Principal = Depends(driver)):
+            return svc.call_tool(p, tool, call.turn_id, call.args)
 
     # ---------------------------------------------------------------- console
     @app.get("/console/requests")

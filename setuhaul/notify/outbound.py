@@ -10,6 +10,18 @@
 Delivery is at least once with at most one same-id resend per notification, never exactly once. `supports_idempotency`
 says honestly which provider absorbs that resend; the WhatsApp Cloud API does not, so a driver may see one identical
 repeat after an ambiguous send. The relay never generates text: it sends the stored reply or a fixed template.
+
+WhatsApp's customer-service window (review E6-01). Free-form text reaches a driver only within 24 hours of the
+driver's last message; after that Meta accepts only a pre-approved template. For a provider with that rule
+(`service_window = True`) the relay checks the window in the database just before sending, with a safety margin:
+  * inside the window: the stored reply or the notice text, as before;
+  * outside, a notice: the Meta-approved template for that notice, in the driver's language if that version is
+    approved, else the approved English one (`ApprovedTemplates`, configured from what Meta actually approved);
+  * outside, with no approved template, or a stored agent reply (free text cannot be templated): PERMANENT
+    (TEMPLATE_NOT_APPROVED / WINDOW_CLOSED), so the notification is FAILED and a NOTIFICATION_FAILED escalation tells
+    a person. A late approval notice is never dropped silently.
+Meta's own refusals (a template it rejects, or free text it refuses after the window: a `failed` status receipt,
+error 131047) end the same way: FAILED plus an escalation, through record_send_result or record_delivery_status.
 """
 from __future__ import annotations
 
@@ -72,8 +84,58 @@ class SendResult:
 
 class Provider(Protocol):
     supports_idempotency: bool
+    # True for a provider that delivers free-form text only inside a customer-service window (WhatsApp); such a
+    # provider also has send_template(to, name, language, params, idempotency_key).
+    service_window: bool
 
     def send(self, to: str, text: str, idempotency_key: str) -> SendResult: ...
+
+
+# Body variables per notice. The reviewed notice texts are fixed, so none has a variable today. A notice that gains one
+# names here the payload fields that fill {{1}}, {{2}}, ... in order; `template_params` checks the count against the text.
+TEMPLATE_VARIABLES: dict[str, tuple[str, ...]] = {}
+
+
+def template_params(template: str, payload: dict | None, variables: dict | None = None) -> list[str]:
+    import re
+    fields = (TEMPLATE_VARIABLES if variables is None else variables).get(template, ())
+    placeholders = len(set(re.findall(r"\{\{(\d+)\}\}", TEMPLATES.get(template, ""))))
+    if placeholders != len(fields):
+        raise ValueError(f"{template}: {placeholders} placeholders, {len(fields)} variables")
+    missing = [f for f in fields if (payload or {}).get(f) in (None, "")]
+    if missing:
+        raise ValueError(f"{template}: payload lacks {missing}")
+    return [str(payload[f]) for f in fields]
+
+
+@dataclass(frozen=True)
+class ApprovedTemplates:
+    """The WhatsApp templates Meta has approved, as the owner records them after submission ("name:language").
+    Nothing is assumed approved: the default is empty, so outside the window every notice fails loudly until the
+    owner records an approval. Hinglish versions (`setuhaul_<notice>_hl`) are used only if approved, under whatever
+    language code Meta approved them with; no Hinglish code is assumed (review decision, E6)."""
+
+    approved: tuple[tuple[str, str], ...] = ()
+
+    @classmethod
+    def parse(cls, raw: str | None) -> "ApprovedTemplates":
+        import json
+        items = json.loads(raw or "[]")
+        if not isinstance(items, list) or not all(
+                isinstance(i, str) and i.count(":") == 1 and all(i.split(":")) for i in items):
+            raise ValueError('SETUHAUL_WA_APPROVED_TEMPLATES must be a JSON list of "name:language"')
+        return cls(tuple(tuple(i.split(":")) for i in items))
+
+    def choose(self, template: str, lang: str | None) -> tuple[str, str] | None:
+        """(name, language code) to send, or None when no approved version exists."""
+        def find(name, code=None):
+            return next(((n, c) for n, c in self.approved if n == name and (code is None or c == code)), None)
+        base = f"setuhaul_{template}"
+        if lang == "hi" and (hit := find(base, "hi")):
+            return hit
+        if lang == "hi-Latn" and (hit := find(base + "_hl")):
+            return hit
+        return find(base, "en")
 
 
 class ProviderTimeout(Exception):
@@ -87,6 +149,7 @@ class LocalProvider:
     "lost" = the provider accepted the message but the answer never reached us (the worst case)."""
 
     idempotent: bool = False
+    service_window: bool = False                            # True: behaves like WhatsApp (templates outside 24 h)
     script: list = field(default_factory=list)
     script_for: dict = field(default_factory=dict)          # outcomes for one recipient only: {number: [steps]}
     delivered: list = field(default_factory=list)           # what the driver's phone actually shows
@@ -118,6 +181,9 @@ class LocalProvider:
                 raise SystemExit("worker died after the provider accepted")    # simulated crash
             return SendResult(ACCEPTED, pid)
 
+    def send_template(self, to: str, name: str, language: str, params: list, idempotency_key: str) -> SendResult:
+        return self.send(to, f"template:{name}:{language}:{'|'.join(params)}", idempotency_key)
+
 
 class WhatsAppCloudProvider:
     """Meta WhatsApp Cloud API. It has no idempotency key, so `supports_idempotency` is False. Our notification id
@@ -125,6 +191,7 @@ class WhatsAppCloudProvider:
     its receipt without the provider's message id."""
 
     supports_idempotency = False
+    service_window = True
 
     def __init__(self, phone_number_id: str, token: str, client=None, base="https://graph.facebook.com/v21.0"):
         import httpx
@@ -133,9 +200,18 @@ class WhatsAppCloudProvider:
         self.http = client or httpx.Client(timeout=10)
 
     def send(self, to: str, text: str, idempotency_key: str) -> SendResult:
+        return self._post({"messaging_product": "whatsapp", "to": to.lstrip("+"), "type": "text", "text": {"body": text},
+                           "biz_opaque_callback_data": idempotency_key})
+
+    def send_template(self, to: str, name: str, language: str, params: list, idempotency_key: str) -> SendResult:
+        template = {"name": name, "language": {"code": language}}
+        if params:
+            template["components"] = [{"type": "body", "parameters": [{"type": "text", "text": p} for p in params]}]
+        return self._post({"messaging_product": "whatsapp", "to": to.lstrip("+"), "type": "template",
+                           "template": template, "biz_opaque_callback_data": idempotency_key})
+
+    def _post(self, body: dict) -> SendResult:
         import httpx
-        body = {"messaging_product": "whatsapp", "to": to.lstrip("+"), "type": "text", "text": {"body": text},
-                "biz_opaque_callback_data": idempotency_key}
         try:
             r = self.http.post(self.url, json=body, headers=self.headers)
         except (httpx.ConnectError, httpx.ConnectTimeout) as e:
@@ -150,13 +226,58 @@ class WhatsAppCloudProvider:
             # R3-P2-02: the request reached Meta and nothing in its contract says a 5xx means "not accepted". Treated
             # as ambiguous: wait for a receipt, then at most one resend with the same id; never a blind retry.
             return SendResult(AMBIGUOUS, error=f"HTTP {r.status_code}")
-        return SendResult(PERMANENT, error=f"HTTP {r.status_code}")
+        # A refusal (e.g. 132001 template missing or not approved, 132000 wrong variables, 131047 outside the window):
+        # PERMANENT, so the notification fails with an escalation. Meta's error code is kept for the person.
+        try:
+            code = (r.json().get("error") or {}).get("code")
+        except (ValueError, AttributeError):
+            code = None
+        return SendResult(PERMANENT, error=f"HTTP {r.status_code}" + (f" meta={code}" if code else ""))
 
 
 class OutboundRelay:
-    def __init__(self, db, provider: Provider, resolve_phone: Callable[[str], str] | None = None):
+    WINDOW_MIN = 24 * 60                                     # WhatsApp customer-service window, minutes
+
+    def __init__(self, db, provider: Provider, resolve_phone: Callable[[str], str] | None = None,
+                 approved_templates: ApprovedTemplates | None = None, window_margin_min: int = 30):
         self.db, self.provider = db, provider
         self.resolve_phone = resolve_phone or self._phone
+        self.approved = approved_templates or ApprovedTemplates()
+        # Our receipt time trails the driver's send time by the webhook delay; the margin keeps us on the safe side.
+        self.window_min = self.WINDOW_MIN - window_margin_min
+
+    def _window_open(self, recipient_ref: str) -> bool:
+        """True when the driver's last WhatsApp message to us is recent enough for free-form text (database clock)."""
+        kind, _, ident = recipient_ref.partition(":")
+        if kind != "driver":
+            return False
+        with self.db.tx("system", self._scope(), readonly=True) as c:
+            return bool(c.execute(
+                """SELECT coalesce(max(m.created_at) > clock_timestamp() - make_interval(mins => %s), false)
+                     FROM chat_messages m JOIN chat_threads t ON t.thread_id = m.thread_id
+                    WHERE t.driver_id = %s AND m.sender_type = 'DRIVER' AND m.channel = 'WHATSAPP'""",
+                (self.window_min, ident)).fetchone()[0])
+
+    def _deliver(self, ref: str, template: str | None, payload, body: str | None, nid) -> SendResult:
+        lang = None
+        if body is None:
+            lang = self._language(nid)
+            if template_text(template, lang) is None:
+                return SendResult(PERMANENT, error=f"UNKNOWN_TEMPLATE {template}")
+        if getattr(self.provider, "service_window", False) and not self._window_open(ref):
+            if body is not None:                               # a stored agent reply is free text: no template fits
+                return SendResult(PERMANENT, error="WINDOW_CLOSED: agent reply outside the 24-hour window")
+            choice = self.approved.choose(template, lang)
+            if choice is None:
+                return SendResult(PERMANENT, error=f"TEMPLATE_NOT_APPROVED {template} ({lang})")
+            try:
+                params = template_params(template, payload)
+            except ValueError as e:
+                return SendResult(PERMANENT, error=f"TEMPLATE_VARIABLES {e}")
+            name, code = choice
+            return self.provider.send_template(self.resolve_phone(ref), name, code, params, str(nid))
+        text = body if body is not None else template_text(template, lang)
+        return self.provider.send(self.resolve_phone(ref), text, str(nid))
 
     def _scope(self) -> list[str]:
         with self.db.tx("system", readonly=True) as c:
@@ -194,19 +315,15 @@ class OutboundRelay:
             claimed = c.execute("SELECT * FROM claim_notifications(%s)", (limit,)).fetchall()
         results = {}
         for nid, attempt, channel, ref, template, payload, body, resend in claimed:
-            text = body if body is not None else template_text(template, self._language(nid))
             with self.db.tx("system", scope) as c:                # R3-P2-01: re-checked just before the provider call
                 go = c.execute("SELECT begin_send(%s,%s)", (nid, attempt)).fetchone()[0]
             if not go:
                 results[str(nid)] = "NOT_SENT"
                 continue
-            if text is None:
-                outcome = SendResult(PERMANENT, error=f"UNKNOWN_TEMPLATE {template}")
-            else:
-                try:
-                    outcome = self.provider.send(self.resolve_phone(ref), text, str(nid))
-                except ProviderTimeout as e:
-                    outcome = SendResult(AMBIGUOUS, error=str(e))
+            try:
+                outcome = self._deliver(ref, template, payload, body, nid)
+            except ProviderTimeout as e:
+                outcome = SendResult(AMBIGUOUS, error=str(e))
             with self.db.tx("system", scope) as c:
                 results[str(nid)] = c.execute("SELECT record_send_result(%s,%s,%s,%s,%s)",
                                               (nid, attempt, outcome.outcome, outcome.provider_message_id,

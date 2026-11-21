@@ -158,80 +158,87 @@
     },
     {
       "name": "setuhaul_booking_approved_hl",
-      "language": "en",
+      "language": null,
       "category": "UTILITY",
       "components": [
         {
           "type": "BODY",
           "text": "Warehouse ne aapki dock booking pakki kar di hai."
         }
-      ]
+      ],
+      "submission_gate": "HINGLISH_TEMPLATES"
     },
     {
       "name": "setuhaul_booking_confirmed_hl",
-      "language": "en",
+      "language": null,
       "category": "UTILITY",
       "components": [
         {
           "type": "BODY",
           "text": "Aapki dock booking pakki ho gayi hai."
         }
-      ]
+      ],
+      "submission_gate": "HINGLISH_TEMPLATES"
     },
     {
       "name": "setuhaul_booking_expired_hl",
-      "language": "en",
+      "language": null,
       "category": "UTILITY",
       "components": [
         {
           "type": "BODY",
           "text": "Warehouse ne time par confirm nahi kiya, isliye wo slot chhod diya gaya. Agar pehle se koi booking thi, to wo abhi bhi pakki hai. Yahan reply kijiye, hum madad karenge."
         }
-      ]
+      ],
+      "submission_gate": "HINGLISH_TEMPLATES"
     },
     {
       "name": "setuhaul_booking_invalidated_hl",
-      "language": "en",
+      "language": null,
       "category": "UTILITY",
       "components": [
         {
           "type": "BODY",
           "text": "Wo slot ab khaali nahi hai. Yahan reply kijiye, hum doosra slot dhoondh denge."
         }
-      ]
+      ],
+      "submission_gate": "HINGLISH_TEMPLATES"
     },
     {
       "name": "setuhaul_booking_rejected_hl",
-      "language": "en",
+      "language": null,
       "category": "UTILITY",
       "components": [
         {
           "type": "BODY",
           "text": "Warehouse wo slot nahi le paaya. Yahan reply kijiye, hum doosra slot dhoondh denge."
         }
-      ]
+      ],
+      "submission_gate": "HINGLISH_TEMPLATES"
     },
     {
       "name": "setuhaul_booking_superseded_hl",
-      "language": "en",
+      "language": null,
       "category": "UTILITY",
       "components": [
         {
           "type": "BODY",
           "text": "Warehouse ne aapki booking badal di hai. Koi sawaal ho to yahan reply kijiye."
         }
-      ]
+      ],
+      "submission_gate": "HINGLISH_TEMPLATES"
     },
     {
       "name": "setuhaul_booking_withdrawn_hl",
-      "language": "en",
+      "language": null,
       "category": "UTILITY",
       "components": [
         {
           "type": "BODY",
           "text": "Dock office se baat ke mutabik aapki slot request wapas le li gayi hai."
         }
-      ]
+      ],
+      "submission_gate": "HINGLISH_TEMPLATES"
     }
   ]
 }

@@ -43,11 +43,11 @@ For the synthetic-data Sydney pilot, once deployed (`04_SYDNEY_PILOT_DEPLOYMENT_
 |---|---|
 | Messages in the DLQ | Read the message attributes (never the driver text into a ticket), fix the cause, redrive with the SQS redrive tool; the orchestrator's generation fencing makes a redelivered message safe |
 | Webhook failing | Check the Meta app secret in Secrets Manager and the API Gateway logs; Meta retries for up to 7 days |
-| Notifications not delivered | `OutboundRelay` retries; check the Meta token, template status and the outbound log; never re-send by hand (duplicate prevention is at the provider) |
+| Notifications not delivered | `OutboundRelay` retries; check the Meta token, template status and the outbound log; never re-send by hand (duplicate prevention is at the provider). A NOTIFICATION_FAILED escalation with `TEMPLATE_NOT_APPROVED` or `WINDOW_CLOSED` means the driver's 24-hour window had passed: contact the driver another way, and list newly approved templates in the `whatsapp_approved_templates` context |
 | Model failing or over budget | Nothing to do for safety (rules reader takes over); check `model_usage.error_category`; `auth`/`credits` → check the OpenRouter key and credit (owner) |
 | A conversation needs a person | Console → thread → **Take over**; the agent stops replying; **Hand back** with a summary when done |
-| Incident | 1. Confirm booking switch OFF. 2. If the agent misbehaves, take over the affected threads, then point the agent Lambda alias back to the previous version. 3. Record the incident in `docs/review/REVIEW_LOG.md` |
-| Rollback | Lambda and state machine aliases back to the previous version; migrations are forward-only (fix forward) |
+| Incident | 1. Confirm booking switch OFF. 2. If the agent misbehaves, take over the affected threads, then roll back (next row). 3. Record the incident in `docs/review/REVIEW_LOG.md` |
+| Rollback | There are no Lambda versions or aliases (review E5-05). Redeploy the previous reviewed Cloud Assembly: run `cdk deploy --app cdk.out` with the `pilot-build` artifact of that earlier run (its assembly check and manifest are already recorded); this takes minutes. The state machine alias moves with it. Migrations are forward-only (fix forward) |
 | Backup and recovery | Aurora automated backups (7 days) and point-in-time restore; the data is synthetic, so a restore is a drill, not a recovery |
 
 ## 5. Monthly cost estimate (pilot)

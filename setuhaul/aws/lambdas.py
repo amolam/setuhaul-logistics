@@ -6,10 +6,10 @@ the infrastructure sets; secrets come from AWS Secrets Manager at cold start and
 
 | Handler | Trigger | Database role(s) |
 |---|---|---|
-| `api_handler` | API Gateway HTTP API | ingest, console (and the read paths the API uses) |
+| `api_handler` | API Gateway REST API | ingest, console (`/tools` is off in staging and pilot) |
 | `agent_handler` | SQS FIFO inbound queue (batch size 1) | agent, feasibility, ingest |
-| `recovery_handler` | EventBridge, every minute | system |
-| `outbound_handler` | EventBridge, every minute | system |
+| `recovery_handler` | EventBridge, every minute | system, ingest |
+| `outbound_handler` | EventBridge, every minute | system; the only function that reads the WhatsApp token |
 | `approval_relay_handler` | EventBridge, every minute | system |
 | `notify_approvers_handler`, `record_task_token_handler`, `expire_approval_handler` | Step Functions tasks | system |
 
@@ -27,8 +27,11 @@ from functools import lru_cache
 log = logging.getLogger("setuhaul.lambda")
 logging.getLogger().setLevel(os.environ.get("SETUHAUL_LOG_LEVEL", "INFO"))
 
-# Keys an application secret may set (SETUHAUL_APP_SECRET_ID: one JSON secret per environment).
-SECRET_KEYS = ("SESSION_SECRET", "META_APP_SECRET", "WHATSAPP_TOKEN")
+# Keys the application secret may set (SETUHAUL_APP_SECRET_ID: one JSON secret per environment, read by every function).
+SECRET_KEYS = ("SESSION_SECRET", "META_APP_SECRET")
+# The WhatsApp sending token lives in its own secret (SETUHAUL_WHATSAPP_SECRET_ID), readable by the outbound function
+# only (review IAM-01). It is refused anywhere else.
+WHATSAPP_KEY = "WHATSAPP_TOKEN"
 
 
 def load_app_secrets(env: dict, client=None) -> dict:
@@ -37,7 +40,7 @@ def load_app_secrets(env: dict, client=None) -> dict:
     out = dict(env)
     secret_id = env.get("SETUHAUL_APP_SECRET_ID")
     if env.get("SETUHAUL_ENV") in ("staging", "pilot"):
-        present = [k for k in SECRET_KEYS if env.get(k)]
+        present = [k for k in (*SECRET_KEYS, WHATSAPP_KEY) if env.get(k)]
         if present:
             raise RuntimeError(f"CONFIG: {present} must come from Secrets Manager (SETUHAUL_APP_SECRET_ID), "
                                "not the environment")
@@ -51,8 +54,34 @@ def load_app_secrets(env: dict, client=None) -> dict:
             values = json.loads(client.get_secret_value(SecretId=secret_id)["SecretString"])
         except Exception as e:                                   # never echo the secret or its id's contents
             raise RuntimeError(f"CONFIG: application secret unreadable ({type(e).__name__})") from None
+        if values.get(WHATSAPP_KEY):
+            raise RuntimeError("CONFIG: WHATSAPP_TOKEN must be in the WhatsApp secret, not the application secret")
         out.update({k: str(values[k]) for k in SECRET_KEYS if k in values})
     return out
+
+
+def load_whatsapp_token(env: dict, client=None) -> str:
+    """The WhatsApp sending token, from its own secret. Only the outbound function has the secret id and the IAM grant.
+    Outside staging and pilot a plain WHATSAPP_TOKEN in the environment is accepted (local runs and tests)."""
+    secret_id = env.get("SETUHAUL_WHATSAPP_SECRET_ID")
+    if not secret_id:
+        if env.get("SETUHAUL_ENV") in ("staging", "pilot") or not env.get(WHATSAPP_KEY):
+            raise RuntimeError("CONFIG: SETUHAUL_WHATSAPP_SECRET_ID is required to send WhatsApp messages")
+        return env[WHATSAPP_KEY]
+    if client is None:
+        import boto3
+        client = boto3.client("secretsmanager", region_name=env.get("SETUHAUL_AWS_REGION", "ap-southeast-2"))
+    try:
+        raw = client.get_secret_value(SecretId=secret_id)["SecretString"]
+    except Exception as e:
+        raise RuntimeError(f"CONFIG: WhatsApp secret unreadable ({type(e).__name__})") from None
+    try:                                                          # a plain string, or {"WHATSAPP_TOKEN": "..."}
+        raw = json.loads(raw).get(WHATSAPP_KEY, "") if raw.lstrip().startswith("{") else raw
+    except (ValueError, AttributeError):
+        raise RuntimeError("CONFIG: WhatsApp secret is not readable JSON") from None
+    if not raw:
+        raise RuntimeError("CONFIG: WhatsApp secret is empty")
+    return str(raw)
 
 
 @lru_cache(maxsize=1)
@@ -121,11 +150,21 @@ def recovery_handler(event, context):
     return {"republished": n}
 
 
+@lru_cache(maxsize=1)
+def _whatsapp_token() -> str:
+    return load_whatsapp_token(dict(os.environ))
+
+
 def outbound_handler(event, context):
-    from ..notify.outbound import OutboundRelay, WhatsAppCloudProvider
+    """Sends due notifications. Outside a driver's 24-hour window a notice goes as a Meta-approved template
+    (SETUHAUL_WA_APPROVED_TEMPLATES); with none approved it fails with an escalation, never silently (E6-01)."""
+    from ..notify.outbound import ApprovedTemplates, OutboundRelay, WhatsAppCloudProvider
     app = runtime()
-    provider = WhatsAppCloudProvider(os.environ["SETUHAUL_WHATSAPP_PHONE_NUMBER_ID"], os.environ["WHATSAPP_TOKEN"])
-    result = OutboundRelay(app.state.service.db, provider).run_once(limit=int(os.environ.get("SETUHAUL_OUTBOUND_BATCH", "50")))
+    provider = WhatsAppCloudProvider(os.environ["SETUHAUL_WHATSAPP_PHONE_NUMBER_ID"], _whatsapp_token())
+    relay = OutboundRelay(app.state.service.db, provider,
+                          approved_templates=ApprovedTemplates.parse(os.environ.get("SETUHAUL_WA_APPROVED_TEMPLATES")),
+                          window_margin_min=int(os.environ.get("SETUHAUL_WA_WINDOW_MARGIN_MIN", "30")))
+    result = relay.run_once(limit=int(os.environ.get("SETUHAUL_OUTBOUND_BATCH", "50")))
     log.info("outbound %s", {k: v for k, v in result.items() if isinstance(v, (int, str))})
     return {k: v for k, v in result.items() if isinstance(v, (int, str, bool))}
 
