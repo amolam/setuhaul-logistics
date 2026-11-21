@@ -60,9 +60,9 @@ AWS on 21 Nov 2026 where known, otherwise marked "estimate". Not measured in AWS
 | **1. AWS infrastructure** | | |
 | Aurora Serverless v2 | 0.5 ACU minimum around the clock (or auto-pause to 0 ACU when idle) + 1 GB storage + I/O | $45–65 (estimate; less with auto-pause) |
 | Lambda, API Gateway, SQS, Step Functions, EventBridge, Cognito | pilot volume, mostly inside the always-free allowances | $1–5 (estimate) |
-| Secrets Manager | 4–6 secrets at $0.40 + API calls | $2–3 |
+| Secrets Manager | 9 secrets at $0.40 (owner, 6 logins, application, OpenRouter) + API calls | ≈ $3.60 |
 | KMS | 1–2 customer keys | $1–2 |
-| WAF (on API Gateway) | web ACL + 5 managed rules + requests | $10–12 |
+| WAF (on the REST API) | web ACL + 3 rules + requests | $8–9 |
 | GuardDuty, Security Hub, AWS Config | small account, few resources | $5–15 (estimate) |
 | **2. OpenRouter inference** | Haiku 4.5 extraction, $0.0013–0.0035 per extraction measured in evaluation runs; capped by the app at $0.25/day and by the key at $3/month | **at most $3** (the key limit binds; at 50 conversations/day the daily cap is reached and the rules reader takes the rest) |
 | **3. Bedrock (optional)** | not used in the pilot (dev/eval only, not metered); same Haiku 4.5 list price as above if enabled later | $0 |

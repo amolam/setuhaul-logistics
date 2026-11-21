@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os
 
-from ..api.db import Db
+from ..aws.data_api import make_db
 from ..api.inbound import SqsFifoQueue, database_fingerprint, deployment_id_for, load_manifest, manifest_fingerprints
 
 
@@ -20,7 +20,7 @@ def main() -> int:
         print("DEPLOYMENT_ID", deployment_id_for(m))
         for gate, fp in manifest_fingerprints(m).items():
             print(gate, fp)
-    print("AURORA", database_fingerprint(Db(os.environ["SETUHAUL_DSN"])))
+    print("AURORA", database_fingerprint(make_db(os.environ["SETUHAUL_DSN"])))
     if os.environ.get("SETUHAUL_QUEUE_URL"):
         print("AWS_QUEUE", SqsFifoQueue(os.environ["SETUHAUL_QUEUE_URL"]).fingerprint())
     return 0

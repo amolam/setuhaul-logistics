@@ -12,7 +12,7 @@ the same slot. **All driver, shipment, warehouse and booking data in this reposi
 | Phase 3 Build, local | **Done.** Full suite passes on local PostgreSQL 18 (see `docs/release/01_TEST_REPORT.md` for the count and run) |
 | Release plan phases A–D, G | **Done locally** (cleanup, provider architecture, tests, security scan, operating guide). Nothing pushed to GitHub yet: `docs/release/` |
 | Human checks | Demo walkthroughs F1–F9 done; F5 and F6 confirmed by the owner. Native-speaker Hindi/Hinglish review done (S4-R2-08) |
-| AWS deployment (step 6) | **Planned, not started.** Deployment plan and build items E0–E6 in `docs/release/04_SYDNEY_PILOT_DEPLOYMENT_PLAN.md`; all six gates NOT TESTED (`docs/release/05_STEP6_GATE_STATUS.md`). B-AWS-0 no longer blocks the pilot (T52) |
+| AWS deployment (step 6) | **Implemented, not deployed.** E0–E6 (CDK stack, Lambda entry points, RDS Data API backend, Step Functions adapter, pipeline, WhatsApp template definitions) tested locally: `docs/release/07_AWS_IMPLEMENTATION.md`. All six gates NOT TESTED (`docs/release/05_STEP6_GATE_STATUS.md`). B-AWS-0 no longer blocks the pilot (T52) |
 | Live booking | **Off.** `SETUHAUL_BOOKING_ENABLED` stays off until the six gates pass and the owner approves |
 
 **Local work complete does not mean AWS accepted.** Everything above runs locally with stand-ins for AWS (local queue,
@@ -49,6 +49,8 @@ Details: `docs/3-build/README.md` ("Model provider") and `docs/operations/COSTS.
 | `docs/3-build/` | **Phase 3 · Build**: the build log (status, step history, evidence) |
 | `docs/review/` | `FINDINGS_LEDGER.md` (every review finding and its status), `TRACEABILITY.md` (requirement → test), `REVIEW_REQUEST.md`, `REVIEW_LOG.md` (review history, kept as written) |
 | `docs/operations/` | `DEPLOYMENT_GATES.md` (what step 6 must prove), `RUNBOOK_0011.md`, `COSTS.md` (model spend and limits) |
+| `infra/` | AWS CDK stack for the Sydney pilot (synth only until a deployment is approved) and the WhatsApp template definitions |
+| `.github/workflows/` | CI: tests, Data API run, audit, synth; manual approval-gated deploy job (never run) |
 | `docs/release/` | Release plan deliverables: test report, security scan, GitHub checklist, Sydney deployment plan, step 6 gate status, operating guide and cost |
 | `presentation/` | Faculty readout deck, run sheet and the demo-changes brief |
 

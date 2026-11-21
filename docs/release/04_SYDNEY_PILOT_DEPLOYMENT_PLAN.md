@@ -1,5 +1,9 @@
 # Phase E: AWS Sydney pilot deployment plan
 
+**Update 22 Nov 2026: build items E0–E6 are implemented and tested locally (`07_AWS_IMPLEMENTATION.md`); still not
+deployed.** Two corrections from that work: the API is a REST API (AWS WAF cannot attach to an HTTP API), and the
+least-privilege login table in §4 is now proven by tests (`07_AWS_IMPLEMENTATION.md`).
+
 **Status: planned, not deployed.** Nothing has been created in AWS. The AWS CLI on this workstation is not signed in,
 and deploying needs the owner's approval of this plan. Region `ap-southeast-2` for everything. Synthetic data only.
 `SETUHAUL_BOOKING_ENABLED=false` throughout this phase.
@@ -22,7 +26,7 @@ and deploying needs the owner's approval of this plan. Region `ap-southeast-2` f
 ## 2. Recommended pilot shape (smallest that can pass the six gates)
 
 ```
-Meta test number ──HTTPS──► API Gateway (HTTP API) ─► Lambda "api" (FastAPI via an ASGI adapter)
+Meta test number ──HTTPS──► API Gateway (REST API, WAF) ─► Lambda "api" (FastAPI via an ASGI adapter)
                                                        │  webhook: verify HMAC, store, enqueue
                                                        ▼
                                          SQS FIFO setuhaul-inbound.fifo ──► DLQ setuhaul-inbound-dlq.fifo
@@ -60,9 +64,9 @@ These are code changes; each will come with tests and a review before deployment
 
 | Workload | Allowed | Database role |
 |---|---|---|
-| api | `sqs:SendMessage` on the inbound queue; read its own DB secret | ingest, console (two secrets, chosen by route) |
-| agent | `sqs:ReceiveMessage`, `DeleteMessage`, `ChangeMessageVisibility` on the inbound queue; read the OpenRouter secret and its own DB secret | agent |
-| recovery | the queue actions above; its DB secret | system |
+| api | `sqs:SendMessage` on the inbound queue; read its own DB secrets | ingest, console; agent + feasibility for `/tools` only |
+| agent | `sqs:ReceiveMessage`, `DeleteMessage`, `ChangeMessageVisibility` on the inbound queue; read the OpenRouter secret and its own DB secrets | agent, feasibility, ingest |
+| recovery | `sqs:SendMessage`; its DB secrets | system, ingest |
 | outbound | read the Meta token secret; its DB secret | system |
 | approval-relay | `states:StartExecution` on the published state machine version; its DB secret | system |
 | pipeline | `rds-data` for `setuhaul_deploy_evidence` only | deploy_evidence |

@@ -121,3 +121,8 @@ and response. Phase 2 findings were closed at Phase 2 sign-off (`../docs/2-desig
   R5 (Info, crashed-process reservations): **open follow-ups**. Tests: `tests/test_providers.py`.
 - **Phase D (21 Nov 2026):** secret scan of files and history clean; 47 dependency advisories closed by upgrading
   FastAPI, Starlette, PyJWT, cryptography and pytest (`docs/release/02_SECURITY_SCAN.md`).
+- **Phase E (22 Nov 2026), branch phase-e/aws-implementation:** E0–E6 implemented and tested locally, not deployed
+  (`docs/release/07_AWS_IMPLEMENTATION.md`). Found and fixed while building: the Data API would have broken untyped
+  string parameters (fixed by literal binding); `/health` used the system role (now ingest); a CDK dependency cycle;
+  a non-reproducible Lambda zip. Open: notices outside the 24-hour WhatsApp window need template sending (owner
+  decision); application secret split; `/tools` roles on the API workload; action SHA pins.

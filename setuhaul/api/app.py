@@ -128,7 +128,8 @@ log = logging.getLogger("setuhaul.api")
 
 def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, queue=None) -> FastAPI:
     app = FastAPI(title="SetuHaul exception service", version="0.2.0", docs_url=None, redoc_url=None)
-    db = Db(settings.dsn)
+    from ..aws.data_api import make_db                     # SETUHAUL_DSN=rds-data: the Data API backend (E3)
+    db = make_db(settings.dsn)
     svc = BookingService(db, clock or (lambda: datetime.now(timezone.utc)), settings.facilities,
                          booking_enabled=settings.booking_enabled)
     verifier = CognitoVerifier(settings.cognito_issuer, settings.cognito_client_ids, settings.jwks)
@@ -155,7 +156,7 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
         """Readiness for the load balancer and the pilot run sheet (Phase G). Public and read-only: it reports whether
         the database answers and how the booking switch is set, and nothing else (no DSN, key, queue URL or data)."""
         try:
-            with db.tx("system") as c:
+            with db.tx("ingest", readonly=True) as c:              # a role the API workload has anyway (E3)
                 c.execute("SELECT 1")
             database = "ok"
         except psycopg.Error:

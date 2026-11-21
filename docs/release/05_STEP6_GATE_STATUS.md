@@ -16,6 +16,13 @@ OpenRouter the primary provider for synthetic data and keeps all infrastructure 
 | 5 | BOOKING_WORKFLOW | Step Functions approvals: request, approve, reject, expiry, no auto-approval; idempotency; the published version is the one running | Step Functions, Lambda approval relay | approval tests against the real state machine; version check against the manifest | evidence row | **NOT TESTED** (blocked) | E4 | B-WF-2a rules stay disabled (no change) |
 | 6 | OUTBOUND_DELIVERY | Notifications with retries and provider-side duplicate prevention; the stored reply row is sent; approved templates | Lambda outbound, Meta WhatsApp Cloud API (test number), Secrets Manager | send each template (en / hi / hi-Latn) to a test phone; replay a delivery and see it refused as a duplicate | evidence row (valid 7 days) | **NOT TESTED** (blocked: no Meta test number or templates yet) | E6 | submit the templates to Meta |
 
+**Readiness (22 Nov 2026):** the code each gate will exercise in AWS now exists and is tested locally: E0–E6 in
+`07_AWS_IMPLEMENTATION.md` (infrastructure template assertions, Data API backend, Lambda entry points, Step Functions
+adapter, Data API migrations, one login per role, manifest builder). Results stay NOT TESTED until run in AWS.
+
+**Owner decisions added:** how notices outside WhatsApp's 24-hour window are sent (templates; a provider change is
+needed); the language code for the Hinglish templates (`en` with a `_hl` suffix is proposed).
+
 Monitoring that each gate must show working (from DEPLOYMENT_GATES.md) is listed in `06_PILOT_OPERATIONS_GUIDE.md` §2.
 
 **What is verified locally (not gate evidence):** the start-up check refuses `SETUHAUL_BOOKING_ENABLED=true` without

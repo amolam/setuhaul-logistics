@@ -1,5 +1,19 @@
 # Phase C: test report
 
+## Phase E update (22 Nov 2026, branch `phase-e/aws-implementation`)
+
+| | |
+|---|---|
+| Full suite | **924 passed, 1 skipped**, 0 failed, 0 deselected, 1,160 s (19 min 20 s), 00:07 → 01:27 IST |
+| The skip | `test_data_api.py::test_the_suite_really_goes_through_the_data_api_backend`: runs only in the Data API mode below (by design) |
+| New tests (60) | `test_data_api.py` (Data API backend), `test_aws.py` (Lambda entry points, Step Functions adapter, least-privilege logins), `test_infra.py` (CDK template assertions, manifest, WhatsApp templates), `test_migrate_data_api.py` (migrations and logins over the Data API) |
+| Database tests through the RDS Data API backend (emulated): `test_api`, `test_db_requests`, `test_approvals`, `test_orchestrator`, `test_outbound`, `test_inbound_delivery`, `test_concurrency`, `test_data_api`, `test_aws` with `SETUHAUL_TEST_DATA_API=1` | First run: 343 passed, **1 failed** (`test_turn_facts_are_written_only_through_the_checked_function`: the refusal arrived with the right SQLSTATE but not as `psycopg.errors.InsufficientPrivilege`). Fixed: Data API errors now arrive as the exact psycopg class for their SQLSTATE (3 new tests). Re-run after the fix: **347 passed**, 0 failed, 17 min 03 s |
+| After that last code change | the four AWS test files in normal mode: **63 passed, 1 skipped** (the fix touches only Data API error translation, which the psycopg path does not use; the full normal suite above predates it) |
+| External services | none: AWS, Meta and OpenRouter are stubs or emulators; no paid call |
+
+The section below is the release report for `v0.1.0-fde-pilot` (21–22 Nov), kept as written.
+
+
 ## Full suite (one run, after the last code change)
 
 | | |

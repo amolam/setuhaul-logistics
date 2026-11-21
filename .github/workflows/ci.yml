@@ -1,0 +1,125 @@
+# SetuHaul CI and the (manual, approval-gated) pilot deployment pipeline. Build item E5.
+#
+# On every push and pull request: the full test suite on PostgreSQL 18, the database tests again through the RDS Data
+# API backend (emulated), the dependency audit, the CDK synth and its assertion tests. Nothing touches AWS.
+#
+# Deployment is a separate, manually started job (workflow_dispatch) that must be confirmed by typing the environment
+# name, runs in the GitHub environment "pilot" (add required reviewers there when the plan allows it), and signs in to
+# AWS with short-lived OIDC credentials (no stored keys). It deploys infrastructure, applies migrations and provisions
+# database logins. It never sets SETUHAUL_BOOKING_ENABLED: the stack hard-codes "false". It records no gate evidence;
+# that is the step 6 gate procedure (docs/release/05_STEP6_GATE_STATUS.md).
+name: ci
+
+on:
+  push:
+    branches: [main, "release/**", "phase-**"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: "Type 'pilot' to deploy the Sydney pilot stack (owner approval required first)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      SETUHAUL_TEST_DSN: "host=localhost port=5432 user=postgres"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"            # the Lambda runtime
+      - uses: actions/setup-node@v4          # jsii (aws-cdk-lib) runs on Node
+        with:
+          node-version: "22"
+      - run: pip install -r requirements-dev.txt -r requirements-aws.txt -r requirements-infra.txt
+      - name: Full test suite
+        run: python -m pytest tests -q -p no:cacheprovider
+      - name: Database tests through the RDS Data API backend (emulated)
+        env:
+          SETUHAUL_TEST_DATA_API: "1"
+        run: >
+          python -m pytest -q -p no:cacheprovider tests/test_api.py tests/test_db_requests.py tests/test_approvals.py
+          tests/test_orchestrator.py tests/test_outbound.py tests/test_inbound_delivery.py tests/test_concurrency.py
+          tests/test_data_api.py tests/test_aws.py
+      - name: Dependency audit
+        run: python -m pip_audit -r requirements-aws.txt -r requirements-dev.txt -r requirements-infra.txt
+
+  synth:
+    needs: test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: pip install -r requirements.txt -r requirements-infra.txt
+      - run: python scripts/build_lambda.py
+      - run: python infra/app.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pilot-build
+          path: |
+            build/lambda.zip
+            cdk.out/
+
+  deploy:
+    needs: synth
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.deploy == 'pilot'
+    runs-on: ubuntu-24.04
+    environment: pilot
+    permissions:
+      contents: read
+      id-token: write                        # OIDC to AWS; no long-lived keys
+    env:
+      AWS_REGION: ap-southeast-2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/download-artifact@v4
+        with:
+          name: pilot-build
+      - run: pip install -r requirements-aws.txt -r requirements-infra.txt
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.SETUHAUL_DEPLOY_ROLE_ARN }}     # set by the owner; ap-southeast-2 only
+          aws-region: ap-southeast-2
+      - name: Deploy infrastructure (booking switch stays false)
+        run: npx --yes aws-cdk@2 deploy SetuHaulPilot --require-approval broadening --outputs-file outputs.json --app "python infra/app.py"
+      - name: Migrations over the Data API
+        run: |
+          export SETUHAUL_DB_CLUSTER_ARN=$(jq -r '.SetuHaulPilot.ClusterArn' outputs.json)
+          export SETUHAUL_DB_OWNER_SECRET_ARN=$(jq -r '.SetuHaulPilot.OwnerSecretArn' outputs.json)
+          python -m setuhaul.aws.migrate_data_api
+      - name: Database logins, one per role
+        run: |
+          export SETUHAUL_DB_CLUSTER_ARN=$(jq -r '.SetuHaulPilot.ClusterArn' outputs.json)
+          export SETUHAUL_DB_OWNER_SECRET_ARN=$(jq -r '.SetuHaulPilot.OwnerSecretArn' outputs.json)
+          export SETUHAUL_DB_SECRET_ARNS=$(jq -r '.SetuHaulPilot.LoginSecretArns' outputs.json)
+          python -m setuhaul.aws.provision_logins
+      - name: Deployment manifest
+        run: python -m setuhaul.ops.manifest cdk.out/SetuHaulPilot.template.json outputs.json build/lambda.zip > manifest.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pilot-manifest
+          path: manifest.json

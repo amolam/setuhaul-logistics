@@ -1,3 +1,4 @@
 # AWS runtime extras: SQS inbound queue and the optional Amazon Bedrock provider (imported lazily)
 -r requirements.txt
 boto3==1.40.70
+mangum==0.22.0           # API Gateway HTTP API -> ASGI adapter for the API Lambda (E1)

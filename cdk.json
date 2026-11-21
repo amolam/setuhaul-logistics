@@ -1,0 +1,4 @@
+{
+  "app": "python infra/app.py",
+  "context": {"llm_daily_budget_usd": "0.25"}
+}

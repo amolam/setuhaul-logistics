@@ -9,7 +9,7 @@ nothing deployed, no paid model calls, booking switch OFF.
 | B Provider architecture | Done (T52: OpenRouter primary, pinned ZDR route, Secrets Manager, usage ledger + daily budget; Bedrock optional) plus review fixes R1/R4 |
 | C Tests and quality gates | Done locally (`01_TEST_REPORT.md`) |
 | D Security and GitHub readiness | Scans done, dependencies upgraded (`02_SECURITY_SCAN.md`); push waits for approval (`03_GITHUB_RELEASE_CHECKLIST.md`) |
-| E AWS Sydney pilot | Planned; build items E0–E6 needed before a first deploy (`04_SYDNEY_PILOT_DEPLOYMENT_PLAN.md`) |
+| E AWS Sydney pilot | **E0–E6 implemented and tested locally** (`07_AWS_IMPLEMENTATION.md`); not deployed (`04_SYDNEY_PILOT_DEPLOYMENT_PLAN.md`) |
 | F Step 6 acceptance | All six gates NOT TESTED, blocked on E (`05_STEP6_GATE_STATUS.md`) |
 | G Monitoring, cost, operations | Done as a guide; `/health` added (`06_PILOT_OPERATIONS_GUIDE.md`) |
 
@@ -24,7 +24,7 @@ nothing deployed, no paid model calls, booking switch OFF.
 | 5 | Full test report | `01_TEST_REPORT.md` |
 | 6 | Updated documentation list | below |
 | 7 | GitHub release checklist | `03_GITHUB_RELEASE_CHECKLIST.md` |
-| 8 | AWS Sydney pilot deployment plan | `04_SYDNEY_PILOT_DEPLOYMENT_PLAN.md` |
+| 8 | AWS Sydney pilot deployment plan | `04_SYDNEY_PILOT_DEPLOYMENT_PLAN.md`; implementation of E0–E6: `07_AWS_IMPLEMENTATION.md` |
 | 9 | Step 6 gate-by-gate status | `05_STEP6_GATE_STATUS.md` |
 | 10 | Monthly cost estimate | `06_PILOT_OPERATIONS_GUIDE.md` §5 |
 | 11 | Known risks and unresolved decisions | below |
@@ -71,7 +71,7 @@ Since the restructure (`git diff --name-only 77e82cc HEAD`): `README.md`; `.env.
 
 | Item | Kind | Note |
 |---|---|---|
-| E0–E6 not built (IaC, Lambda entry points, Data API backend, Step Functions adapter, pipeline, Meta setup) | blocking for AWS | sized in the deployment plan |
+| E0–E6 built and tested locally, not deployed; open items in `07_AWS_IMPLEMENTATION.md` (template sending outside the 24-hour window, secret split, `/tools` roles, action SHA pins) | blocking for the gates | owner approvals |
 | R2 (low): spending cap and cost are supplied by the calling code | follow-up | the $3/month key limit is an independent backstop; the cap could move into a database configuration table |
 | R3 (low): no length limits on extracted text arguments | follow-up | schema validation still applies |
 | R5 (info): a crashed process leaves its reservation counted for the day | follow-up | conservative; reset at 00:00 UTC |
@@ -89,6 +89,6 @@ Since the restructure (`git diff --name-only 77e82cc HEAD`): `README.md`; `.env.
 |---|---|
 | Merge Phase B into `main` and cut `release/fde-sydney-pilot` | **GO** after the owner's final review |
 | Push to a **private** GitHub repository and tag `v0.1.0-fde-pilot` | **GO** after the owner approves the checklist |
-| Deploy the AWS Sydney pilot | **NO-GO** until E0–E6 are built and reviewed |
+| Deploy the AWS Sydney pilot | **NO-GO** until the E0–E6 implementation is reviewed and the deployment is separately approved |
 | Claim step 6 acceptance | **NO-GO**: no gate tested in AWS |
 | Turn on `SETUHAUL_BOOKING_ENABLED` | **NO-GO** (not in scope; separate owner decision after the gates) |
