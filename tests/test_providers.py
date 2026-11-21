@@ -417,3 +417,235 @@ def test_an_answer_outside_the_schema_ends_in_the_rules_reader(app, client, dsn)
     r = Orchestrator(app.state.service, app.state.sessions, model).handle(
         d.say(f"Traffic. Reaching around {in_90()}. Any slot?"))
     assert r.extractor == "rules-fallback" and r.fallback_reason == "invalid_schema"
+
+
+# ================================================================ R1: malformed answers, field by field (review of 59032f6)
+GOOD_CHOICES = [{"message": {"tool_calls": [{"function": {"name": "record_driver_report", "arguments": json.dumps(ARGS)}}]}}]
+PROBES = [
+    {"provider": "Amazon Bedrock", "usage": "x", "choices": []},
+    {"provider": "Amazon Bedrock", "usage": {"prompt_tokens_details": "x"}, "choices": []},
+    {"provider": "Amazon Bedrock", "usage": {}, "choices": "oops"},
+    {"provider": "Amazon Bedrock", "usage": {}, "choices": [{"message": {"tool_calls": "x"}}]},
+    {"provider": "Amazon Bedrock", "usage": {}, "choices": [{"message": {"tool_calls": [{"function": "x"}]}}]},
+]
+MORE_SHAPES = [
+    {"provider": "Amazon Bedrock", "choices": [None]},
+    {"provider": "Amazon Bedrock", "choices": [{"message": "text"}]},
+    {"provider": "Amazon Bedrock", "choices": [{"message": {"tool_calls": [
+        {"function": {"name": "record_driver_report", "arguments": "[1, 2]"}}]}}]},       # JSON, but not an object
+    {"provider": "Amazon Bedrock", "choices": [{"message": {"tool_calls": [
+        {"function": {"name": "record_driver_report", "arguments": 42}}]}}]},
+]
+
+
+@pytest.mark.parametrize("body", PROBES + MORE_SHAPES)
+def test_a_malformed_answer_is_a_classified_model_error_and_the_attempt_is_settled(body):
+    meter = FakeMeter()
+    m, _ = model(Script(httpx.Response(200, json=body)), meter)
+    with pytest.raises(ModelError) as e:
+        m.extract("x")
+    assert (e.value.category, e.value.retryable) == ("malformed", False)
+    assert len(meter.settled) == 1                                          # settled once, whatever the shape
+
+
+@pytest.mark.parametrize("body", PROBES)
+def test_a_malformed_answer_ends_in_the_rules_reader_through_the_orchestrator(app, client, dsn, body):
+    _, phone, _ = add_driver(dsn)
+    d = Driver(client, phone)
+    m, _ = model(Script(httpx.Response(200, json=body)), FakeMeter())
+    r = Orchestrator(app.state.service, app.state.sessions, m).handle(d.say(f"Traffic. Reaching around {in_90()}. Any slot?"))
+    assert r.extractor == "rules-fallback" and r.fallback_reason == "malformed"
+    assert r.reply.startswith("Available slots") and len(options_of(app, d)) >= 1     # booking flow unaffected
+
+
+@pytest.mark.parametrize("usage", ["x", ["a"], {"prompt_tokens": "900", "completion_tokens": "80"},
+                                   {"prompt_tokens": -1, "completion_tokens": True},
+                                   {"prompt_tokens": 900, "completion_tokens": 80, "prompt_tokens_details": "x"}])
+def test_malformed_usage_metadata_is_unknown_never_trusted(usage):
+    meter = FakeMeter()
+    m, _ = model(Script(httpx.Response(200, json={"provider": "Amazon Bedrock", "usage": usage, "choices": GOOD_CHOICES})), meter)
+    out, tr = m.extract("x")                                                # a valid answer is still used
+    assert Extraction(**out).declared_eta_local == "11:20"
+    _, kw = meter.settled[0]
+    assert kw["ok"] is True and kw["cost_usd"] is None                      # unknown cost: the reservation is kept
+    assert kw["input_tokens"] in (None, 900) and kw["output_tokens"] in (None, 80)
+    assert isinstance(tr.input_tokens, int) and isinstance(tr.cache_read_tokens, int)
+
+
+@pytest.mark.parametrize("cost,charged", [("0.001", None), (-1, None), (True, None), ([0.1], None), ({"usd": 1}, None),
+                                          (float("inf"), None), (0, 0.0), (0.0012, 0.0012)])
+def test_cost_metadata_is_used_only_when_it_is_a_real_amount(cost, charged):
+    meter = FakeMeter()
+    body = json.dumps({"provider": "Amazon Bedrock", "usage": {"prompt_tokens": 900, "completion_tokens": 80, "cost": cost},
+                       "choices": GOOD_CHOICES})                            # json.dumps writes inf as Infinity
+    m, _ = model(Script(httpx.Response(200, content=body.encode(), headers={"content-type": "application/json"})), meter)
+    m.extract("x")
+    assert meter.settled[0][1]["cost_usd"] == charged
+
+
+@pytest.mark.parametrize("provider,category", [(None, "malformed"), ("", "malformed"), (123, "malformed"),
+                                               (["Amazon Bedrock"], "malformed"), ("Anthropic", "provider_mismatch"),
+                                               ("amazon bedrock", "provider_mismatch")])
+def test_provider_metadata_must_name_the_pinned_provider_exactly(provider, category):
+    meter = FakeMeter()
+    body = {"usage": {"cost": 0.001}, "choices": GOOD_CHOICES}
+    if provider is not None:
+        body["provider"] = provider
+    m, _ = model(Script(httpx.Response(200, json=body)), meter)
+    with pytest.raises(ModelError) as e:
+        m.extract("x")
+    assert e.value.category == category
+    _, kw = meter.settled[0]
+    assert kw["ok"] is False and kw["cost_usd"] == 0.001                    # billed: the real cost is still recorded
+
+
+# ================================================================ R4: a spent limit is `credits`, a refusal is `auth`
+@pytest.mark.parametrize("message,category", [
+    ("Key limit exceeded: $3.00 of $3.00 used", "credits"),
+    ("Workspace budget reached ($5 of $5 used)", "credits"),
+    ("Guardrail spending limit reached", "credits"),
+    ("Insufficient credits on this key", "credits"),
+    ("Insufficient permissions", "auth"),
+    ("Request blocked by moderation", "auth"),
+    ("", "auth"),
+])
+def test_a_403_is_credits_only_when_it_names_a_spending_limit(message, category, caplog):
+    s = Script(httpx.Response(403, json={"error": {"message": message}}))
+    m, _ = model(s)
+    with pytest.raises(ModelError) as e:
+        m.extract("x")
+    assert e.value.category == category and len(s.requests) == 1 and "ALERT" in caplog.text
+
+
+def test_a_403_body_that_is_not_json_is_auth():
+    m, _ = model(Script(httpx.Response(403, content=b"<html>forbidden")))
+    with pytest.raises(ModelError) as e:
+        m.extract("x")
+    assert e.value.category == "auth"
+
+
+# ================================================================ programming errors are not hidden
+def test_a_bug_in_the_ledger_code_is_not_swallowed():
+    class Buggy(FakeMeter):
+        def settle(self, r, **kw):
+            raise RuntimeError("bug")
+    m, _ = model(Script(ok_reply()), Buggy())
+    with pytest.raises(RuntimeError):                                       # only database errors are tolerated
+        m.extract("x")
+
+
+# ================================================================ final review: an unusable answer is an unsuccessful attempt
+def unusable_reply(choices):
+    """HTTP 200 from the pinned route with real usage and cost, but an answer that cannot be used."""
+    return httpx.Response(200, json={"id": "gen-9", "provider": "Amazon Bedrock",
+                                     "usage": {"prompt_tokens": 900, "completion_tokens": 80, "cost": 0.0012},
+                                     "choices": choices})
+
+
+UNUSABLE = [[], "oops", [{"message": {"tool_calls": "x"}}], [{"message": {"tool_calls": [{"function": "x"}]}}],
+            [{"message": {"content": "no tool call"}}],
+            [{"message": {"tool_calls": [{"function": {"name": "record_driver_report", "arguments": "{not json"}}]}}],
+            [{"message": {"tool_calls": [{"function": {"name": "record_driver_report", "arguments": "[1]"}}]}}]]
+
+
+@pytest.mark.parametrize("choices", UNUSABLE)
+def test_an_unusable_answer_is_charged_its_real_cost_but_settled_as_an_error(choices):
+    meter = FakeMeter()
+    m, _ = model(Script(unusable_reply(choices)), meter)
+    with pytest.raises(ModelError) as e:
+        m.extract("x")
+    assert (e.value.category, e.value.retryable) == ("malformed", False)
+    assert len(meter.reserved) == 1 and len(meter.settled) == 1             # one attempt, settled exactly once
+    kw = meter.settled[0][1]
+    assert (kw["ok"], kw["error"], kw["sent"]) == (False, "malformed", True)
+    assert (kw["cost_usd"], kw["input_tokens"], kw["output_tokens"], kw["actual_provider"], kw["generation_id"]) == \
+           (0.0012, 900, 80, "Amazon Bedrock", "gen-9")
+
+
+def test_a_usable_answer_is_still_settled_as_a_success():
+    meter = FakeMeter()
+    m, _ = model(Script(ok_reply()), meter)
+    out, tr = m.extract("x")
+    assert out == ARGS and len(meter.settled) == 1
+    assert (meter.settled[0][1]["ok"], meter.settled[0][1]["error"]) == (True, None)
+
+
+def test_an_empty_phrasing_reply_is_settled_as_an_error():
+    meter = FakeMeter()
+    m, _ = model(Script(unusable_reply([{"message": {"content": "  "}}])), meter, phrase_model="anthropic/claude-sonnet-5")
+    with pytest.raises(ModelError) as e:
+        m.phrase("facts")
+    assert e.value.category == "malformed"
+    assert len(meter.settled) == 1 and (meter.settled[0][1]["ok"], meter.settled[0][1]["cost_usd"]) == (False, 0.0012)
+
+
+class RecordingBudget(ModelBudget):
+    def __init__(self, *a, fail_settle=False, **kw):
+        super().__init__(*a, **kw)
+        self.fail_settle, self.reservations, self.settle_calls = fail_settle, [], 0
+
+    def reserve(self, *a, **kw):
+        r = super().reserve(*a, **kw)
+        self.reservations.append(r)
+        return r
+
+    def settle(self, r, **kw):
+        self.settle_calls += 1
+        if self.fail_settle:
+            raise psycopg.OperationalError("connection lost during settle")
+        return super().settle(r, **kw)
+
+
+def test_an_unusable_answer_is_recorded_in_the_ledger_as_an_error_with_its_real_cost(dsn):
+    spent, reserved = _day(dsn)
+    b = RecordingBudget(Db(dsn), "ci", spent + reserved + Decimal("1.00"))
+    m, _ = model(Script(unusable_reply([{"message": {"content": "no tool call"}}])), b)
+    with pytest.raises(ModelError) as e:
+        m.extract("x")
+    assert e.value.category == "malformed"
+    assert len(b.reservations) == 1 and b.settle_calls == 1
+    row = _row(dsn, b.reservations[0].request_id)
+    assert (row["status"], row["error_category"], row["cost_source"], row["cost_usd"], row["input_tokens"],
+            row["output_tokens"], row["generation_id"]) == ("ERROR", "malformed", "provider", Decimal("0.0012"), 900, 80,
+                                                            "gen-9")
+    assert _day(dsn) == (spent + Decimal("0.0012"), reserved)               # charged once, reservation released
+    with psycopg.connect(dsn) as c:                                         # one ledger row for the whole call
+        assert c.execute("SELECT count(*) FROM setuhaul.model_usage WHERE call_id=%s",
+                         (b.reservations[0].call_id,)).fetchone()[0] == 1
+
+
+@pytest.mark.parametrize("reply,category", [(lambda: unusable_reply([]), "malformed"),
+                                            (lambda: ok_reply(provider="Other Cloud"), "provider_mismatch")])
+def test_a_failed_settlement_neither_double_charges_nor_hides_the_original_error(dsn, reply, category):
+    spent, reserved = _day(dsn)
+    b = RecordingBudget(Db(dsn), "ci", spent + reserved + Decimal("1.00"), fail_settle=True)
+    m, _ = model(Script(reply()), b)
+    with pytest.raises(ModelError) as e:
+        m.extract("x")
+    assert e.value.category == category                                     # the answer's error, not the database's
+    assert len(b.reservations) == 1 and b.settle_calls == 1                 # no second attempt, no second settle
+    r = b.reservations[0]
+    row = _row(dsn, r.request_id)
+    assert row["status"] == "RESERVED"                                      # the reservation stays held (conservative)
+    assert _day(dsn) == (spent, reserved + row["reserved_usd"])             # counted once, as the reservation only
+
+
+def test_a_failed_settlement_of_a_good_answer_still_returns_the_answer(dsn):
+    spent, reserved = _day(dsn)
+    b = RecordingBudget(Db(dsn), "ci", spent + reserved + Decimal("1.00"), fail_settle=True)
+    m, _ = model(Script(ok_reply()), b)
+    out, _ = m.extract("x")
+    assert out == ARGS and b.settle_calls == 1
+    assert _day(dsn) == (spent, reserved + _row(dsn, b.reservations[0].request_id)["reserved_usd"])
+
+
+@pytest.mark.parametrize("choices", UNUSABLE)
+def test_an_unusable_answer_through_the_orchestrator_gives_the_rules_reader_reply_and_options(app, client, dsn, choices):
+    _, phone, _ = add_driver(dsn)
+    d = Driver(client, phone)
+    meter = FakeMeter()
+    m, _ = model(Script(unusable_reply(choices)), meter)
+    r = Orchestrator(app.state.service, app.state.sessions, m).handle(d.say(f"Traffic. Reaching around {in_90()}. Any slot?"))
+    assert r.extractor == "rules-fallback" and r.fallback_reason == "malformed"
+    assert r.reply.startswith("Available slots") and len(options_of(app, d)) >= 1
+    assert len(meter.settled) == 1 and meter.settled[0][1]["ok"] is False

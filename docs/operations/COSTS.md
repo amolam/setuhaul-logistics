@@ -50,19 +50,30 @@ least $0.001) and settles it to OpenRouter's reported `usage.cost`.
 
 | Attempt outcome | Charged |
 |---|---|
-| Answer received | OpenRouter's reported cost (`cost_source = provider`) |
+| Answer received and usable | OpenRouter's reported cost (`cost_source = provider`), status `OK` |
+| Answer received but unusable (wrong shape, no tool call, arguments not a JSON object) | OpenRouter's reported cost, status `ERROR`, `error_category = malformed`; tokens kept; not retried |
 | Rejected by OpenRouter before inference (400, 401, 402, 403, 404, 429, 503) | $0 |
 | Never sent (connection failure, budget refusal) | $0 (`not_sent`) |
 | Unknown (read timeout, 500/502/504, unreadable answer) | the whole reservation (`reservation`): conservative |
 | A process that crashed between reserve and settle | the reservation stays counted for that day |
 
-**Recommended limits, for the owner to approve and set:**
+**Approved limits (owner, 21 Nov 2026).** Both are configuration, not code.
 
-| Limit | Where | Recommendation |
-|---|---|---|
-| Application daily budget | `SETUHAUL_LLM_DAILY_BUDGET_USD` | **$2.00/day** (about 600–1,500 extractions; the pilot demo needs far fewer) |
-| OpenRouter key credit limit | OpenRouter dashboard → Keys → the pilot key → credit limit | **$20/month**, a separate key for the pilot |
-| OpenRouter privacy | OpenRouter dashboard → Settings → Privacy | turn on ZDR-only routing for Anthropic models and leave safety-retention endpoints off, as a second layer behind the per-request `zdr: true` |
+| Limit | Where | Approved | Resets | Role |
+|---|---|---|---|---|
+| Application daily budget | `SETUHAUL_LLM_DAILY_BUDGET_USD` (environment of the worker) | **$0.25/day** | 00:00 UTC | Authoritative for the application: reserved atomically in PostgreSQL before every attempt |
+| OpenRouter key credit limit | OpenRouter dashboard → Keys → the pilot key → credit limit | **$3.00/month** | monthly (OpenRouter's key limit reset) | Independent external safeguard, also covers anything the ledger cannot see (a crashed process, a mis-set cap) |
+| Automatic top-ups | OpenRouter dashboard → Credits | **disabled** wherever available | — | No silent spend beyond the purchased credit |
+| OpenRouter privacy (recommended) | OpenRouter dashboard → Settings → Privacy | ZDR-only routing for Anthropic models, safety-retention endpoints off | — | Second layer behind the per-request `zdr: true` |
+
+**What $0.25/day allows.** A typical extraction reserves about $0.006 (a 6 KB request plus 600 output tokens, +20 %),
+so up to about 41 attempts can be in flight at once, and actual spend is about $0.0013–0.0035 per extraction: roughly
+70–190 model extractions a day. When either limit is reached the agent uses the rules reader: the application budget
+refuses before sending (`budget_exhausted`); the OpenRouter limit makes OpenRouter answer 402 or 403, which is never
+retried. Booking and approval are unaffected.
+
+The dashboard settings are the owner's to apply; Claude changes no dashboard setting, buys no credit and makes no paid
+call without explicit approval.
 
 **How to inspect usage** (as `setuhaul_system`, read-only):
 

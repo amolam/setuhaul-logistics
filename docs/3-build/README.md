@@ -34,7 +34,7 @@ The sections below are the build history, kept as written; dated statements desc
 | Retries | at most one: a connection failure before sending, a 429 with Retry-After ≤ 2 s, a 500/502. Never: read timeout, 504/408, 503 (no route meets the pin/ZDR rules), 401/403/402, 400, malformed answers, provider mismatch, budget refusal |
 | Fallback | every failure ends in the rules reader (`TurnResult.fallback_reason` says why); never another provider |
 | Usage ledger | migration 0023: one row per attempt (request id, call id, attempt, model, requested and actual provider, tokens, cost, latency, status, error category); no prompt or driver text |
-| Daily budget | `SETUHAUL_LLM_DAILY_BUDGET_USD`, UTC day, reserved atomically before each attempt; exhausted → no request, rules reader. Recommended start: **$2.00/day** (owner to approve) |
+| Daily budget | `SETUHAUL_LLM_DAILY_BUDGET_USD`, UTC day, reserved atomically before each attempt; exhausted → no request, rules reader. Approved: **$0.25/day**, resets 00:00 UTC; OpenRouter key limit $3.00/month, auto top-ups off (owner, 21 Nov 2026) |
 | Bedrock | optional: region `ap-southeast-2`, `au.` geographic profile; not metered yet, so dev/eval/ci only. Model access in the Sydney account not verified (the AWS session was not signed in) |
 
 

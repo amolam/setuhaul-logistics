@@ -20,10 +20,14 @@ from __future__ import annotations
 
 import json
 import logging
+import math
+import re
 import time
 import uuid
 from decimal import Decimal
 from typing import Any, Callable
+
+import psycopg
 
 from .extraction import RECORD_DRIVER_REPORT, SCHEMA_VERSION
 from .metering import ModelBudget
@@ -46,6 +50,9 @@ UNKNOWN_PRICE = (Decimal("0.000015"), Decimal("0.000075"))
 MIN_RESERVATION = Decimal("0.001")
 CONNECT_TIMEOUT_S, READ_TIMEOUT_S, MAX_RETRY_WAIT_S = 3.0, 10.0, 2.0
 REJECTED_BEFORE_INFERENCE = {400, 401, 402, 403, 404, 429, 503}   # OpenRouter does not bill these
+# R4: OpenRouter answers 403 both for permissions and when a key, workspace or guardrail spending limit is spent; the
+# latter's message names the limit ("... limit ... $X of $Y used"). Only that wording is classified as `credits`.
+_CREDIT_LIMIT_403 = re.compile(r"\b(limit|budget|credits?)\b|\$\s*\d", re.I)
 
 
 def load_openrouter_key(env: dict, environment: str, secrets_client: Any = None) -> str:
@@ -114,7 +121,10 @@ class OpenRouterModel:
         est_in = len(json.dumps(body)) // 3 + 1                  # generous: a token is ~4 characters
         return max(MIN_RESERVATION, ((est_in * p_in) + (int(body.get("max_tokens", 600)) * p_out)) * Decimal("1.2"))
 
-    def _call(self, purpose: str, model_id: str, body: dict) -> tuple[dict, Trace]:
+    def _call(self, purpose: str, model_id: str, body: dict,
+              parse: Callable[[dict, Trace], Any]) -> tuple[Any, Trace]:
+        """One metered model call. `parse` turns a well-formed HTTP answer into the result or raises ModelError; it
+        runs before the attempt is settled, so an unusable answer is recorded as ERROR (with its real cost)."""
         import httpx
         body = {"model": model_id, "provider": self.routing(), **body}
         call_id = uuid.uuid4()
@@ -128,7 +138,7 @@ class OpenRouterModel:
                 try:
                     res = self.meter.reserve(call_id, attempt, purpose, model_id, self.provider,
                                              self._reserve_usd(model_id, body))
-                except Exception as e:                            # no ledger, no paid call
+                except psycopg.Error as e:                        # no ledger, no paid call
                     tr.outcome = "error:meter"
                     raise ModelError(f"usage ledger unavailable ({type(e).__name__})", "meter_error", False) from None
                 if res.status != "RESERVED":
@@ -160,6 +170,8 @@ class OpenRouterModel:
                     category = "rate_limited"
                     wait = _retry_after(headers)
                     retry = wait <= self.max_retry_wait_s
+                elif status == 403 and _CREDIT_LIMIT_403.search(_error_message(data)):
+                    category = "credits"                          # R4: a spent key/workspace/guardrail limit
                 elif status in (401, 403):
                     category = "auth"
                 elif status == 402:
@@ -174,29 +186,41 @@ class OpenRouterModel:
                     category = "malformed"
                 else:
                     category = "bad_request"
-            usage = (data or {}).get("usage") or {} if isinstance(data, dict) else {}
-            actual = data.get("provider") if isinstance(data, dict) else None
-            cost = usage.get("cost")
+            # R1: every metadata field is type-checked; a wrong type is treated as unknown, never trusted.
+            meta = _metadata(data)
+            cost = meta["cost"]                                   # None = unknown: the whole reservation is kept
             if category is not None and status in REJECTED_BEFORE_INFERENCE and cost is None:
                 cost = 0                                           # rejected by OpenRouter before any inference
-            if category is None and actual != self.provider_name:
+            if category is None and meta["provider"] is None:
+                category = "malformed"                             # the serving provider cannot be verified
+            elif category is None and meta["provider"] != self.provider_name:
                 category = "provider_mismatch"                     # served by a route we did not pin: refuse it
+            actual = meta["provider"]
+            result, unusable = None, None
+            if category is None:
+                # The model answered: its usage is real whether or not the answer can be used.
+                tr.input_tokens, tr.output_tokens = meta["input_tokens"] or 0, meta["output_tokens"] or 0
+                tr.cache_read_tokens = meta["cached_tokens"] or 0
+                tr.cost_usd, tr.region, tr.actual_provider = cost, f"openrouter:{actual}", actual
+                try:
+                    result = parse(data, tr)
+                except ModelError as e:                            # unusable answer: settled as ERROR, then raised
+                    unusable, category = e, e.category
             if res is not None:
                 try:
                     self.meter.settle(res, ok=category is None, sent=sent, actual_provider=actual,
-                                      input_tokens=usage.get("prompt_tokens"), output_tokens=usage.get("completion_tokens"),
+                                      input_tokens=meta["input_tokens"], output_tokens=meta["output_tokens"],
                                       cost_usd=cost, latency_ms=latency, error=category,
-                                      generation_id=data.get("id") if isinstance(data, dict) else None)
-                except Exception as e:                            # the ledger keeps the reservation (conservative)
+                                      generation_id=meta["generation_id"])
+                except psycopg.Error as e:                        # the ledger keeps the reservation (conservative)
                     log.error("model_call settle failed call=%s attempt=%s (%s)", call_id, attempt, type(e).__name__)
             log.info("model_call call=%s attempt=%s purpose=%s model=%s requested=%s actual=%s status=%s category=%s "
                      "latency_ms=%s in=%s out=%s cost=%s", call_id, attempt, purpose, model_id, self.provider, actual,
-                     status, category, latency, usage.get("prompt_tokens"), usage.get("completion_tokens"), cost)
+                     status, category, latency, meta["input_tokens"], meta["output_tokens"], cost)
+            if unusable is not None:
+                raise unusable                                     # never retried: the model was paid for once
             if category is None:
-                tr.input_tokens, tr.output_tokens = usage.get("prompt_tokens", 0) or 0, usage.get("completion_tokens", 0) or 0
-                tr.cache_read_tokens = (usage.get("prompt_tokens_details") or {}).get("cached_tokens", 0) or 0
-                tr.cost_usd, tr.region, tr.actual_provider = cost, f"openrouter:{actual}", actual
-                return data, tr
+                return result, tr
             if category in ("auth", "credits"):
                 log.error("ALERT model_call %s: OpenRouter refused the key or its credit (status %s)", category, status)
             if retry and attempt == 1:
@@ -204,50 +228,115 @@ class OpenRouterModel:
                     self.sleep(wait)
                 continue
             tr.outcome = f"error:{category}"
-            err = (data or {}).get("error") if isinstance(data, dict) else None
-            detail = err.get("message", "")[:200] if isinstance(err, dict) else ""
+            detail = _error_message(data)[:200]
             raise ModelError(f"OpenRouter {category} (status {status}) {detail}".strip(), category, False)
         raise ModelError("unreachable", "model_error", False)     # pragma: no cover
 
     # ---------------------------------------------------------------- the two purposes
     def extract(self, user_block: str) -> tuple[dict, Trace]:
         spec = RECORD_DRIVER_REPORT
-        data, tr = self._call("extract", self.extract_model, {
+        return self._call("extract", self.extract_model, {
             "messages": [{"role": "system", "content": [{"type": "text", "text": EXTRACT_SYSTEM,
                                                          "cache_control": {"type": "ephemeral"}}]},
                          {"role": "user", "content": user_block}],
             "tools": [{"type": "function", "function": {"name": spec["name"], "description": spec["description"],
                                                         "parameters": spec["input_schema"]}}],
             "tool_choice": {"type": "function", "function": {"name": spec["name"]}},
-            "temperature": 0, "max_tokens": 600})
-        msg = (data.get("choices") or [{}])[0].get("message") or {}
-        for call in msg.get("tool_calls") or []:
-            fn = call.get("function") or {}
-            if fn.get("name") == spec["name"]:
-                try:
-                    args = fn.get("arguments") or "{}"
-                    return (json.loads(args) if isinstance(args, str) else args), tr
-                except json.JSONDecodeError as e:
-                    tr.outcome = "error:bad_json"
-                    raise ModelError(f"tool arguments are not JSON: {e}", "malformed", False) from None
-        tr.outcome = "error:no_tool_call"
-        raise ModelError("extraction returned no tool call", "malformed", False)
+            "temperature": 0, "max_tokens": 600}, _parse_extract)
 
     def phrase(self, facts_block: str, correction: str | None = None) -> tuple[str, Trace]:
         if not self.phrase_model:
             raise ModelError("no phrasing model configured (OD-3: production replies are templates)", "config", False)
         text = facts_block + (f"\n\nYour previous draft broke a rule: {correction}. Write it again." if correction else "")
-        data, tr = self._call("phrase", self.phrase_model, {
+        return self._call("phrase", self.phrase_model, {
             "messages": [{"role": "system", "content": [{"type": "text", "text": PHRASE_SYSTEM,
                                                          "cache_control": {"type": "ephemeral"}}]},
                          {"role": "user", "content": text}],
-            "max_tokens": 300})                                      # Sonnet 5 rejects a non-default temperature
-        content = ((data.get("choices") or [{}])[0].get("message") or {}).get("content")
-        if isinstance(content, list):
-            content = "".join(p.get("text", "") for p in content if isinstance(p, dict))
-        if not content or not content.strip():
-            raise ModelError("empty reply", "malformed", False)
-        return content.strip(), tr
+            "max_tokens": 300}, _parse_phrase)                      # Sonnet 5 rejects a non-default temperature
+
+
+def _parse_extract(data: dict, tr: Trace) -> dict:
+    """The record_driver_report arguments, after checking the answer's structure; ModelError(malformed) otherwise."""
+    spec = RECORD_DRIVER_REPORT
+    msg = _first_message(data, tr)
+    calls = msg.get("tool_calls")
+    if calls is not None and not isinstance(calls, list):
+        raise _malformed(tr, "tool_calls is not a list")
+    for call in calls or []:
+        fn = call.get("function") if isinstance(call, dict) else None
+        if not isinstance(fn, dict):
+            raise _malformed(tr, "a tool call has no function object")
+        if fn.get("name") == spec["name"]:
+            args = fn.get("arguments")
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args)
+                except json.JSONDecodeError as e:
+                    tr.outcome = "error:bad_json"
+                    raise ModelError(f"tool arguments are not JSON: {e}", "malformed", False) from None
+            if not isinstance(args, dict):
+                raise _malformed(tr, "tool arguments are not a JSON object")
+            return args
+    tr.outcome = "error:no_tool_call"
+    raise ModelError("extraction returned no tool call", "malformed", False)
+
+
+def _parse_phrase(data: dict, tr: Trace) -> str:
+    content = _first_message(data, tr).get("content")
+    if isinstance(content, list):
+        content = "".join(p["text"] for p in content if isinstance(p, dict) and isinstance(p.get("text"), str))
+    if not isinstance(content, str) or not content.strip():
+        tr.outcome = "error:empty"
+        raise ModelError("empty reply", "malformed", False)
+    return content.strip()
+
+
+def _int(v) -> int | None:
+    """A non-negative integer, or None (unknown). bool is not a number here."""
+    return v if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else None
+
+
+def _cost(v) -> float | None:
+    """A finite, non-negative number of US dollars, or None (unknown: the reservation is kept)."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return None
+    return float(v) if math.isfinite(v) and v >= 0 else None
+
+
+def _text(v, limit: int = 200) -> str | None:
+    return v[:limit] if isinstance(v, str) and v else None
+
+
+def _metadata(data) -> dict:
+    """Usage, cost and provider metadata of an answer, each type-checked; anything malformed becomes None."""
+    body = data if isinstance(data, dict) else {}
+    usage = body.get("usage") if isinstance(body.get("usage"), dict) else {}
+    details = usage.get("prompt_tokens_details") if isinstance(usage.get("prompt_tokens_details"), dict) else {}
+    return {"provider": _text(body.get("provider")), "generation_id": _text(body.get("id")),
+            "input_tokens": _int(usage.get("prompt_tokens")), "output_tokens": _int(usage.get("completion_tokens")),
+            "cached_tokens": _int(details.get("cached_tokens")), "cost": _cost(usage.get("cost"))}
+
+
+def _error_message(data) -> str:
+    err = data.get("error") if isinstance(data, dict) else None
+    msg = err.get("message") if isinstance(err, dict) else None
+    return msg if isinstance(msg, str) else ""
+
+
+def _malformed(tr: Trace, why: str) -> ModelError:
+    tr.outcome = "error:malformed"
+    return ModelError(f"OpenRouter answer has an unexpected shape: {why}", "malformed", False)
+
+
+def _first_message(data: dict, tr: Trace) -> dict:
+    """choices[0].message, after checking every level's type."""
+    choices = data.get("choices")
+    if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+        raise _malformed(tr, "choices is not a non-empty list of objects")
+    msg = choices[0].get("message")
+    if not isinstance(msg, dict):
+        raise _malformed(tr, "choices[0].message is not an object")
+    return msg
 
 
 def _retry_after(headers) -> float:
