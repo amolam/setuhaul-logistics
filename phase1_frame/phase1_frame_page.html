@@ -1,0 +1,449 @@
+<title>SetuHaul Phase 1 Frame</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap">
+<style>
+/* Layout: single reading column with a sticky section index; dock-yard palette (ink navy + signal amber) */
+:root{
+  --bg:#f6f7f9; --surface:#ffffff; --fg:#17202b; --muted:#566273; --line:#dde2e8;
+  --ink:#1d2f4a; --accent:#c97a06; --accent-soft:#fbefd9;
+  --ok:#1f7a4d; --ok-soft:#e3f3ea; --warn:#a15c00; --warn-soft:#fdf0dc; --bad:#b4282e; --bad-soft:#fbe6e7;
+  --pend:#7a5bb5; --pend-soft:#efe9f9; --done:#3c4a5c; --block:#9aa5b3;
+  --display:"Space Grotesk", "Segoe UI", system-ui, sans-serif;
+  --body:"IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono:"IBM Plex Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#0f141b; --surface:#161d27; --fg:#e4e9f0; --muted:#9aa6b6; --line:#2a3442;
+  --ink:#9fc0ff; --accent:#f0a83a; --accent-soft:#3a2a10;
+  --ok:#5fd29a; --ok-soft:#14301f; --warn:#f2b45a; --warn-soft:#38270d; --bad:#ff7b80; --bad-soft:#3a1719;
+  --pend:#b79cf0; --pend-soft:#2a2140; --done:#8b98aa; --block:#4d5868; color-scheme:dark; } }
+:root[data-theme="dark"]{
+  --bg:#0f141b; --surface:#161d27; --fg:#e4e9f0; --muted:#9aa6b6; --line:#2a3442;
+  --ink:#9fc0ff; --accent:#f0a83a; --accent-soft:#3a2a10;
+  --ok:#5fd29a; --ok-soft:#14301f; --warn:#f2b45a; --warn-soft:#38270d; --bad:#ff7b80; --bad-soft:#3a1719;
+  --pend:#b79cf0; --pend-soft:#2a2140; --done:#8b98aa; --block:#4d5868; color-scheme:dark; }
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:15px/1.6 var(--body);margin:0}
+.wrap{max-width:1080px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:32px 64px}
+header.top{display:grid;gap:10px;padding-bottom:24px;border-bottom:1px solid var(--line)}
+.eyebrow{font:500 12px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+h1,h2,h3{font-family:var(--display);text-wrap:balance;color:var(--fg);margin:0}
+h1{font-size:clamp(28px,4vw,40px);line-height:1.15;font-weight:700}
+h2{font-size:24px;line-height:1.25;font-weight:600}
+h3{font-size:17px;font-weight:600}
+p{margin:0;max-width:72ch}
+.lede{font-size:17px;color:var(--muted);max-width:70ch}
+nav.idx{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);border-bottom:1px solid var(--line);margin:0 -4px}
+nav.idx ul{display:flex;gap:4px 16px;flex-wrap:wrap;list-style:none;margin:0;padding:10px 4px}
+nav.idx a{font:500 13px/1.4 var(--body);color:var(--muted);text-decoration:none}
+nav.idx a:hover,nav.idx a:focus-visible{color:var(--accent)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+section{display:grid;gap:16px;padding-top:40px;scroll-margin-top:56px}
+.kicker{font:500 12px/1 var(--mono);color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:14px 16px;display:grid;gap:2px}
+.stat b{font:600 24px/1.1 var(--display);font-variant-numeric:tabular-nums}
+.stat span{font-size:13px;color:var(--muted)}
+.stat.hot{border-color:var(--accent);background:var(--accent-soft)}
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;vertical-align:top;padding:9px 12px;border-bottom:1px solid var(--line)}
+th{font:600 12px/1.3 var(--body);text-transform:uppercase;letter-spacing:.04em;color:var(--muted);background:var(--bg)}
+tr:last-child td{border-bottom:0}
+td code,p code,li code{font:13px var(--mono);background:var(--bg);padding:1px 4px;border-radius:4px}
+.mono{font-family:var(--mono);font-size:13px;white-space:nowrap}
+.pill{display:inline-block;font:600 11px/1 var(--mono);padding:4px 7px;border-radius:999px;letter-spacing:.03em;white-space:nowrap}
+.p-high{background:var(--bad-soft);color:var(--bad)} .p-med{background:var(--warn-soft);color:var(--warn)}
+.p-ok{background:var(--ok-soft);color:var(--ok)} .p-pend{background:var(--pend-soft);color:var(--pend)}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.grid2>*{min-width:0}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:16px;display:grid;gap:8px;align-content:start}
+.card ul{margin:0;padding-left:18px;display:grid;gap:4px}
+.note{border-left:3px solid var(--accent);background:var(--surface);padding:12px 16px;border-radius:0 8px 8px 0;max-width:80ch}
+pre.mermaid{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:16px;overflow-x:auto;margin:0}
+/* dock timeline */
+.yard{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--surface);padding:12px}
+.yard-inner{min-width:720px;display:grid;gap:6px}
+.lane{display:grid;grid-template-columns:72px 1fr;align-items:center;gap:8px}
+.lane .lbl{font:500 12px/1.2 var(--mono)} .lane .lbl small{display:block;color:var(--muted);font-size:11px}
+.track{position:relative;height:30px;background:repeating-linear-gradient(90deg,var(--bg) 0 calc(100%/14 - 1px),var(--line) calc(100%/14 - 1px) calc(100%/14));border-radius:4px}
+.blk{position:absolute;top:3px;bottom:3px;border-radius:4px;font:600 11px/24px var(--mono);text-align:center;color:#fff;overflow:hidden;white-space:nowrap}
+.b-done{background:var(--done)} .b-conf{background:var(--ink);color:var(--bg)} .b-pend{background:var(--pend);color:var(--bg)}
+.b-block{background:repeating-linear-gradient(45deg,var(--block) 0 6px,transparent 6px 10px);color:var(--fg);border:1px solid var(--block)}
+.b-flag{outline:2px solid var(--bad);outline-offset:1px}
+.hours{display:grid;grid-template-columns:72px repeat(14,1fr);gap:0 8px;font:11px var(--mono);color:var(--muted)}
+.hours span:first-child{grid-column:1}
+.legend{display:flex;flex-wrap:wrap;gap:8px 16px;font-size:12px;color:var(--muted)}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-2px;margin-right:6px}
+footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);font-size:13px;color:var(--muted);display:grid;gap:6px}
+a{color:var(--ink)}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto}}
+html{scroll-behavior:smooth}
+</style>
+
+<div class="wrap">
+<header class="top">
+  <div class="eyebrow">FDE challenge · Phase 1 of 5 · Frame</div>
+  <h1>SetuHaul driver-exception and dock re-scheduling service</h1>
+  <p class="lede">Drivers message SetuHaul when they run late. This phase defines the problem, audits the 4 Aug 2026 snapshot with a query for every issue, catalogues every variable, and sets the high-level design on AWS Bedrock AgentCore, with code (not the model) deciding capacity.</p>
+</header>
+
+<nav class="idx" aria-label="Sections"><ul>
+  <li><a href="#problem">Problem &amp; scale</a></li><li><a href="#yard">Jaipur dock day</a></li>
+  <li><a href="#audit">Data audit</a></li><li><a href="#fau">Facts &amp; unknowns</a></li>
+  <li><a href="#signals">ETA signals</a></li><li><a href="#vars">Variables</a></li>
+  <li><a href="#worked">Worked checks</a></li><li><a href="#hld">Design</a></li>
+  <li><a href="#auth">Auth</a></li><li><a href="#solver">Solver</a></li><li><a href="#maps">Maps</a></li>
+  <li><a href="#nfr">Performance &amp; security</a></li><li><a href="#evals">Evaluation</a></li><li><a href="#hitl">Human in the loop</a></li>
+  <li><a href="#aws">AWS &amp; cost</a></li><li><a href="#next">Decisions</a></li>
+</ul></nav>
+
+<section id="problem">
+  <div class="kicker">Problem statement</div>
+  <h2>Many drivers, one slot, no false promises</h2>
+  <p>How might SetuHaul let drivers report delays, ask questions and accept revised dock appointments in plain conversation, while simultaneous requests meet limited warehouse capacity, without ever making an infeasible or conflicting promise?</p>
+  <div class="stats">
+    <div class="stat"><b>280–360</b><span>loads per day</span></div>
+    <div class="stat"><b>32</b><span>dock doors, 6 facilities</span></div>
+    <div class="stat"><b>190–240</b><span>appointments per day</span></div>
+    <div class="stat hot"><b>20–35</b><span>messages in 30 min during a spike</span></div>
+    <div class="stat"><b>5</b><span>ops coordinators per shift</span></div>
+    <div class="stat hot"><b>0</b><span>live GPS feeds</span></div>
+  </div>
+  <p class="note">This is a <b>high-correctness system under burst contention</b>, not a high-throughput one. Engineering effort goes to concurrency control, idempotency and escalation. The LLM handles messy language at the edges. Feasibility, holds and commits are deterministic code backed by database constraints.</p>
+</section>
+
+<section id="yard">
+  <div class="kicker">The scarce resource</div>
+  <h2>Jaipur DC on 4 August, with the audit's red flags</h2>
+  <div class="yard" role="img" aria-label="Dock timeline for Jaipur from 08:00 to 22:00 showing bookings, blocked windows and flagged appointments">
+    <div class="yard-inner">
+      <div class="hours"><span></span><span>08</span><span>09</span><span>10</span><span>11</span><span>12</span><span>13</span><span>14</span><span>15</span><span>16</span><span>17</span><span>18</span><span>19</span><span>20</span><span>21</span></div>
+      <div class="lane"><div class="lbl">D1<small>STD 20 t</small></div><div class="track">
+        <div class="blk b-done" style="left:0%;width:7.14%">1001</div>
+        <div class="blk b-conf" style="left:7.14%;width:7.14%">1003</div>
+        <div class="blk b-conf" style="left:14.28%;width:7.14%">1007</div>
+        <div class="blk b-pend b-flag" style="left:21.42%;width:7.14%" title="SHP1014: 21 t > 20 t, 75 min overruns">1014</div>
+        <div class="blk b-conf" style="left:28.56%;width:7.14%">1017</div></div></div>
+      <div class="lane"><div class="lbl">D2<small>STD 25 t</small></div><div class="track">
+        <div class="blk b-done b-flag" style="left:0%;width:8.33%" title="SHP1002 overrunning into 09:00">1002</div>
+        <div class="blk b-conf" style="left:8.33%;width:5.95%">1004</div>
+        <div class="blk b-pend" style="left:21.42%;width:7.14%">1013</div>
+        <div class="blk b-conf" style="left:71.4%;width:7.14%">1020</div></div></div>
+      <div class="lane"><div class="lbl">D3<small>STD 20 t</small></div><div class="track">
+        <div class="blk b-conf b-flag" style="left:7.14%;width:7.14%" title="SHP1005 on a dock that breaks at 09:15; 20.5 t > 20 t">1005</div>
+        <div class="blk b-block" style="left:14.28%;width:21.42%">breakdown</div></div></div>
+      <div class="lane"><div class="lbl">D4<small>STD 25 t</small></div><div class="track">
+        <div class="blk b-conf b-flag" style="left:14.28%;width:7.14%" title="SHP1006 ETA now 11:20 — stale">1006</div>
+        <div class="blk b-conf" style="left:21.42%;width:7.14%">1009</div></div></div>
+      <div class="lane"><div class="lbl">D5<small>REEFER</small></div><div class="track">
+        <div class="blk b-conf" style="left:21.42%;width:7.14%">1010</div>
+        <div class="blk b-conf b-flag" style="left:64.26%;width:7.14%" title="SHP1015 ETA now 18:30 — no reefer slot">1015</div>
+        <div class="blk b-block" style="left:71.4%;width:28.6%">maintenance</div></div></div>
+      <div class="lane"><div class="lbl">D6<small>HEAVY 90′</small></div><div class="track">
+        <div class="blk b-conf" style="left:21.42%;width:10.71%">1011</div></div></div>
+      <div class="legend">
+        <span><i style="background:var(--done)"></i>Completed / in dock</span>
+        <span><i style="background:var(--ink)"></i>Confirmed</span>
+        <span><i style="background:var(--pend)"></i>Pending confirmation</span>
+        <span><i style="background:var(--block)"></i>Blocked</span>
+        <span><i style="background:transparent;outline:2px solid var(--bad)"></i>Flagged by audit</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="audit">
+  <div class="kicker">Data audit · 30 SQL checks, 28 with evidence</div>
+  <h2>The data is evidence, not truth</h2>
+  <p>Every finding cites the query that proves it (<code>data_audit.sql</code>, run with <code>python phase1_frame/run_audit.py</code>). These are the ones that would cause a wrong promise:</p>
+  <div class="tbl"><table>
+    <thead><tr><th>ID</th><th>Finding</th><th>System response</th></tr></thead>
+    <tbody>
+      <tr><td class="mono"><span class="pill p-high">A01</span></td><td>DRV007 drives two trucks at once (Ajmer and Mumbai). DRV006, DRV003 and DRV001 also overlap</td><td>Assignment-conflict validator. No auto-booking, escalate as contradictory data</td></tr>
+      <tr><td class="mono"><span class="pill p-high">A03</span></td><td>SHP1014 (21 t) pending on D1 (20 t max). SHP1005 (20.5 t) confirmed on D3 (20 t)</td><td><code>dock_compatible()</code> on every option and again at commit</td></tr>
+      <tr><td class="mono"><span class="pill p-high">A04</span></td><td>Four unloads of 70–75 min on 60-min slots. The next slot only looks free</td><td>Reserve <code>ceil(occupancy ÷ slot)</code> contiguous slots atomically</td></tr>
+      <tr><td class="mono"><span class="pill p-high">A06</span></td><td>SHP1006 and SHP1015 are still CONFIRMED for slots their new ETAs cannot reach</td><td>Each ETA change re-checks the current booking, which becomes AT_RISK, and the driver is offered a re-schedule</td></tr>
+      <tr><td class="mono"><span class="pill p-high">A08</span></td><td>D3 breaks at 09:15. The 09:00 booking stays and the slot is not blocked</td><td>Availability joins dock events, not just slot status</td></tr>
+      <tr><td class="mono"><span class="pill p-high">A12</span></td><td>History shows two active bookings on one slot for three days</td><td>Append-only audit trail. Integrity test in the Break phase</td></tr>
+      <tr><td class="mono"><span class="pill p-high">A21</span></td><td>The reefer escalation email went to an unknown address and FAILED</td><td>Durable escalation queue. A failed delivery never counts as acknowledged</td></tr>
+      <tr><td class="mono"><span class="pill p-med">A18–19</span></td><td>A messaging retry created a second thread and exception with the same dedupe key</td><td>Idempotency on <code>external_message_id</code>. Unique dedupe key</td></tr>
+      <tr><td class="mono"><span class="pill p-med">A23</span></td><td>Pending warehouse confirmations never expire</td><td>Per-facility, per-shift TTL with timers</td></tr>
+      <tr><td class="mono"><span class="pill p-med">A13</span></td><td>No single snapshot time: updates span 07:10 to 16:30</td><td>Injected clock. Scenarios replay at their own message time</td></tr>
+    </tbody></table></div>
+  <p class="note">The two partial unique indexes stop two active bookings on the <i>same slot row</i>. They do not stop overlapping slots, spill-over unloads, bookings on blocked or incompatible docks, cancelled shipments with live bookings, a driver in two places, stale holds, or two drivers both being <i>told</i> yes. The Build phase closes these with PostgreSQL exclusion constraints and the transactional booking service.</p>
+</section>
+
+<section id="fau">
+  <div class="kicker">Problem Definition Sheet</div>
+  <h2>Facts, assumptions and unknowns</h2>
+  <div class="grid2">
+    <div class="card"><h3>Facts</h3><ul>
+      <li>2 facilities, 9 docks, 21 shipments, 106 slots, 20 appointments</li>
+      <li>Jaipur: reefer → D5, > 25 t → heavy dock, no new start after 21:00, 30-min grace</li>
+      <li>Gate processing is 1 min at Jaipur. Gurugram has <b>no</b> check-in history</li>
+      <li>All needed AgentCore features run in Mumbai. Claude there is served via the Global endpoint only</li></ul></div>
+    <div class="card"><h3>Key assumptions</h3><ul>
+      <li>Showing an option reserves nothing. Only an explicit yes creates a short hold. A booking is confirmed only after a re-check and commit</li>
+      <li>A driver's message is evidence. ETAs are fused with independent signals. Safety claims always go to a human</li>
+      <li>Timing parameters are per facility (and per shift), seeded now and learned later</li>
+      <li>Cognito for every human. IAM (SigV4) on every API</li></ul></div>
+    <div class="card"><h3>Unknowns for the client</h3><ul>
+      <li>Warehouse confirmation time per facility and shift (GGN night coordinator is vacant)</li>
+      <li>Gate-to-dock and changeover times: <code>called_to_dock_ts</code> is not captured</li>
+      <li>Are the driver and vehicle double-assignments real or data entry errors?</li>
+      <li>Tracking vendors (ULIP partner, SIM provider) and prices</li>
+      <li>Sign-off on Global-endpoint inference with PII masked</li></ul></div>
+  </div>
+</section>
+
+<section id="signals">
+  <div class="kicker">Beyond the driver's word</div>
+  <h2>Independent ETA signals, paid for only when they change a decision</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Tier</th><th>Trigger</th><th>Signals</th><th>Cost profile</th></tr></thead>
+    <tbody>
+      <tr><td><span class="pill p-ok">T0</span></td><td>Every shipment</td><td>Plan, gate check-in, driver chat, existing carrier telematics</td><td>No new spend</td></tr>
+      <tr><td><span class="pill p-ok">T1</span></td><td>Within 4 h of the slot, or an exception is open</td><td>FASTag toll crossings via ULIP or an aggregator (passive, no device)</td><td>Per lookup, polled every 30 min</td></tr>
+      <tr><td><span class="pill p-pend">T2</span></td><td>Declared ETA disagrees by more than 30 min, or LOW confidence on HIGH/CRITICAL</td><td>WhatsApp location-pin request (one tap) plus route time</td><td>One message and one route call</td></tr>
+      <tr><td><span class="pill p-med">T3</span></td><td>HIGH/CRITICAL, reefer or untolled route, and still in doubt</td><td>SIM-based tracking with trip-scoped consent, stopped at gate-in</td><td>~₹1–2 per truck-day (vendor claim)</td></tr>
+      <tr><td><span class="pill p-high">T4</span></td><td>Safety claim or contradiction that persists</td><td>Ops call. Signals are evidence only</td><td>Coordinator time</td></tr>
+    </tbody></table></div>
+  <p>A deterministic <code>fuse_eta()</code> ranks sources as gate-in, then ops override, fresh telematics, location pin, SIM ping, FASTag, warehouse estimate, driver and plan. It flags impossible speeds, optimistic declarations and breakdowns it can corroborate, and sets confidence from evidence. WhatsApp's Business API delivers single location pins, not live location, so continuous tracking via WhatsApp is not an option. Under DPDP, tracking is trip-scoped and consented, coordinates never reach the LLM, and raw positions are purged after 30 days.</p>
+</section>
+
+<section id="vars">
+  <div class="kicker">Variables catalogue</div>
+  <h2>Every variable has an owner, and the LLM owns very few</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Group</th><th>Owner</th><th>Examples</th></tr></thead>
+    <tbody>
+      <tr><td>Conversation inputs</td><td><span class="pill p-pend">LLM → validated</span></td><td><code>intent</code>, <code>delay_kind</code>, <code>declared_eta_local</code>, <code>earliest_start</code>, <code>latest_finish</code>, <code>selected_option_id</code>, <code>explicit_confirmation</code>, <code>safety_concern</code> (strict JSON schema, nullable, never guessed)</td></tr>
+      <tr><td>Backend context</td><td><span class="pill p-ok">DB</span></td><td><code>driver_id</code> from the verified phone, <code>live_shipments[]</code>, priority, weight, dock type, unload minutes, current appointment, check-in, rules, dock events</td></tr>
+      <tr><td>Derived</td><td><span class="pill p-ok">CODE</span></td><td><code>effective_eta</code>, <code>eta_confidence</code>, <code>ready_ts</code>, <code>required_capability</code>, <code>occupancy_min</code>, <code>slots_needed</code>, <code>appointment_at_risk</code>, <code>assignment_conflict</code>, <b><code>is_feasible()</code></b></td></tr>
+      <tr><td>Booking state</td><td><span class="pill p-ok">STATE</span></td><td>Option → hold → pending → confirmed → in progress, with <code>hold_expires_at</code>, <code>pending_expires_at</code>, <code>row_version</code>, <code>facility_schedule_version</code></td></tr>
+      <tr><td>Per-facility timing</td><td><span class="pill p-ok">CFG, learned</span></td><td><code>gate_to_dock_min[f]</code> (JAI 10, GGN 15), <code>changeover_min[f]</code>, <code>warehouse_confirm_ttl_min[f][shift]</code> (JAI 15/10, GGN 15/0), <code>confirm_lead_min[f]</code>, <code>unload_overrun_factor[f]</code></td></tr>
+      <tr><td>ETA signals</td><td><span class="pill p-ok">SIGNALS</span></td><td><code>signal_source</code>, <code>observed_at</code>, <code>derived_eta_ts</code>, <code>uncertainty_min</code>, <code>signal_flags[]</code>, <code>tracking_tier</code>, <code>tracking_consent_id</code></td></tr>
+      <tr><td>Scheduler</td><td><span class="pill p-ok">CODE</span></td><td>Jobs, docks, release <code>r_j</code>, processing <code>p_j</code>, due <code>d_j</code>, weight <code>w_j</code>, fixed tasks. Objective: minimise weighted waiting + lateness + promise changes</td></tr>
+      <tr><td>Platform</td><td><span class="pill p-ok">PLATFORM</span></td><td><code>external_message_id</code>, <code>idempotency_key</code>, <code>trace_id</code>, <code>principal</code>, <code>facility_scope</code>, token and cost counters, prompt and policy versions</td></tr>
+    </tbody></table></div>
+</section>
+
+<section id="worked">
+  <div class="kicker">Worked feasibility checks · generated from the snapshot</div>
+  <h2>The same predicate, three different answers</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Shipment</th><th>Situation</th><th>Deterministic result</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">SHP1014</td><td>CRITICAL, 21 t, 75 min, ETA 11:25. Pending on D1 11:00</td><td><span class="pill p-ok">3 options</span> D2 or D4 13:00–14:25, each reserving <b>two</b> contiguous slots. D1 and D3 are rejected on weight, so the pending request is infeasible</td></tr>
+      <tr><td class="mono">SHP1006</td><td>HIGH, ETA 11:20, "any slot after 12?"</td><td><span class="pill p-med">Escalate</span> Options exist (D1, D2 or D3 at 13:00), but DRV006 is also assigned SHP1021 from Noida at 10:00, so the data is contradictory</td></tr>
+      <tr><td class="mono">SHP1015</td><td>Reefer, ETA 18:30</td><td><span class="pill p-high">Escalate</span> No feasible slot: D5 is under maintenance 18:00–22:00 and there is no other reefer dock</td></tr>
+      <tr><td class="mono">SHP1012</td><td>Must leave by 13:30, ETA 11:10</td><td><span class="pill p-high">Escalate</span> Every 12:00 slot is taken or blocked, and the infeasible pending APT1014A is holding D1 11:00</td></tr>
+      <tr><td class="mono">SHP1002</td><td>In dock, overrunning</td><td><span class="pill p-pend">Fixed task</span> Never re-slotted</td></tr>
+    </tbody></table></div>
+</section>
+
+<section id="hld">
+  <div class="kicker">High-level design</div>
+  <h2>Workflow first, agent at the edges</h2>
+<pre class="mermaid">
+flowchart LR
+  D[Driver WhatsApp / web] --> WAF[WAF + API Gateway]
+  WAF --> Q[(SQS FIFO per driver<br/>dedupe on message id)]
+  Q --> PRE[Pre-processor<br/>identity · PII mask · safety]
+  PRE --> AG[AgentCore Runtime<br/>Claude agent]
+  AG <--> MEM[(AgentCore Memory)]
+  AG --> GW[AgentCore Gateway<br/>tools as MCP]
+  GW --> BK[Booking service<br/>is_feasible · hold · commit]
+  GW --> SCH[Facility scheduler]
+  GW --> ESC[Escalation queue]
+  SIG[ETA signals<br/>FASTag · pin · SIM · GPS] --> FUSE[fuse_eta]
+  FUSE --> BK
+  BK --> DB[(Aurora PostgreSQL<br/>exclusion constraints · RLS)]
+  SCH --> DB
+  BK --> OUT[(Outbox)] --> N[SES / SMS / WhatsApp]
+  ESC --> OPS[Ops console]
+</pre>
+  <div class="tbl"><table>
+    <thead><tr><th>Step</th><th>Who</th></tr></thead>
+    <tbody>
+      <tr><td>Identity, dedupe, PII masking, safety keywords</td><td><span class="pill p-ok">Code</span></td></tr>
+      <tr><td>Understand free text, extract ETA and constraints</td><td><span class="pill p-pend">LLM</span> structured output, then validated</td></tr>
+      <tr><td>ETA fusion, feasibility, ranking, holds, commits, priority, re-sequencing</td><td><span class="pill p-ok">Code</span></td></tr>
+      <tr><td>Phrase questions, explain options and refusals</td><td><span class="pill p-pend">LLM</span> using only tool output, with a post-check that every time and dock it names exists in that output</td></tr>
+      <tr><td>Timers: hold and pending expiry, no-show sweep</td><td><span class="pill p-ok">Code</span></td></tr>
+    </tbody></table></div>
+</section>
+
+<section id="auth">
+  <div class="kicker">Authentication &amp; authorisation</div>
+  <h2>Cognito for people, IAM for every API</h2>
+<pre class="mermaid">
+flowchart LR
+  OPS[Ops / planner / dispatcher] --> UP[Cognito user pool<br/>MFA · groups]
+  DRV[Driver web/app] --> UP
+  UP --> IP[Cognito identity pool<br/>role per group]
+  IP --> APIGW[API Gateway<br/>AWS_IAM SigV4]
+  WA[Driver WhatsApp] --> WH[Webhook<br/>Meta HMAC verified]
+  APIGW --> ING[Ingest Lambda]
+  WH --> ING
+  ING -->|SigV4| RT[AgentCore Runtime]
+  RT --> GWY[AgentCore Gateway · IAM]
+  GWY --> TL[Tool Lambdas] --> DB[(Aurora · IAM DB auth · RLS)]
+</pre>
+  <p>Every human signs in through Cognito: MFA for staff, phone OTP for drivers on the web channel. The identity pool exchanges their token for temporary IAM credentials, with a role per group (ops, planner per facility, dispatcher per carrier, driver). Every API route, AgentCore call and database connection is authorised with IAM. The single exception is the WhatsApp webhook, because Meta cannot sign SigV4: it verifies Meta's HMAC signature, has no other routes, and hands off to IAM-signed calls straight away.</p>
+</section>
+
+<section id="solver">
+  <div class="kicker">Solver spike · Jaipur at 09:56 · 16 movable trucks · OR-Tools 9.15</div>
+  <h2>Dispatch rules for answers, CP-SAT for the facility plan</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Method</th><th>Weighted wait</th><th>Total wait (min)</th><th>Max wait</th><th>Missed promises</th><th>Changed promises</th><th>Runtime</th></tr></thead>
+    <tbody>
+      <tr><td>FCFS by ready time</td><td class="mono">1134</td><td class="mono">320</td><td class="mono">61</td><td class="mono">8</td><td class="mono">9</td><td class="mono">&lt; 1 ms</td></tr>
+      <tr><td>Priority-weighted dispatch</td><td class="mono">1177</td><td class="mono">718</td><td class="mono">180</td><td class="mono">9</td><td class="mono">9</td><td class="mono">&lt; 1 ms</td></tr>
+      <tr><td>Keep promises first (EDD)</td><td class="mono">1296</td><td class="mono">418</td><td class="mono">100</td><td class="mono">9</td><td class="mono">9</td><td class="mono">&lt; 1 ms</td></tr>
+      <tr><td><b>CP-SAT (optimal)</b></td><td class="mono"><b>768</b></td><td class="mono">381</td><td class="mono">139</td><td class="mono"><b>7</b></td><td class="mono"><b>7</b></td><td class="mono">1.4 s</td></tr>
+    </tbody></table></div>
+  <div class="grid2">
+    <div class="card"><h3>What the spike shows</h3><ul>
+      <li>CP-SAT cuts weighted waiting by 32 % against FCFS and breaks the fewest promises</li>
+      <li>"Priority first" is worse than FCFS: docks sit idle while CRITICAL trucks are still on the road</li>
+      <li>The optimum made one NORMAL truck wait 139 min, so a hard maximum yard wait or an ageing term is needed</li>
+      <li>The reefer truck SHP1015 escalates under every method</li></ul></div>
+    <div class="card"><h3>Decision</h3><ul>
+      <li>Per-driver options: <code>is_feasible()</code> plus transparent ranking, under 300 ms</li>
+      <li>Facility re-sequencing: CP-SAT with a 2–5 s limit and a dispatch-rule fallback, in a Python Lambda container</li>
+      <li>OptaPlanner / Timefold not chosen: it needs a JVM service, the official Timefold Python solver was archived in Oct 2025, and its strengths only matter at far larger scale</li>
+      <li>Proposals are applied move by move through the booking service. Moving someone's on-time confirmed slot needs planner approval</li></ul></div>
+  </div>
+</section>
+
+<section id="maps">
+  <div class="kicker">OpenStreetMap feasibility</div>
+  <h2>OSM yes, but self-hosted, and precomputed first</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Option</th><th>Verdict</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>Public OSM tiles, Nominatim, OSRM demo server</td><td><span class="pill p-high">No</span></td><td>Donated capacity. Nominatim allows at most 1 request/s per application. The OSRM demo forbids heavy or SLA use and can be withdrawn</td></tr>
+      <tr><td>Self-hosted Valhalla on an India OSM extract</td><td><span class="pill p-ok">Yes</span></td><td>Truck costing (weight, height, axle) applied per request. ODbL attribution. No live traffic, so it is calibrated with our own lane history</td></tr>
+      <tr><td>Amazon Location Service</td><td><span class="pill p-med">If in region</span></td><td>Managed and traffic-aware. Availability in ap-south-1 is not yet verified</td></tr>
+    </tbody></table></div>
+  <p><b>v1, cost-optimal:</b> no routing server at runtime. Valhalla precomputes, offline, a drive-time matrix from every toll plaza and common pin location to the six facilities, so FASTag plaza → ETA is a table lookup. A routing service on ECS is added only if location-pin volume grows. City no-entry windows for heavy vehicles are kept as our own overlay, because OSM tags them poorly.</p>
+</section>
+
+<section id="nfr">
+  <div class="kicker">Non-functional plan</div>
+  <h2>Performance with Locust, reliability, security</h2>
+  <div class="grid2">
+    <div class="card"><h3>Performance (Locust)</h3><ul>
+      <li>SLOs: webhook ack p99 ≤ 1 s, reply p95 ≤ 8 s, options p95 ≤ 300 ms, hold and commit p95 ≤ 200 ms, <b>0 double bookings</b></li>
+      <li>Profiles: baseline, spike (35 in 5 min), 10× (350 / 30 min), stress-to-break, 4 h soak, event storm</li>
+      <li><b>Contention:</b> 10 / 50 / 200 users hit one slot on a barrier, 100 times. Exactly one winner each time</li>
+      <li>A core-only mode with a stubbed model for scale, and full-stack with Bedrock at about $20 per 10× run</li>
+      <li>Locust on ECS Fargate in Mumbai with SigV4-signed users. CI gates on CSV output plus CloudWatch</li>
+      <li>Quota headroom: AgentCore 2,500 sessions vs ~120 needed; Bedrock 2M TPM vs ~0.3M</li></ul></div>
+    <div class="card"><h3>Reliability</h3><ul>
+      <li>If the model fails, the bot falls back to <b>deterministic template replies</b>. Capacity logic never depended on the LLM</li>
+      <li>Multi-AZ Aurora with RDS Proxy. RPO ≤ 5 min, RTO ≤ 30 min. Backups copied to Hyderabad</li>
+      <li>DLQs, idempotent handlers, a reconciler for missed timers, an outbox with channel fallback</li>
+      <li>AWS FIS chaos (Aurora failover during contention, Lambda throttling), Resilience Hub, synthetic canary every 5 min</li></ul></div>
+    <div class="card"><h3>Security &amp; vulnerabilities</h3><ul>
+      <li>OWASP LLM Top 10: identity from the token, never from text. Writes need a shown option plus explicit confirmation, re-validated in code. Grounding post-check. Token caps</li>
+      <li>GuardDuty, Security Hub, Inspector, Config, CloudTrail, WAF, KMS, PrivateLink</li>
+      <li>CI: Bandit, Semgrep, pip-audit, gitleaks, cdk-nag, Checkov, Trivy, ZAP, plus an LLM red-team (promptfoo / garak, Hinglish corpus)</li>
+      <li>Penetration test before go-live. Fix SLAs: critical 7 days, high 30, medium 90</li></ul></div>
+  </div>
+</section>
+
+<section id="evals">
+  <div class="kicker">Evaluation &amp; rubric</div>
+  <h2>Assert in code first, judge with an LLM last</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Layer</th><th>What</th><th>When</th></tr></thead>
+    <tbody>
+      <tr><td>Unit, contract, integrity</td><td><code>is_feasible</code>, <code>fuse_eta</code>, state machine, tool schemas, N-way contention</td><td>Every commit</td></tr>
+      <tr><td>Conversation replay</td><td>~40 base scenarios × 3 variants: the brief's 7 beats, the ladder, all 12 seed threads, audit traps, signal conflicts, Hinglish, adversarial</td><td>25-scenario PR smoke set; 120 nightly (~$10)</td></tr>
+      <tr><td>Scheduler</td><td>CP-SAT vs dispatch baselines on fixed snapshots</td><td>Nightly</td></tr>
+      <tr><td>Online</td><td>AgentCore Evaluations on a 10 % sample; grounding and hand-off checks on 100 %</td><td>Continuous</td></tr>
+    </tbody></table></div>
+  <div class="grid2">
+    <div class="card"><h3>Hard gates (code)</h3><ul>
+      <li>D3: no overlapping dock occupancy, ever</li>
+      <li>D4: every time and dock in a reply exists in that turn's tool output</li>
+      <li>D2: every booking passes an independent re-check</li>
+      <li>D10: no PII or coordinates in prompts or logs</li>
+      <li>D6: every escalation has a complete hand-off record</li></ul></div>
+    <div class="card"><h3>LLM-judge rubric (1–5, anchored)</h3><ul>
+      <li>Asks only for missing facts · states status without overpromising · refusal gives a reason and an alternative · brevity for WhatsApp · tone · language match · context retention</li>
+      <li>Pass bar: mean ≥ 4.0, never below 3 on overpromising</li>
+      <li>Judge calibrated on 40 human-labelled transcripts (weighted κ ≥ 0.6)</li></ul></div>
+  </div>
+</section>
+
+<section id="hitl">
+  <div class="kicker">Human in the loop</div>
+  <h2>People override policy, never integrity</h2>
+  <p>Earlier drafts named <i>when</i> a person steps in but not <i>how</i>. This section adds the workflow. Every human action runs through the same booking service, so a coordinator can approve an after-hours start, but nobody can double-book a dock. Silence is never approval: a request that times out changes nothing and escalates upward.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Mode</th><th>Triggered by</th><th>Who</th><th>SLA and timeout</th></tr></thead>
+    <tbody>
+      <tr><td><span class="pill p-pend">Approve</span></td><td>Start after 21:00, moving someone's on-time confirmed slot, dock downgrade</td><td>Facility planner</td><td>Expires with no change. Driver gets the next option</td></tr>
+      <tr><td><span class="pill p-med">Decide</span></td><td>No feasible slot (SHP1015), contradictory data (DRV006), pending request expired, clarification limit, re-routing or penalties</td><td>Ops coordinator</td><td>Acknowledge ≤ 10 min (≤ 5 min CRITICAL), then re-route to the shift manager</td></tr>
+      <tr><td><span class="pill p-high">Take over</span></td><td>Safety or accident, distress or abuse, driver asks for a person, repeated agent failure</td><td>Coordinator; shift manager for safety</td><td>Immediate page plus a phone call. The agent goes silent until handback</td></tr>
+      <tr><td><span class="pill p-ok">Confirm</span></td><td>Pending warehouse confirmation</td><td>Facility planner</td><td>TTL per facility and shift (GGN night = 0, straight to Decide)</td></tr>
+      <tr><td><span class="pill p-ok">Oversee</span></td><td>Always</td><td>Shift manager, ops lead</td><td>Live board, 10 % sampled review, post-hoc override, per-facility pause switch</td></tr>
+    </tbody></table></div>
+  <div class="grid2">
+    <div class="card"><h3>What the person gets</h3><ul>
+      <li>A complete hand-off record: ETA evidence, constraints, every option tried and why it failed, suggested actions, what the driver was told</li>
+      <li>One-click structured actions that are re-validated by <code>is_feasible()</code></li>
+      <li>Takeover and handback with a summary, so the assistant never re-asks</li></ul></div>
+    <div class="card"><h3>Workload and learning</h3><ul>
+      <li>With ≥ 70 % automated, about 5–8 human cases on a normal day and 1–2 per coordinator in a spike</li>
+      <li>An alert at more than 4 open cases per coordinator</li>
+      <li>Human decisions become eval scenarios. Frequently approved triggers can become automatic rules, but only through review and versioning</li></ul></div>
+  </div>
+</section>
+
+<section id="aws">
+  <div class="kicker">Verified 17 Nov 2026</div>
+  <h2>AWS facts and the cost model</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Fact</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td>AgentCore Runtime, Memory, Gateway, Identity, Observability, Policy, Evaluations available in Mumbai (ap-south-1)</td><td><span class="pill p-ok">Verified</span></td></tr>
+      <tr><td>Claude on Bedrock in ap-south-1: Global endpoint only. Global has no premium; regional endpoints cost +10 %</td><td><span class="pill p-ok">Verified</span></td></tr>
+      <tr><td>Models: <code>anthropic.claude-sonnet-5-5</code> (conversation), <code>anthropic.claude-haiku-5-5</code> (extraction)</td><td><span class="pill p-ok">Verified</span></td></tr>
+      <tr><td>AgentCore Runtime $0.1276 / vCPU-h, $0.0169 / GB-h. Gateway $0.005 / 1k calls. Guardrails PII filter $0.10 / 1k text units</td><td><span class="pill p-ok">List price</span></td></tr>
+      <tr><td>Claude token prices on Bedrock. Planning baseline from Anthropic list prices: Sonnet 5.5 $2 / $10 per MTok, Haiku 5.5 $0.10 / $0.50</td><td><span class="pill p-med">Confirm in console</span></td></tr>
+      <tr><td>Amazon Location Service in ap-south-1</td><td><span class="pill p-med">Not verified</span></td></tr>
+    </tbody></table></div>
+  <div class="stats">
+    <div class="stat"><b>≈ $0.05</b><span>LLM and guardrails per conversation</span></div>
+    <div class="stat"><b>~$150 / mo</b><span>model spend at 100 conversations a day</span></div>
+    <div class="stat"><b>~$1,500 / mo</b><span>at 10× headroom</span></div>
+    <div class="stat hot"><b>Fixed</b><span>Aurora and VPC endpoints dominate the bill</span></div>
+  </div>
+</section>
+
+<section id="next">
+  <div class="kicker">Carried into Phase 2 · Design</div>
+  <h2>Decisions to close next, with the Phase 1 leaning</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Decision</th><th>Leaning</th></tr></thead>
+    <tbody>
+      <tr><td>What does "available" mean while another driver is deciding?</td><td>No active booking <b>and</b> no unexpired hold</td></tr>
+      <tr><td>When does an option become a hold, a request, a booking?</td><td>Explicit yes → 3-min hold → re-check and commit → pending (facility TTL) → confirmed</td></tr>
+      <tr><td>Ordering simultaneous requests</td><td>First valid commit wins. Priority applies through policy and the scheduler, never through speed</td></tr>
+      <tr><td>Which decisions need a human?</td><td>Safety, penalties, after-hours starts, contradictory data, no slot, bumping a CRITICAL load</td></tr>
+      <tr><td>Proof of no double booking</td><td>Parallel-hold integrity test against database constraints. Target: 0 conflicts</td></tr>
+    </tbody></table></div>
+</section>
+
+<footer>
+  <div>Source files: <code>phase1_frame/01_problem_definition_sheet.md</code> to <code>07_evaluation_plan.md</code>, <code>data_audit.sql</code>, <code>feasibility_prototype.py</code>, <code>solver_spike.py</code>.</div>
+  <div>Indian vendor prices are published or claimed figures, not quotes. DPDP notes come from secondary commentary and need legal review.</div>
+</footer>
+</div>

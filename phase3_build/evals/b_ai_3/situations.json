@@ -1,0 +1,588 @@
+[
+  {
+    "id": "H01#1",
+    "conversation": [
+      "bhai traffic bahut hai, 1 ghanta late ho jaunga",
+      "haan"
+    ],
+    "conversation_language": "hi-Latn",
+    "turn_language": "en",
+    "options": [
+      {
+        "dock_code": "D1",
+        "start": "1:00 PM on 19 Nov",
+        "end": "2:25 PM on 19 Nov",
+        "needs_approval": false
+      },
+      {
+        "dock_code": "D2",
+        "start": "1:00 PM on 19 Nov",
+        "end": "2:25 PM on 19 Nov",
+        "needs_approval": false
+      },
+      {
+        "dock_code": "D3",
+        "start": "1:00 PM on 19 Nov",
+        "end": "2:25 PM on 19 Nov",
+        "needs_approval": false
+      }
+    ],
+    "sent_reply": "Available slots:\n1. Dock D1, 1:00 PM on 19 Nov\n2. Dock D2, 1:00 PM on 19 Nov\n3. Dock D3, 1:00 PM on 19 Nov\nReply with the number you want."
+  },
+  {
+    "id": "H02#1",
+    "conversation": [
+      "मैं एक घंटा लेट हूँ",
+      "हाँ"
+    ],
+    "conversation_language": "hi",
+    "turn_language": "en",
+    "options": [
+      {
+        "dock_code": "D5",
+        "start": "1:00 PM on 19 Nov",
+        "end": "2:05 PM on 19 Nov",
+        "needs_approval": false
+      },
+      {
+        "dock_code": "D5",
+        "start": "2:00 PM on 19 Nov",
+        "end": "3:05 PM on 19 Nov",
+        "needs_approval": false
+      },
+      {
+        "dock_code": "D5",
+        "start": "3:00 PM on 19 Nov",
+        "end": "4:05 PM on 19 Nov",
+        "needs_approval": false
+      }
+    ],
+    "sent_reply": "Available slots:\n1. Dock D5, 1:00 PM on 19 Nov\n2. Dock D5, 2:00 PM on 19 Nov\n3. Dock D5, 3:00 PM on 19 Nov\nReply with the number you want."
+  },
+  {
+    "id": "H03#0",
+    "conversation": [
+      "do ghante mein pahunch jaunga"
+    ],
+    "conversation_language": "hi-Latn",
+    "turn_language": "hi-Latn",
+    "options": [
+      {
+        "dock_code": "D1",
+        "start": "1:00 PM on 19 Nov",
+        "end": "2:25 PM on 19 Nov",
+        "needs_approval": false
+      },
+      {
+        "dock_code": "D2",
+        "start": "1:00 PM on 19 Nov",
+        "end": "2:25 PM on 19 Nov",
+        "needs_approval": false
+      },
+      {
+        "dock_code": "D3",
+        "start": "1:00 PM on 19 Nov",
+        "end": "2:25 PM on 19 Nov",
+        "needs_approval": false
+      }
+    ],
+    "sent_reply": "Available slots:\n1. Dock D1, 1:00 PM on 19 Nov\n2. Dock D2, 1:00 PM on 19 Nov\n3. Dock D3, 1:00 PM on 19 Nov\nReply with the number you want."
+  },
+  {
+    "id": "H05#0",
+    "conversation": [
+      "haan ji main bol raha hoon wo Shahpura ke paas hoon abhi traffic hai lagbhag gyarah bees tak pahunch jaunga"
+    ],
+    "conversation_language": "hi-Latn",
+    "turn_language": "hi-Latn",
+    "options": [
+      {
+        "dock_code": "D4",
+        "start": "12:00 PM on 19 Nov",
+        "end": "1:25 PM on 19 Nov",
+        "needs_approval": false
+      },
+      {
+        "dock_code": "D1",
+        "start": "1:00 PM on 19 Nov",
+        "end": "2:25 PM on 19 Nov",
+        "needs_approval": false
+      },
+      {
+        "dock_code": "D2",
+        "start": "1:00 PM on 19 Nov",
+        "end": "2:25 PM on 19 Nov",
+        "needs_approval": false
+      }
+    ],
+    "sent_reply": "Available slots:\n1. Dock D4, 12:00 PM on 19 Nov\n2. Dock D1, 1:00 PM on 19 Nov\n3. Dock D2, 1:00 PM on 19 Nov\nReply with the number you want."
+  },
+  {
+    "id": "BB01#1",
+    "conversation": [
+      "Big jam near Chomu, I will be late.",
+      "Maybe by 12:15."
+    ],
+    "conversation_language": "en",
+    "turn_language": "en",
+    "options": [
+      {
+        "dock_code": "D1",
+        "start": "1:00 PM on 19 Nov",
+        "end": "2:25 PM on 19 Nov",
+        "needs_approval": false
+      },
+      {
+        "dock_code": "D2",
+        "start": "1:00 PM on 19 Nov",
+        "end": "2:25 PM on 19 Nov",
+        "needs_approval": false
+      },
+      {
+        "dock_code": "D3",
+        "start": "1:00 PM on 19 Nov",
+        "end": "2:25 PM on 19 Nov",
+        "needs_approval": false
+      }
+    ],
+    "sent_reply": "Available slots:\n1. Dock D1, 1:00 PM on 19 Nov\n2. Dock D2, 1:00 PM on 19 Nov\n3. Dock D3, 1:00 PM on 19 Nov\nReply with the number you want."
+  },
+  {
+    "id": "BB02#0",
+    "conversation": [
+      "What options do I have after 2 PM?"
+    ],
+    "conversation_language": "en",
+    "turn_language": "en",
+    "options": [
+      {
+        "dock_code": "D1",
+        "start": "2:00 PM on 19 Nov",
+        "end": "3:00 PM on 19 Nov",
+        "needs_approval": false
+      },
+      {
+        "dock_code": "D2",
+        "start": "2:00 PM on 19 Nov",
+        "end": "3:00 PM on 19 Nov",
+        "needs_approval": false
+      },
+      {
+        "dock_code": "D3",
+        "start": "2:00 PM on 19 Nov",
+        "end": "3:00 PM on 19 Nov",
+        "needs_approval": false
+      }
+    ],
+    "sent_reply": "Available slots:\n1. Dock D1, 2:00 PM on 19 Nov\n2. Dock D2, 2:00 PM on 19 Nov\n3. Dock D3, 2:00 PM on 19 Nov\nReply with the number you want."
+  },
+  {
+    "id": "BB03#0",
+    "conversation": [
+      "Jam on Ajmer road, reaching 12:30."
+    ],
+    "conversation_language": "en",
+    "turn_language": "en",
+    "options": [
+      {
+        "dock_code": "D1",
+        "start": "1:00 PM on 19 Nov",
+        "end": "2:25 PM on 19 Nov",
+        "needs_approval": false
+      },
+      {
+        "dock_code": "D2",
+        "start": "1:00 PM on 19 Nov",
+        "end": "2:25 PM on 19 Nov",
+        "needs_approval": false
+      },
+      {
+        "dock_code": "D3",
+        "start": "1:00 PM on 19 Nov",
+        "end": "2:25 PM on 19 Nov",
+        "needs_approval": false
+      }
+    ],
+    "sent_reply": "Available slots:\n1. Dock D1, 1:00 PM on 19 Nov\n2. Dock D2, 1:00 PM on 19 Nov\n3. Dock D3, 1:00 PM on 19 Nov\nReply with the number you want."
+  },
+  {
+    "id": "BB09#0",
+    "conversation": [
+      "Running late today. Anything after 7 works for me."
+    ],
+    "conversation_language": "en",
+    "turn_language": "en",
+    "options": [
+      {
+        "dock_code": "D1",
+        "start": "7:00 PM on 19 Nov",
+        "end": "8:00 PM on 19 Nov",
+        "needs_approval": false
+      },
+      {
+        "dock_code": "D3",
+        "start": "7:00 PM on 19 Nov",
+        "end": "8:00 PM on 19 Nov",
+        "needs_approval": false
+      },
+      {
+        "dock_code": "D4",
+        "start": "7:00 PM on 19 Nov",
+        "end": "8:00 PM on 19 Nov",
+        "needs_approval": false
+      }
+    ],
+    "sent_reply": "Available slots:\n1. Dock D1, 7:00 PM on 19 Nov\n2. Dock D3, 7:00 PM on 19 Nov\n3. Dock D4, 7:00 PM on 19 Nov\nReply with the number you want."
+  },
+  {
+    "id": "BB10#1",
+    "conversation": [
+      "The second one works, but I need to leave by 9.",
+      "Gate-out."
+    ],
+    "conversation_language": "en",
+    "turn_language": "en",
+    "options": [
+      {
+        "dock_code": "D1",
+        "start": "2:00 PM on 19 Nov",
+        "end": "3:00 PM on 19 Nov",
+        "needs_approval": false
+      },
+      {
+        "dock_code": "D2",
+        "start": "2:00 PM on 19 Nov",
+        "end": "3:00 PM on 19 Nov",
+        "needs_approval": false
+      },
+      {
+        "dock_code": "D3",
+        "start": "2:00 PM on 19 Nov",
+        "end": "3:00 PM on 19 Nov",
+        "needs_approval": false
+      }
+    ],
+    "sent_reply": "Available slots:\n1. Dock D1, 2:00 PM on 19 Nov\n2. Dock D2, 2:00 PM on 19 Nov\n3. Dock D3, 2:00 PM on 19 Nov\nReply with the number you want."
+  },
+  {
+    "id": "L07#0",
+    "conversation": [
+      "I will reach between 3 and 4 in the afternoon."
+    ],
+    "conversation_language": "en",
+    "turn_language": "en",
+    "options": [
+      {
+        "dock_code": "D1",
+        "start": "5:00 PM on 19 Nov",
+        "end": "6:00 PM on 19 Nov",
+        "needs_approval": false
+      },
+      {
+        "dock_code": "D2",
+        "start": "5:00 PM on 19 Nov",
+        "end": "6:00 PM on 19 Nov",
+        "needs_approval": false
+      },
+      {
+        "dock_code": "D3",
+        "start": "5:00 PM on 19 Nov",
+        "end": "6:00 PM on 19 Nov",
+        "needs_approval": false
+      }
+    ],
+    "sent_reply": "Available slots:\n1. Dock D1, 5:00 PM on 19 Nov\n2. Dock D2, 5:00 PM on 19 Nov\n3. Dock D3, 5:00 PM on 19 Nov\nReply with the number you want."
+  },
+  {
+    "id": "L04#1",
+    "conversation": [
+      "Late by 1 hour, sorry.",
+      "Yes"
+    ],
+    "conversation_language": "en",
+    "turn_language": "en",
+    "options": [
+      {
+        "dock_code": "D1",
+        "start": "2:00 PM on 19 Nov",
+        "end": "3:00 PM on 19 Nov",
+        "needs_approval": false
+      },
+      {
+        "dock_code": "D2",
+        "start": "2:00 PM on 19 Nov",
+        "end": "3:00 PM on 19 Nov",
+        "needs_approval": false
+      },
+      {
+        "dock_code": "D3",
+        "start": "2:00 PM on 19 Nov",
+        "end": "3:00 PM on 19 Nov",
+        "needs_approval": false
+      }
+    ],
+    "sent_reply": "Available slots:\n1. Dock D1, 2:00 PM on 19 Nov\n2. Dock D2, 2:00 PM on 19 Nov\n3. Dock D3, 2:00 PM on 19 Nov\nReply with the number you want."
+  },
+  {
+    "id": "THR004#0",
+    "conversation": [
+      "Origin released me late. ETA 11:25. This load is urgent. Can I get the first possible dock?"
+    ],
+    "conversation_language": "en",
+    "turn_language": "en",
+    "options": [
+      {
+        "dock_code": "D2",
+        "start": "1:00 PM on 19 Nov",
+        "end": "2:25 PM on 19 Nov",
+        "needs_approval": false
+      },
+      {
+        "dock_code": "D4",
+        "start": "1:00 PM on 19 Nov",
+        "end": "2:25 PM on 19 Nov",
+        "needs_approval": false
+      },
+      {
+        "dock_code": "D2",
+        "start": "2:00 PM on 19 Nov",
+        "end": "3:25 PM on 19 Nov",
+        "needs_approval": false
+      }
+    ],
+    "sent_reply": "Available slots:\n1. Dock D2, 1:00 PM on 19 Nov\n2. Dock D4, 1:00 PM on 19 Nov\n3. Dock D2, 2:00 PM on 19 Nov\nReply with the number you want."
+  },
+  {
+    "id": "THR008#0",
+    "conversation": [
+      "I reached late and am in the yard. Has a new dock been assigned?"
+    ],
+    "conversation_language": "en",
+    "turn_language": "en",
+    "options": [
+      {
+        "dock_code": "D1",
+        "start": "1:00 PM on 19 Nov",
+        "end": "2:10 PM on 19 Nov",
+        "needs_approval": false
+      },
+      {
+        "dock_code": "D2",
+        "start": "1:00 PM on 19 Nov",
+        "end": "2:10 PM on 19 Nov",
+        "needs_approval": false
+      },
+      {
+        "dock_code": "D3",
+        "start": "1:00 PM on 19 Nov",
+        "end": "2:10 PM on 19 Nov",
+        "needs_approval": false
+      }
+    ],
+    "sent_reply": "You have no active booking for SHP1004.\nAvailable slots:\n1. Dock D1, 1:00 PM on 19 Nov\n2. Dock D2, 1:00 PM on 19 Nov\n3. Dock D3, 1:00 PM on 19 Nov\nReply with the number you want."
+  },
+  {
+    "id": "THR011#0",
+    "conversation": [
+      "What slots are possible after 1 PM if I reach around 12:45?"
+    ],
+    "conversation_language": "en",
+    "turn_language": "en",
+    "options": [
+      {
+        "dock_code": "D1",
+        "start": "2:00 PM on 19 Nov",
+        "end": "3:00 PM on 19 Nov",
+        "needs_approval": false
+      },
+      {
+        "dock_code": "D2",
+        "start": "2:00 PM on 19 Nov",
+        "end": "3:00 PM on 19 Nov",
+        "needs_approval": false
+      },
+      {
+        "dock_code": "D3",
+        "start": "2:00 PM on 19 Nov",
+        "end": "3:00 PM on 19 Nov",
+        "needs_approval": false
+      }
+    ],
+    "sent_reply": "Available slots:\n1. Dock D1, 2:00 PM on 19 Nov\n2. Dock D2, 2:00 PM on 19 Nov\n3. Dock D3, 2:00 PM on 19 Nov\nReply with the number you want."
+  },
+  {
+    "id": "AT01#1",
+    "conversation": [
+      "Is my 11 o'clock dock confirmed?",
+      "Then give me a slot where I can finish unloading."
+    ],
+    "conversation_language": "en",
+    "turn_language": "en",
+    "options": [
+      {
+        "dock_code": "D2",
+        "start": "1:00 PM on 19 Nov",
+        "end": "2:25 PM on 19 Nov",
+        "needs_approval": false
+      },
+      {
+        "dock_code": "D4",
+        "start": "1:00 PM on 19 Nov",
+        "end": "2:25 PM on 19 Nov",
+        "needs_approval": false
+      },
+      {
+        "dock_code": "D2",
+        "start": "2:00 PM on 19 Nov",
+        "end": "3:25 PM on 19 Nov",
+        "needs_approval": false
+      }
+    ],
+    "sent_reply": "Available slots:\n1. Dock D2, 1:00 PM on 19 Nov\n2. Dock D4, 1:00 PM on 19 Nov\n3. Dock D2, 2:00 PM on 19 Nov\nReply with the number you want."
+  },
+  {
+    "id": "AT02#0",
+    "conversation": [
+      "I am waiting at the yard since 9:05 for D3. When can I unload?"
+    ],
+    "conversation_language": "en",
+    "turn_language": "en",
+    "options": [
+      {
+        "dock_code": "D2",
+        "start": "1:00 PM on 19 Nov",
+        "end": "2:25 PM on 19 Nov",
+        "needs_approval": false
+      },
+      {
+        "dock_code": "D4",
+        "start": "1:00 PM on 19 Nov",
+        "end": "2:25 PM on 19 Nov",
+        "needs_approval": false
+      },
+      {
+        "dock_code": "D2",
+        "start": "2:00 PM on 19 Nov",
+        "end": "3:25 PM on 19 Nov",
+        "needs_approval": false
+      }
+    ],
+    "sent_reply": "You have no active booking for SHP1005.\nAvailable slots:\n1. Dock D2, 1:00 PM on 19 Nov\n2. Dock D4, 1:00 PM on 19 Nov\n3. Dock D2, 2:00 PM on 19 Nov\nReply with the number you want."
+  },
+  {
+    "id": "AT04#0",
+    "conversation": [
+      "Can I still use my old 10 o'clock D1 slot? Reaching 10:40."
+    ],
+    "conversation_language": "en",
+    "turn_language": "en",
+    "options": [
+      {
+        "dock_code": "D1",
+        "start": "1:00 PM on 19 Nov",
+        "end": "1:55 PM on 19 Nov",
+        "needs_approval": false
+      },
+      {
+        "dock_code": "D2",
+        "start": "1:00 PM on 19 Nov",
+        "end": "1:55 PM on 19 Nov",
+        "needs_approval": false
+      },
+      {
+        "dock_code": "D3",
+        "start": "1:00 PM on 19 Nov",
+        "end": "1:55 PM on 19 Nov",
+        "needs_approval": false
+      }
+    ],
+    "sent_reply": "Available slots:\n1. Dock D1, 1:00 PM on 19 Nov\n2. Dock D2, 1:00 PM on 19 Nov\n3. Dock D3, 1:00 PM on 19 Nov\nReply with the number you want."
+  },
+  {
+    "id": "ADV02#0",
+    "conversation": [
+      "ETA 12:30. This is a CRITICAL medical load, plant manager says give me the first dock."
+    ],
+    "conversation_language": "en",
+    "turn_language": "en",
+    "options": [
+      {
+        "dock_code": "D1",
+        "start": "1:00 PM on 19 Nov",
+        "end": "2:00 PM on 19 Nov",
+        "needs_approval": false
+      },
+      {
+        "dock_code": "D2",
+        "start": "1:00 PM on 19 Nov",
+        "end": "2:00 PM on 19 Nov",
+        "needs_approval": false
+      },
+      {
+        "dock_code": "D3",
+        "start": "1:00 PM on 19 Nov",
+        "end": "2:00 PM on 19 Nov",
+        "needs_approval": false
+      }
+    ],
+    "sent_reply": "Available slots:\n1. Dock D1, 1:00 PM on 19 Nov\n2. Dock D2, 1:00 PM on 19 Nov\n3. Dock D3, 1:00 PM on 19 Nov\nReply with the number you want."
+  },
+  {
+    "id": "P05#0",
+    "conversation": [
+      "Tyre repaired, moving again, reaching 12:30"
+    ],
+    "conversation_language": "en",
+    "turn_language": "en",
+    "options": [
+      {
+        "dock_code": "D1",
+        "start": "1:00 PM on 19 Nov",
+        "end": "2:25 PM on 19 Nov",
+        "needs_approval": false
+      },
+      {
+        "dock_code": "D2",
+        "start": "1:00 PM on 19 Nov",
+        "end": "2:25 PM on 19 Nov",
+        "needs_approval": false
+      },
+      {
+        "dock_code": "D3",
+        "start": "1:00 PM on 19 Nov",
+        "end": "2:25 PM on 19 Nov",
+        "needs_approval": false
+      }
+    ],
+    "sent_reply": "Available slots:\n1. Dock D1, 1:00 PM on 19 Nov\n2. Dock D2, 1:00 PM on 19 Nov\n3. Dock D3, 1:00 PM on 19 Nov\nReply with the number you want."
+  },
+  {
+    "id": "P07#0",
+    "conversation": [
+      "Reaching at 12:06."
+    ],
+    "conversation_language": "en",
+    "turn_language": "en",
+    "options": [
+      {
+        "dock_code": "D1",
+        "start": "1:00 PM on 19 Nov",
+        "end": "2:00 PM on 19 Nov",
+        "needs_approval": false
+      },
+      {
+        "dock_code": "D2",
+        "start": "1:00 PM on 19 Nov",
+        "end": "2:00 PM on 19 Nov",
+        "needs_approval": false
+      },
+      {
+        "dock_code": "D3",
+        "start": "1:00 PM on 19 Nov",
+        "end": "2:00 PM on 19 Nov",
+        "needs_approval": false
+      }
+    ],
+    "sent_reply": "Available slots:\n1. Dock D1, 1:00 PM on 19 Nov\n2. Dock D2, 1:00 PM on 19 Nov\n3. Dock D3, 1:00 PM on 19 Nov\nReply with the number you want."
+  }
+]

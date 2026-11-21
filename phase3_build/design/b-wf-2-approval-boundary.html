@@ -1,0 +1,232 @@
+<title>SetuHaul Approval Boundary</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Archivo:wght@600;700&display=swap">
+<style>
+/* Layout: one reading column; tables and the state diagram scroll inside their own boxes */
+:root {
+  --bg: #f6f7f5; --surface: #ffffff; --fg: #1d2420; --muted: #5b665f; --line: #d6dcd7;
+  --accent: #1f6f5c; --accent-soft: #e2efe9; --warn: #9a5b00; --warn-soft: #fbefdc; --bad: #a33a2b; --bad-soft: #f8e4e0;
+  --display: "Archivo", "Segoe UI", system-ui, sans-serif;
+  --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #141917; --surface: #1b211e; --fg: #e4e9e5; --muted: #9aa6a0; --line: #2f3833;
+  --accent: #5cc2a4; --accent-soft: #1d3a31; --warn: #e3a64a; --warn-soft: #3a2c16; --bad: #ef8a7a; --bad-soft: #3d221d; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #141917; --surface: #1b211e; --fg: #e4e9e5; --muted: #9aa6a0; --line: #2f3833;
+  --accent: #5cc2a4; --accent-soft: #1d3a31; --warn: #e3a64a; --warn-soft: #3a2c16; --bad: #ef8a7a; --bad-soft: #3d221d; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font: 15px/1.55 var(--body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 32px 56px; }
+main { max-width: 920px; margin: 0 auto; display: grid; gap: 30px; }
+h1, h2 { font-family: var(--display); text-wrap: balance; margin: 0; line-height: 1.2; }
+h1 { font-size: 1.9rem; }
+h2 { font-size: 1.2rem; }
+h2 .tag { font: 500 .72rem/1 var(--mono); color: var(--accent); background: var(--accent-soft); padding: 4px 7px; border-radius: 4px; margin-left: 8px; vertical-align: middle; letter-spacing: .04em; }
+p { margin: 0; max-width: 70ch; }
+section { display: grid; gap: 12px; min-width: 0; }
+.eyebrow { font: 500 .75rem/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.status { display: inline-block; font: 500 .78rem/1.3 var(--mono); padding: 6px 10px; border-radius: 4px; background: var(--warn-soft); color: var(--warn); }
+.thesis { background: var(--accent-soft); border-left: 3px solid var(--accent); padding: 14px 18px; font-size: 1.04rem; }
+.scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; min-width: 660px; font-size: .9rem; }
+th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+th { font: 600 .74rem/1.3 var(--mono); letter-spacing: .04em; text-transform: uppercase; color: var(--muted); background: var(--bg); }
+tr:last-child td { border-bottom: 0; }
+code, pre { font: .85em var(--mono); }
+code { background: var(--bg); padding: 1px 5px; border-radius: 3px; }
+pre { margin: 0; padding: 14px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; overflow-x: auto; line-height: 1.5; }
+svg text { font-family: var(--mono); }
+ul.tight { margin: 0; padding-left: 1.2em; display: grid; gap: 6px; max-width: 74ch; }
+.decided { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.decided > div { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; display: grid; gap: 6px; min-width: 0; }
+.decided b { font: 500 .78rem/1 var(--mono); color: var(--accent); }
+.decided span { font-size: .9rem; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.two > div { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; min-width: 0; }
+.two h3 { margin: 0 0 8px; font: 600 .8rem/1.2 var(--mono); text-transform: uppercase; letter-spacing: .06em; }
+.two ul { margin: 0; padding-left: 1.1em; display: grid; gap: 4px; font-size: .9rem; }
+@media (max-width: 640px) { .two, .decided { grid-template-columns: 1fr; } h1 { font-size: 1.5rem; } }
+</style>
+
+<main>
+<header style="display:grid;gap:10px">
+  <span class="eyebrow">SetuHaul · Build step 4 · B-WF-2 · revision 2 · 19 Nov 2026</span>
+  <h1>Warehouse approval boundary</h1>
+  <span><span class="status">Architecture approved. Revision 2 adds your decisions and clarifications A–E. For review, not implemented</span></span>
+</header>
+
+<p class="thesis">The agent can only <b>ask</b>. A request becomes CONFIRMED only when an authenticated warehouse person decides inside a database function. That function enforces every booking and capacity rule itself, before one deadline shared by the request and its claim on the slot. Every other outcome is final and recorded. Step Functions only waits, and the driver's notification never depends on it. Policy confirmation is a separate path, never recorded as a human approval, and every rule ships switched off. The booking switch stays off.</p>
+
+<section>
+  <h2>Your decisions</h2>
+  <div class="decided">
+    <div><b>Q1 · Policy rules</b><span>Rule table ships with every rule set to NEEDS_PLANNER. A policy confirmation records basis POLICY with its rule id, never APPROVED, never a person, never the AI.</span></div>
+    <div><b>Q2 · Roles</b><span>Mapping accepted. <code>operations</code> is now defined, and every permission is facility-scoped from the verified session.</span></div>
+    <div><b>Q3 · Pauses and holds</b><span>An automation pause stops only the agent. A new operational or safety hold blocks approvals and new requests.</span></div>
+    <div><b>Q4 · Withdrawal</b><span>Staff only, with a reason code. WITHDRAWN (with DRIVER_REQUESTED as one reason code) is kept separate from SUPERSEDED (replaced by another booking).</span></div>
+  </div>
+</section>
+
+<section>
+  <h2>States</h2>
+  <p>The approval and the appointment change together, in one transaction. Every final status is permanent and records who decided (person, system or policy) and why.</p>
+  <div class="scroll">
+  <svg viewBox="0 0 900 430" width="900" height="430" role="img" aria-label="Approval state diagram with six final outcomes and a separate inactive policy path">
+    <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker></defs>
+    <text x="20" y="28" fill="var(--muted)" font-size="11">submit_booking_request · agent · attested YES bound to message, driver,</text>
+    <text x="20" y="44" fill="var(--muted)" font-size="11">shipment, conversation, slot, selection</text>
+    <path d="M110,52 L110,150" stroke="var(--muted)" stroke-width="1.4" fill="none" marker-end="url(#a)"/>
+    <rect x="20" y="154" width="190" height="80" rx="6" fill="var(--accent-soft)" stroke="var(--accent)"/>
+    <text x="115" y="182" text-anchor="middle" fill="var(--fg)" font-size="15" font-weight="500">OPEN</text>
+    <text x="115" y="201" text-anchor="middle" fill="var(--muted)" font-size="11">PENDING_CONFIRMATION</text>
+    <text x="115" y="221" text-anchor="middle" fill="var(--muted)" font-size="11">active claim · one deadline</text>
+    <g font-size="12">
+      <rect x="600" y="14" width="280" height="50" rx="6" fill="var(--surface)" stroke="var(--accent)"/>
+      <text x="614" y="35" fill="var(--fg)" font-weight="500">APPROVED → CONFIRMED</text>
+      <text x="614" y="53" fill="var(--muted)" font-size="11">old booking CANCELLED</text>
+      <rect x="600" y="74" width="280" height="50" rx="6" fill="var(--surface)" stroke="var(--line)"/>
+      <text x="614" y="95" fill="var(--fg)" font-weight="500">REJECTED → REJECTED</text>
+      <text x="614" y="113" fill="var(--muted)" font-size="11">claim released</text>
+      <rect x="600" y="134" width="280" height="50" rx="6" fill="var(--surface)" stroke="var(--line)"/>
+      <text x="614" y="155" fill="var(--fg)" font-weight="500">EXPIRED → EXPIRED</text>
+      <text x="614" y="173" fill="var(--muted)" font-size="11">claim released · old booking kept</text>
+      <rect x="600" y="194" width="280" height="50" rx="6" fill="var(--bad-soft)" stroke="var(--bad)"/>
+      <text x="614" y="215" fill="var(--fg)" font-weight="500">INVALIDATED → CANCELLED</text>
+      <text x="614" y="233" fill="var(--muted)" font-size="11">capacity or slot lost · reason kept</text>
+      <rect x="600" y="254" width="280" height="50" rx="6" fill="var(--surface)" stroke="var(--line)"/>
+      <text x="614" y="275" fill="var(--fg)" font-weight="500">WITHDRAWN → CANCELLED</text>
+      <text x="614" y="293" fill="var(--muted)" font-size="11">reason code · e.g. DRIVER_REQUESTED</text>
+      <rect x="600" y="314" width="280" height="50" rx="6" fill="var(--surface)" stroke="var(--line)"/>
+      <text x="614" y="335" fill="var(--fg)" font-weight="500">SUPERSEDED → CANCELLED</text>
+      <text x="614" y="353" fill="var(--muted)" font-size="11">superseded_by = new appointment</text>
+    </g>
+    <g stroke="var(--muted)" fill="none" stroke-width="1.4" marker-end="url(#a)">
+      <path d="M210,166 C400,166 420,39 596,39"/>
+      <path d="M210,178 C400,178 420,99 596,99"/>
+      <path d="M210,190 C400,190 420,159 596,159"/>
+      <path d="M210,202 C400,202 420,219 596,219"/>
+      <path d="M210,214 C400,214 420,279 596,279"/>
+      <path d="M210,226 C400,226 420,339 596,339"/>
+    </g>
+    <g font-size="11" fill="var(--fg)">
+      <text x="300" y="64">approve · human, role for kind</text>
+      <text x="300" y="112">reject · human</text>
+      <text x="318" y="160">expire · system at deadline</text>
+      <text x="318" y="232">invalidate · same tx as capacity loss</text>
+      <text x="300" y="282">withdraw · staff + reason</text>
+      <text x="290" y="330">supersede · new booking</text>
+    </g>
+    <g font-size="11">
+      <rect x="20" y="384" width="860" height="34" rx="6" fill="none" stroke="var(--line)" stroke-dasharray="5 4"/>
+      <text x="34" y="405" fill="var(--muted)">Separate path, inactive in v1 · policy rule → appointment CONFIRMED, basis POLICY, rule id + version · no approval row · never "APPROVED"</text>
+    </g>
+  </svg>
+  </div>
+</section>
+
+<section>
+  <h2>Who can move it</h2>
+  <div class="scroll"><table>
+    <tr><th>Transition</th><th>Only through</th><th>Who</th><th>Database guards (database clock)</th></tr>
+    <tr><td>Create</td><td><code>submit_booking_request</code></td><td>Agent role</td><td>Attestation valid under the conversation lock (A); live hold; every invariant (B); a confirmer is available before the deadline, otherwise a person is asked</td></tr>
+    <tr><td>Approve</td><td><code>decide_booking_request</code></td><td>Human with the role for this kind; facility in session scope</td><td>OPEN; before the deadline; no operational hold; every invariant re-checked</td></tr>
+    <tr><td>Reject</td><td><code>decide_booking_request</code></td><td>Same roles</td><td>OPEN; allowed during any hold or pause</td></tr>
+    <tr><td>Expire</td><td><code>expire_pending_requests</code></td><td>System: every minute, plus an exact-time timer</td><td>OPEN and deadline ≤ now()</td></tr>
+    <tr><td>Invalidate</td><td>The function that removed the capacity</td><td>Whoever made that change</td><td>In the same transaction as the change (D)</td></tr>
+    <tr><td>Withdraw</td><td><code>withdraw_booking_request</code></td><td><code>operations</code>, <code>planner</code> or <code>ops_lead</code> at the facility</td><td>OPEN; reason code and note required</td></tr>
+    <tr><td>Supersede</td><td>The function that creates the replacing booking</td><td>Staff</td><td>OPEN; same transaction; <code>superseded_by</code> recorded</td></tr>
+  </table></div>
+  <p>The decider is never a function argument. The database reads it from session settings that the console API sets after verifying the Cognito token.</p>
+</section>
+
+<section>
+  <h2>A · The driver's YES <span class="tag">clarification</span></h2>
+  <p>Already bound to the conversation, the option, the selection and the exact message; any later driver message voids it; expires in 10 minutes. Revision 2 adds snapshot columns, compares them again at submission, and lets each YES be used once.</p>
+  <div class="scroll"><table>
+    <tr><th>Bound to</th><th>Checked at submission</th></tr>
+    <tr><td>Inbound message</td><td>Still the newest driver message in the conversation</td></tr>
+    <tr><td>Driver</td><td>Equals the conversation's driver and the session's driver</td></tr>
+    <tr><td>Shipment</td><td>Equals the shipment the conversation is bound to now</td></tr>
+    <tr><td>Conversation</td><td>Same conversation, under its lock</td></tr>
+    <tr><td>Proposed slot</td><td>Dock and time equal the option, the hold and the new appointment</td></tr>
+    <tr><td>Confirmation version</td><td>Latest selection; schedule version unchanged, or the slot re-proven under B</td></tr>
+  </table></div>
+  <p>After submission, a new driver message does not silently cancel the request. A "cancel" goes to a coordinator, who withdraws it with reason <code>DRIVER_REQUESTED</code>.</p>
+</section>
+
+<section>
+  <h2>B · The database decides feasibility <span class="tag">clarification</span></h2>
+  <p>The application check is advisory, for an early, clear message. Every critical rule is enforced again inside the function, atomically, under row locks.</p>
+  <ul class="tight">
+    <li>One truck per dock at a time, and one vehicle per time window: existing exclusion constraints.</li>
+    <li>One current booking per shipment: existing unique index.</li>
+    <li>The claim is active and matches the dock and slot exactly: checked in the function and by a commit-time trigger.</li>
+    <li>The dock is active, compatible and not blocked; the slot is inside operating hours unless its kind allows otherwise.</li>
+    <li>The slot starts at least the lead time from now; the shipment is not cancelled and not already in the dock.</li>
+    <li>No operational hold. The decider's role and facility are taken from the session.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>D + E · One deadline; nothing left unapprovable <span class="tag">clarification</span></h2>
+  <pre>deadline = least( now() + warehouse TTL for the shift,
+                  slot start − confirmation lead time,
+                  the hold's own expiry )            ← computed once, at submission</pre>
+  <ul class="tight">
+    <li>The hold row becomes the request's claim and carries the same deadline. Expiry releases both in one transaction.</li>
+    <li>A deferred trigger refuses any commit that leaves an OPEN request with an inactive claim, or a claim that no longer matches.</li>
+    <li>Because the deadline is at or before the slot start minus the lead time, a request can never be OPEN once its slot is too late. Approval is refused after the deadline even before the sweep runs.</li>
+    <li>When capacity is lost, the request is invalidated in the same transaction: a dock block records <code>CAPACITY_LOST</code>, dock deactivation <code>DOCK_UNAVAILABLE</code>, a shipment change <code>SHIPMENT_CHANGED</code>, changed hours <code>OUTSIDE_HOURS</code>.</li>
+    <li>An operational hold blocks approval but does not invalidate; the request expires normally if the hold lasts past the deadline.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>C · Durable events; Step Functions only waits <span class="tag">clarification</span></h2>
+  <p>Every final transition writes an <code>ApprovalDecided</code> outbox event (approval, appointment, outcome, reason, decider type, time), the existing booking event and an audit row, all in the same transaction. Driver notification (B-WF-3) reads the outbox, so it works with the workflow stopped.</p>
+  <div class="scroll"><table>
+    <tr><th>Step</th><th>What happens</th></tr>
+    <tr><td>Start</td><td><code>BookingRequested</code> → execution named after the approval id; starting twice does nothing</td></tr>
+    <tr><td>Wait</td><td>Remind approvers → <code>waitForTaskToken</code> until the deadline</td></tr>
+    <tr><td>Callback</td><td>Carries the approval id only; the server looks up the token. Ends the execution</td></tr>
+    <tr><td>Timeout</td><td>Calls the database expiry, which changes nothing if the request is already closed</td></tr>
+    <tr><td>Lost execution</td><td>The reconciler tidies up; the expiry sweep still closes the request. PostgreSQL wins</td></tr>
+  </table></div>
+</section>
+
+<section>
+  <h2>Roles, holds and pauses</h2>
+  <div class="scroll"><table>
+    <tr><th>Role</th><th>Who it is</th><th>May (only at facilities in the session's scope)</th></tr>
+    <tr><td><code>operations</code></td><td>Shift coordinator in one facility's dock office</td><td>Decide plain requests during operating hours; withdraw; take over a conversation</td></tr>
+    <tr><td><code>planner</code></td><td>Facility planner</td><td>Everything above, plus AFTER_HOURS_START and DOCK_DOWNGRADE</td></tr>
+    <tr><td><code>ops_lead</code></td><td>Facility operations lead</td><td>Everything above, plus MOVE_CONFIRMED_PROMISE and PRIORITY_OVERRIDE; sets and clears operational holds</td></tr>
+  </table></div>
+  <div class="scroll"><table>
+    <tr><th>Switch</th><th>Stops</th><th>Does not stop</th></tr>
+    <tr><td>Automation pause (exists)</td><td>Agent requests; policy confirmations</td><td>Human approve, reject, withdraw; expiry</td></tr>
+    <tr><td>Operational or safety hold (new; facility or dock; audited)</td><td>Approvals that would execute a booking; new requests</td><td>Reject, withdraw, expiry, invalidation</td></tr>
+  </table></div>
+  <p>A <code>CENTRAL</code> scope gives visibility, not approval rights.</p>
+</section>
+
+<section>
+  <h2>Local now, AWS in step 6</h2>
+  <div class="two">
+    <div><h3 style="color:var(--accent)">Built and tested locally (B-WF-2)</h3><ul>
+      <li>Migrations, functions, transition and commit-time triggers, roles, RLS, database-clock deadline</li>
+      <li>One test per transition × allowed, wrong-role and wrong-facility caller; one per invariant, bypassing the service</li>
+      <li>Races: approve vs approve, reject, expiry, block, withdraw</li>
+      <li><code>LocalApprovalWorkflow</code>, reconciler, ASL file with a structural test; driver notified with the workflow stopped</li>
+      <li>Findings ledger and requirement → test matrix</li>
+    </ul></div>
+    <div><h3 style="color:var(--warn)">Real AWS acceptance (step 6)</h3><ul>
+      <li>Same migrations on Aurora</li>
+      <li>Step Functions Standard: real <code>waitForTaskToken</code>, timeouts, callbacks; EventBridge Scheduler</li>
+      <li>Real Cognito groups, API Gateway authoriser, session settings from real tokens</li>
+      <li>Published state-machine version in the deployment manifest, plus drift detection</li>
+    </ul></div>
+  </div>
+</section>
+</main>

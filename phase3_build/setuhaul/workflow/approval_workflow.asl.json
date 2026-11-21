@@ -1,0 +1,33 @@
+{
+  "Comment": "SetuHaul B-WF-2 warehouse approval wait. Waits and wakes only: every decision is made and recorded in PostgreSQL first (design/B-WF-2_approval_design.md section 9). Execution name = approval_id, so a second start is a no-op.",
+  "StartAt": "NotifyApprovers",
+  "States": {
+    "NotifyApprovers": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {"FunctionName": "${NotifyApproversFunction}", "Payload": {"approval_id.$": "$.approval_id"}},
+      "ResultPath": null,
+      "Retry": [{"ErrorEquals": ["States.TaskFailed"], "IntervalSeconds": 5, "MaxAttempts": 3, "BackoffRate": 2.0}],
+      "Next": "WaitForDecision"
+    },
+    "WaitForDecision": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+      "Parameters": {"FunctionName": "${RecordTaskTokenFunction}",
+                     "Payload": {"approval_id.$": "$.approval_id", "task_token.$": "$$.Task.Token"}},
+      "TimeoutSecondsPath": "$.timeout_s",
+      "ResultPath": null,
+      "Catch": [{"ErrorEquals": ["States.Timeout"], "ResultPath": null, "Next": "ExpireApproval"}],
+      "Next": "Done"
+    },
+    "ExpireApproval": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {"FunctionName": "${ExpireApprovalFunction}", "Payload": {"approval_id.$": "$.approval_id"}},
+      "ResultPath": null,
+      "Retry": [{"ErrorEquals": ["States.TaskFailed"], "IntervalSeconds": 5, "MaxAttempts": 3, "BackoffRate": 2.0}],
+      "Next": "Done"
+    },
+    "Done": {"Type": "Succeed"}
+  }
+}

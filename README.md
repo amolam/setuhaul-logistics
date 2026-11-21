@@ -1,0 +1,95 @@
+# SetuHaul Logistics: Driver Exception and Dock Re-scheduling Service
+
+FDE portfolio project. Truck drivers message SetuHaul on WhatsApp when they run late or break down. The service reads
+the message, offers dock slots that still work, books or requests approval, and stays correct when many drivers want
+the same slot. **All driver, shipment, warehouse and booking data in this repository is synthetic.**
+
+## Status (21 Nov 2026)
+
+| Area | Status |
+|---|---|
+| Phase 1 Frame, Phase 2 Design | Done |
+| Phase 3 Build, local | **Done.** 743 tests pass on local PostgreSQL 18 (developer-reported full run, 21 Nov 2026) |
+| Human checks | Demo walkthroughs F1–F9 done; F5 and F6 confirmed by the owner. Native-speaker Hindi/Hinglish review done (S4-R2-08) |
+| AWS deployment (step 6) | **Not started.** B-AWS-0 (the account is limited to Sydney, `ap-southeast-2`) and the six deployment gates in `phase3_build/DEPLOYMENT_GATES.md` are open |
+| Live booking | **Off.** `SETUHAUL_BOOKING_ENABLED` stays off until the six gates pass and the owner approves |
+
+**Local work complete does not mean AWS accepted.** Everything above runs locally with stand-ins for AWS (local queue,
+local workflow, locally signed tokens, a local WhatsApp provider). Real AWS acceptance is step 6.
+
+## How it works
+
+- **The AI only reads.** One model call per driver message extracts a structured report (arrival time, delay, breakdown,
+  chosen option). It is validated against a strict schema; anything invalid or unclear makes the agent ask again.
+- **Code and the database decide.** Python rules and PostgreSQL functions check feasibility, select and hold slots,
+  submit requests and record approvals. Warehouse staff approve where policy requires.
+- **Every reply is a fixed template** in English, Hindi or Hinglish (owner decision OD-3); no model writes replies.
+- **If the model is unavailable**, a rules-based reader takes over and booking is unaffected.
+
+Provider direction for the Sydney pilot: OpenRouter as the primary model provider for synthetic data, Amazon Bedrock as
+an optional provider. The code change for this is Phase B of the release plan; until then the deployed entry point
+(`production_model()`) accepts Bedrock only.
+
+## Layout
+
+| Path | Contents |
+|---|---|
+| `docs/` | Client brief (PDF) and reference architecture sketch |
+| `data/` | Synthetic data package: SQLite snapshot, schema and seed SQL, data dictionary, ER diagram, guide |
+| `phase1_frame/` | **Phase 1 · Frame**: problem definition, data audit, variables, high-level design, ETA signal strategy |
+| `phase2_design/` | **Phase 2 · Design**: decision register, AWS architecture, data model (`schema.sql`), tool contracts, state machines, agent design, cost |
+| `phase3_build/` | **Phase 3 · Build**: migrations, database functions, ETA fusion, feasibility engine, booking flow, FastAPI backend, agent, workflow, notifications, tests, evaluation evidence, demo console |
+
+Key documents in `phase3_build/`: `README.md` (build detail), `DEPLOYMENT_GATES.md` (what step 6 must prove),
+`FINDINGS_LEDGER.md` (every review finding and its status), `TRACEABILITY.md` (requirement → test), `REVIEW_LOG.md`
+(review history, kept as written), `COSTS.md` (model spend so far).
+
+## Run the tests
+
+Needs Python 3.14 and a local PostgreSQL 18 server.
+
+```bash
+pip install -r phase3_build/requirements-dev.txt
+```
+
+```bash
+SETUHAUL_TEST_DSN="host=localhost port=55432 user=postgres" python -m pytest phase3_build/tests -q
+```
+
+Without `SETUHAUL_TEST_DSN` only the database-free tests run (the rest are skipped). Configuration names are listed in
+`.env.example` (placeholders only).
+
+## Run the demo console
+
+```bash
+python phase3_build/demo/server.py
+```
+
+Opens a local console at `http://127.0.0.1:8765/demo` with guided walkthroughs. It uses the rules-based reader, so no
+model is called and nothing is billed.
+
+## Phase 1 and 2 evidence scripts
+
+The audit and feasibility scripts need only the Python standard library; the solver spike needs OR-Tools.
+
+```bash
+python phase1_frame/run_audit.py
+```
+
+```bash
+python phase1_frame/feasibility_prototype.py
+```
+
+```bash
+pip install ortools==9.15.6755
+```
+
+```bash
+python phase1_frame/solver_spike.py
+```
+
+Validate the Phase 2 data model (creates and drops its own `setuhaul_validate` database):
+
+```bash
+python phase2_design/validate_schema.py "host=localhost port=5432 user=postgres"
+```

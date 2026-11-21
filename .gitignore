@@ -1,0 +1,34 @@
+# Python: generated, rebuilt automatically
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.venv/
+venv/
+
+# Secrets and local configuration: never committed (.env.example is the template)
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+secrets/
+
+# Review bundles and build archives (kept outside the repository in setUhaul_archive/)
+*.zip
+
+# Local tool and editor settings
+.claude/
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+.DS_Store
+
+# Local test database and unpacked copies used for verification runs
+pgdata/
+pg.log
+unz*/
+pt*/

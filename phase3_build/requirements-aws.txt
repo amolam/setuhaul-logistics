@@ -1,0 +1,3 @@
+# AWS runtime extras: SQS inbound queue and the optional Amazon Bedrock provider (imported lazily)
+-r requirements.txt
+boto3==1.40.70

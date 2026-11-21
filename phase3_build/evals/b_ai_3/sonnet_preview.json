@@ -1,0 +1,40 @@
+{
+  "source": "spike/results_OpenRouterModel_20261118_0231.json",
+  "prompt_version": "p2-2026-11-18",
+  "note": "recorded spike drafts (synthetic options), checked at no cost",
+  "rows": [
+    {
+      "lang": "en",
+      "draft": "Available slots:\n1. Dock D2, 12:00 PM on 4 Aug\n2. Dock D3, 12:30 PM on 4 Aug\n3. Dock D5, 1:15 PM on 4 Aug\n\nReply with the number you want.",
+      "checks": {
+        "grounding": [],
+        "completeness": [],
+        "language": [],
+        "policy": [],
+        "register": []
+      }
+    },
+    {
+      "lang": "hi",
+      "draft": "उपलब्ध स्लॉट:\n1. डॉक D2, 12:00 PM, 4 Aug\n2. डॉक D3, 12:30 PM, 4 Aug\n3. डॉक D5, 1:15 PM, 4 Aug\n\nकृपया अपनी पसंद का नंबर भेजें।",
+      "checks": {
+        "grounding": [],
+        "completeness": [],
+        "language": [],
+        "policy": [],
+        "register": []
+      }
+    },
+    {
+      "lang": "en",
+      "draft": "Okay, here are the available slots:\n\n1. Dock D2, 12:00 PM on 4 Aug\n2. Dock D3, 12:30 PM on 4 Aug\n3. Dock D5, 1:15 PM on 4 Aug\n\nPlease reply with the number you want.",
+      "checks": {
+        "grounding": [],
+        "completeness": [],
+        "language": [],
+        "policy": [],
+        "register": []
+      }
+    }
+  ]
+}

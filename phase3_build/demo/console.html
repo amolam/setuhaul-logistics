@@ -1,0 +1,636 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SetuHaul Demo Console</title>
+<style>
+:root{--bg:#f4f5f7;--card:#fff;--ink:#1d2330;--muted:#667085;--line:#dfe3ea;--accent:#2457c5;--ok:#1f7a4d;--bad:#b42318;
+--warn:#a15c07;--phone:#e9f5ee;--bubble-out:#dcf8c6;--bubble-in:#fff;--chip:#eef2f8}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#12151b;--card:#1b2029;--ink:#e6e9ef;--muted:#98a2b3;
+--line:#2c3340;--accent:#7aa2ff;--ok:#4ade80;--bad:#f87171;--warn:#fbbf24;--phone:#0f1a14;--bubble-out:#1f3b2a;--bubble-in:#232a35;--chip:#252c38}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,Segoe UI,Roboto,sans-serif}
+header{padding:12px 16px;border-bottom:1px solid var(--line);background:var(--card);display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+header h1{font-size:17px;margin:0}.banner{font-size:12px;color:var(--muted)}
+.pill{font-size:12px;padding:2px 8px;border-radius:99px;background:var(--chip)}.pill.off{color:var(--bad);font-weight:600}
+main{display:grid;grid-template-columns:minmax(300px,380px) 1fr;gap:16px;padding:16px}
+@media (max-width:900px){main{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px;min-width:0}
+h2{font-size:15px;margin:0 0 8px}h3{font-size:13px;margin:12px 0 6px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+select,input,textarea,button{font:inherit;color:inherit}
+select,input,textarea{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;width:100%}
+button{background:var(--accent);color:#fff;border:0;border-radius:6px;padding:6px 10px;cursor:pointer}
+button.ghost{background:var(--chip);color:var(--ink)}button.ok{background:var(--ok)}button.bad{background:var(--bad)}
+button:disabled{opacity:.5;cursor:default}
+.row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.row>*{flex:0 0 auto}.grow{flex:1 1 auto!important}
+.phone{background:var(--phone);border-radius:10px;height:380px;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:6px}
+.b{max-width:85%;padding:6px 9px;border-radius:8px;white-space:pre-wrap;word-wrap:break-word;box-shadow:0 1px 0 rgba(0,0,0,.06)}
+.b.out{align-self:flex-end;background:var(--bubble-out)}.b.sys{align-self:center;max-width:95%;background:transparent;border:1px dashed var(--line);color:var(--muted);font-size:12px;box-shadow:none}.b.in{align-self:flex-start;background:var(--bubble-in)}
+.b small{display:block;color:var(--muted);font-size:11px;margin-top:2px}
+.tabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px}.tabs button{background:var(--chip);color:var(--ink)}
+.tabs button.on{background:var(--accent);color:#fff}
+.tablewrap{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{border-bottom:1px solid var(--line);padding:5px 6px;text-align:left;vertical-align:top}th{color:var(--muted);font-weight:600}
+.mono{font-family:ui-monospace,Consolas,monospace;font-size:12px}.muted{color:var(--muted)}
+.empty{color:var(--muted);padding:8px 0}
+.log{max-height:220px;overflow-y:auto;font-size:12px}.log div{border-bottom:1px dashed var(--line);padding:3px 0}
+.log .error{color:var(--bad)}
+.flows{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px}
+.flow{border:1px solid var(--line);border-radius:8px;padding:10px}.flow h4{margin:0 0 4px;font-size:14px}
+.flow ol{margin:4px 0 6px 18px;padding:0}.flow .exp{font-size:12px;color:var(--muted)}
+.res-pass{color:var(--ok);font-weight:600}.res-fail{color:var(--bad);font-weight:600}.res-skip{color:var(--warn);font-weight:600}
+.state{font-size:12px}.state b{font-weight:600}
+#toast{position:fixed;bottom:14px;right:14px;max-width:420px;background:var(--ink);color:var(--bg);padding:8px 12px;border-radius:8px;
+display:none;font-size:13px;white-space:pre-wrap}
+.gflow{text-align:left;line-height:1.25;max-width:190px}.gflow.on{outline:2px solid var(--accent)}
+.gsteps{margin:0;padding-left:0;list-style:none}.gsteps>li{border-left:3px solid var(--line);padding:6px 10px;margin:4px 0}
+.gsteps>li.cur{border-left-color:var(--accent);background:var(--chip);border-radius:0 6px 6px 0}.gm{display:inline-block;width:14px}
+.gwhy{margin-top:4px}.gchecks{margin:4px 0 0 18px;padding:0;list-style:none}.gchecks li{margin:2px 0}
+.gend{border:1px solid var(--line);border-radius:8px;padding:10px;margin-top:8px}
+</style>
+</head>
+<body>
+<header>
+  <h1>SetuHaul demo console</h1>
+  <span class="pill">local stack</span><span class="pill">AI: rules extractor (no model call)</span>
+  <span class="pill off">production booking switch OFF</span>
+  <span class="banner">WhatsApp, Cognito, SQS and Step Functions are local stand-ins. Database, API, agent and workflow are the real code.</span>
+</header>
+
+<section class="card" style="margin:16px 16px 0">
+  <h2>Guided walkthrough</h2>
+  <details style="margin-bottom:8px"><summary class="muted">How this page works (read once)</summary>
+    <p>You are looking at the whole system on your own computer. <b>Left:</b> a truck driver's WhatsApp. <b>Right:</b> the
+    warehouse staff's screen. The agent sits between them: it reads the driver's messages, offers dock slots, and sends
+    booking <i>requests</i>. Only the warehouse, or a rule the warehouse authorised, can confirm a booking.</p>
+    <p>Pick a flow below, then press <b>Run this step</b> again and again. Each step says what is happening in real
+    life, does it, and checks the result (✓ as expected, ✗ not as expected, ℹ for information). Watch the phone and
+    the console below change as you go. At the end, press Pass or Fail. Your verdict is saved.</p>
+    <p class="muted">Nothing here touches WhatsApp, AWS or real trucks. The AI is replaced by simple rules, so there is no cost.</p></details>
+  <div class="row" id="gflows"></div>
+  <div id="gbody" style="margin-top:8px"></div>
+</section>
+<main>
+<!-- ============================================================ driver phone -->
+<section class="card">
+  <h2>Driver's phone (WhatsApp)</h2>
+  <div class="row"><select id="driver" class="grow"></select><button class="ghost" id="newdrv" title="Add a fresh driver">+ driver</button></div>
+  <div id="drvinfo" class="muted" style="font-size:12px;margin:4px 0 8px"></div>
+  <div class="phone" id="phone"></div>
+  <div class="row" style="margin-top:8px"><input id="msg" class="grow" placeholder="Type as the driver, e.g. traffic hai, 2 ghante late"><button id="send">Send</button></div>
+  <div class="row" style="margin-top:6px">
+    <button class="ghost" data-q="Stuck in traffic, reaching around 2 hours late. Any slot?">Delay (EN)</button>
+    <button class="ghost" data-q="bhai traffic hai, 2 ghante late ho jaunga">Delay (Hinglish)</button>
+    <button class="ghost" data-q="2">Pick 2</button>
+    <button class="ghost" data-q="haan ji, kar do">Yes (haan ji)</button>
+    <button class="ghost" data-q="accident ho gaya, truck side mein hai">Safety</button>
+  </div>
+  <h3>Delivery tricks (F6, F7)</h3>
+  <div class="row">
+    <button class="ghost" id="dup" title="Meta posts the last message again with the same id">Resend last webhook</button>
+    <button class="ghost" id="redeliver" title="The queue hands the agent the same event again">Redeliver to agent</button>
+  </div>
+  <div class="row" style="margin-top:6px">
+    <select id="nextsend" style="width:auto"><option value="timeout">next send: timeout (ambiguous)</option>
+      <option value="lost">next send: lost reply</option><option value="retry">next send: 429 retry</option></select>
+    <button class="ghost" id="setnext">Set</button><button class="ghost" id="receipt">Send delivery receipt</button>
+  </div>
+  <h3>What the database says</h3>
+  <div id="state" class="state"></div>
+</section>
+
+<!-- ============================================================ console -->
+<section class="card">
+  <h2>Warehouse console</h2>
+  <div class="row">
+    <label class="muted">Signed in as</label>
+    <select id="role" style="width:auto"><option value="planner">planner</option><option value="operations">operations</option><option value="ops_lead">ops_lead</option></select>
+    <select id="fac" style="width:auto"><option value="FAC-JAI-01">Jaipur (FAC-JAI-01)</option><option value="FAC-GGN-01">Gurugram (FAC-GGN-01)</option></select>
+    <input id="user" style="width:150px" value="demo-planner" title="staff user id">
+    <button class="ghost" id="signin">Sign in</button><span id="who" class="muted"></span>
+  </div>
+  <div class="tabs" style="margin-top:10px" id="tabs">
+    <button data-t="requests" class="on">Requests</button><button data-t="escalations">Escalations</button>
+    <button data-t="threads">Conversations</button><button data-t="docks">Docks</button><button data-t="policy">Policy rule</button>
+    <button data-t="activity">Activity log</button>
+  </div>
+  <div id="pane"></div>
+</section>
+</main>
+
+<details class="card" style="margin:0 16px 16px"><summary><b>Manual checklist</b> <span class="muted">(only if you want to try things by hand)</span></summary>
+  <p class="muted" style="margin-top:0">Walk each flow, then mark it. Results are saved to <span class="mono">demo/checklist_results.json</span>.</p>
+  <div class="flows" id="flows"></div>
+</details>
+<div id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const FLOWS = [
+ ["F1","Delay → request → warehouse approves → driver told",
+  ["Phone: Delay (EN or Hinglish)","Phone: Pick 2, then Yes","Console › Requests: Confirm"],
+  "Driver sees options, a read-back, 'NOT confirmed yet', then the approval message once. Database: appointment CONFIRMED."],
+ ["F2","Warehouse rejects → slot released → driver can ask again",
+  ["Repeat F1 up to the Yes (fresh driver)","Console › Requests: Reject","Phone: ask again ('koi aur slot?' or a new delay)"],
+  "Driver gets the rejection; the slot is free; a new request gets fresh options."],
+ ["F3","Nobody answers → expiry → person alerted → driver told",
+  ["Reach a pending request","Do nothing for 5 minutes (demo window)","Watch phone and Console › Escalations"],
+  "Request EXPIRED, a PENDING_EXPIRED escalation appears, the driver is told."],
+ ["F4","Dock breakdown while pending → invalidated → driver told",
+  ["Reach a pending request","Console › Docks: block that dock over the slot (BREAKDOWN)"],
+  "Request INVALIDATED (CAPACITY_LOST); driver told; Confirm is no longer possible."],
+ ["F5","Safety report → hand-over to a person",
+  ["Phone: Safety","Console › Escalations and Conversations","Take over, then Hand back with a summary"],
+  "No booking request; a SAFETY escalation; driver told a coordinator will call; agent silent while a person has the chat."],
+ ["F6","Duplicate webhook and redelivery → one reply",
+  ["Phone: send a message","Resend last webhook","Redeliver to agent"],
+  "The phone shows one reply. The redelivery is refused (already handled)."],
+ ["F7","Ambiguous send settled by a receipt → no repeat",
+  ["Reach a pending request","Set 'next send: timeout'","Console: Confirm","Send delivery receipt"],
+  "Notification goes UNKNOWN, then DELIVERED from the receipt; the approval message appears on the phone at most once."],
+ ["F8","Authorised policy rule confirms without a person",
+  ["Console › Policy rule: switch ON","Fresh driver: delay → pick → yes","Switch the rule OFF afterwards"],
+  "Booking confirmed by POLICY at once; the reply says confirmed, never 'approved by the warehouse'."],
+ ["F9","Two coordinators decide at once → one outcome",
+  ["Reach a pending request","Console › Requests: 'Two at once'"],
+  "One decision 200, the other 409; the driver gets exactly one outcome message."],
+];
+let token = null, tab = "requests", drivers = [], checklist = {};
+
+function toast(t){const e=$("#toast");e.textContent=t;e.style.display="block";clearTimeout(e._t);e._t=setTimeout(()=>e.style.display="none",5000)}
+function esc(s){return String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
+function when(s){if(!s)return"";const d=new Date(s);return isNaN(d)?s:d.toLocaleString("en-IN",{timeZone:"Asia/Kolkata",day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"})}
+async function api(method,url,body,auth){
+  const h={"Content-Type":"application/json"}; if(auth){if(!token){toast("Sign in first");throw new Error("no token")} h.Authorization="Bearer "+token}
+  const r=await fetch(url,{method,headers:h,body:body?JSON.stringify(body):undefined});
+  let j=null; try{j=await r.json()}catch(e){}
+  if(!r.ok){toast(`${r.status} ${JSON.stringify(j)}`); const e=new Error(r.status); e.body=j; throw e}
+  return j;
+}
+const phone = () => $("#driver").value;
+const key = () => crypto.randomUUID().replace(/-/g,"");
+
+// ---------------------------------------------------------------- driver side
+async function loadDrivers(keep){
+  drivers = await api("GET","/demo/drivers");
+  const cur = keep || phone();
+  $("#driver").innerHTML = drivers.map(d=>`<option value="${esc(d.phone)}">${esc(d.name)} · ${esc(d.facility.replace("FAC-","").replace("-01",""))} · ${esc(d.shipment_id)}</option>`).join("");
+  if(cur && drivers.some(d=>d.phone===cur)) $("#driver").value = cur;
+  showDriver();
+}
+function showDriver(){
+  const d = drivers.find(x=>x.phone===phone()); if(!d) return;
+  $("#drvinfo").textContent = `${d.phone} · order ${d.order_reference} · planned ETA ${when(d.eta)} · ${d.load_weight_kg} kg`;
+  if (d.facility !== $("#fac").value) {   // staff only see their own warehouse: follow the driver (human test H-2)
+    $("#fac").value = d.facility;
+    signin().then(() => toast(`Console switched to ${d.facility === "FAC-GGN-01" ? "Gurugram" : "Jaipur"}: this driver's truck goes there, and staff only see requests for their own warehouse.`));
+  }
+  refreshPhone(); refreshState();
+}
+async function refreshPhone(){
+  if(!phone()) return;
+  const msgs = await api("GET","/demo/phone/"+encodeURIComponent(phone()));
+  const el=$("#phone"), atBottom = el.scrollHeight-el.scrollTop-el.clientHeight<30;
+  el.innerHTML = msgs.length? msgs.map(m=>`<div class="b ${m.dir}">${esc(m.text)}<small>${m.dir==="out"?"driver":m.dir==="sys"?"system note (not on the real phone)":"delivered"} · ${m.t}</small></div>`).join("")
+    : `<div class="empty">No messages yet. Type as the driver below.</div>`;
+  if(atBottom) el.scrollTop = el.scrollHeight;
+}
+async function refreshState(){
+  if(!phone()) return;
+  const s = await api("GET","/demo/state/"+encodeURIComponent(phone()));
+  const t = s.thread[0];
+  let h = t? `<div>Conversation <span class="mono">${esc(t.thread_id)}</span>: <b>${esc(t.status)}</b>, flow ${esc(t.flow_state)}, ${t.human_active?'<b style="color:var(--warn)">a person has it</b>':"agent"}</div>` : `<div class="muted">No conversation yet.</div>`;
+  h += s.appointments.length? `<div class="tablewrap"><table><tr><th>Dock</th><th>Start</th><th>Booking</th><th>Approval</th><th>By</th></tr>${s.appointments.map(a=>
+    `<tr><td>${esc(a.dock_code)}</td><td>${when(a.start)}</td><td><b>${esc(a.status)}</b>${a.basis?` (${esc(a.basis)})`:""}</td><td>${esc(a.approval??"")}${a.outcome_reason?` · ${esc(a.outcome_reason)}`:""}</td><td class="mono">${esc(a.decided_by??"")}</td></tr>`).join("")}</table></div>` : "";
+  h += s.notifications.length? `<div class="tablewrap" style="margin-top:6px"><table><tr><th>Outgoing message</th><th>Status</th><th>Tries</th></tr>${s.notifications.map(n=>
+    `<tr><td>${esc(n.template_id)}</td><td><b>${esc(n.status)}</b></td><td>${n.attempts}</td></tr>`).join("")}</table></div>` : "";
+  $("#state").innerHTML = h;
+}
+async function say(text){ if(!text.trim()) return; await api("POST","/demo/say",{phone:phone(),text}); $("#msg").value=""; setTimeout(tick,600); setTimeout(tick,1800) }
+
+// ---------------------------------------------------------------- console side
+async function signin(){
+  const r = await api("POST","/demo/token",{role:$("#role").value,facility:$("#fac").value,user:$("#user").value});
+  token = r.token; $("#who").textContent = `${$("#user").value} · ${$("#role").value} @ ${$("#fac").value}`; renderPane();
+}
+$("#role").onchange = () => { $("#user").value = "demo-"+$("#role").value };
+
+let paneHTML = null;               // redraw only when the content changed, so a click never lands on a replaced button
+async function renderPane(){
+  const p = { set innerHTML(h){ if(h!==paneHTML){ paneHTML=h; $("#pane").innerHTML=h } } };
+  try{
+  if(tab==="requests"){
+    if(!token) return p.innerHTML=`<div class="empty">Sign in to see requests.</div>`;
+    const r = (await api("GET","/console/requests?facility_id="+$("#fac").value,null,true)).requests;
+    p.innerHTML = r.length? `<div class="tablewrap"><table><tr><th>Decide</th><th>Shipment</th><th>Dock</th><th>Slot</th><th>Kind / why</th><th>Answer by</th></tr>${r.map(x=>
+      `<tr><td><div class="row"><button class="ok" data-d="CONFIRM" data-a="${esc(x.appointment_id)}">Confirm</button><button class="bad" data-d="REJECT" data-a="${esc(x.appointment_id)}">Reject</button>
+       <button class="ghost" data-w="${esc(x.appointment_id)}">Withdraw</button><button class="ghost" data-two="${esc(x.appointment_id)}" title="F9">Two at once</button></div></td><td class="mono">${esc(x.shipment_id)}</td><td>${esc(x.dock_code)}</td><td>${when(x.start)}</td><td>${esc(x.kind)}${x.needs_approval_reason?`<br><span class="muted">${esc(x.needs_approval_reason)}</span>`:""}</td><td>${when(x.pending_expires_at)}</td></tr>`).join("")}</table></div>`
+      : `<div class="empty">No open requests for this facility.</div>`;
+  } else if(tab==="escalations"){
+    if(!token) return p.innerHTML=`<div class="empty">Sign in to see escalations.</div>`;
+    const r = (await api("GET","/console/escalations",null,true)).escalations;
+    p.innerHTML = r.length? `<div class="tablewrap"><table><tr><th>Reason</th><th>Mode</th><th>Facility</th><th>Shipment</th><th>Conversation</th><th>Status</th></tr>${r.map(x=>
+      `<tr><td><b>${esc(x.reason_code)}</b></td><td>${esc(x.mode)}</td><td>${esc(x.facility_id)}</td><td class="mono">${esc(x.shipment_id)}</td><td class="mono">${esc(x.thread_id)}</td><td>${esc(x.status)}</td></tr>`).join("")}</table></div>`
+      : `<div class="empty">No escalations visible to you.</div>`;
+  } else if(tab==="threads"){
+    const r = await api("GET","/demo/threads");
+    p.innerHTML = r.length? `<div class="tablewrap"><table><tr><th>Driver</th><th>Shipment</th><th>Facility</th><th>Status</th><th>Who has it</th><th></th></tr>${r.map(x=>
+      `<tr><td>${esc(x.driver_name)}</td><td class="mono">${esc(x.shipment_id)}</td><td>${esc(x.facility)}</td><td>${esc(x.status)}</td><td>${x.human_active?"<b>a person</b>":"agent"}</td>
+       <td>${x.human_active?`<button class="ghost" data-hb="${esc(x.thread_id)}">Hand back</button>`:`<button class="ghost" data-to="${esc(x.thread_id)}">Take over</button>`}</td></tr>`).join("")}</table></div>`
+      : `<div class="empty">No conversations yet.</div>`;
+  } else if(tab==="docks"){
+    const now=new Date(), pad=n=>String(n).padStart(2,"0");
+    const local = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    p.innerHTML = `<p class="muted" style="margin-top:0">Block a dock (F4). Use the dock and slot of a pending request. Planner or ops_lead only.</p>
+      <div class="row"><select id="bdock" style="width:auto"><option>DOCK-JAI-D1</option><option>DOCK-JAI-D2</option><option>DOCK-JAI-D3</option><option>DOCK-GGN-D1</option></select>
+      <select id="btype" style="width:auto"><option>BREAKDOWN</option><option>MAINTENANCE</option></select></div>
+      <div class="row" style="margin-top:6px"><label>From <input type="datetime-local" id="bstart" value="${local(now)}"></label>
+      <label>To <input type="datetime-local" id="bend" value="${local(new Date(now.getTime()+6*3600e3))}"></label></div>
+      <div class="row" style="margin-top:6px"><input id="breason" class="grow" value="hydraulic leak"><button id="block">Block dock</button></div>`;
+    $("#block").onclick = async () => {
+      const r = await api("POST",`/console/docks/${$("#bdock").value}/blocks`,{event_id:"DE-"+key().slice(0,8),start:new Date($("#bstart").value).toISOString(),
+        end:new Date($("#bend").value).toISOString(),type:$("#btype").value,reason:$("#breason").value},true);
+      toast("Dock blocked: "+JSON.stringify(r)); tick();
+    };
+    return;
+  } else if(tab==="policy"){
+    const s = await api("GET","/demo/policy-rule");
+    p.innerHTML = `<p style="margin-top:0">Demo-only rule <span class="mono">demo-auto-standard</span> at Jaipur: STANDARD requests are confirmed by policy, without a person (F8).
+      Authorised as <span class="mono">DEMO-ONLY</span>. Switching it creates a new rule version; history is kept.</p>
+      <p>Now: <b>${s.on?"ON":"OFF"}</b></p><button id="pol">${s.on?"Switch OFF":"Switch ON"}</button>`;
+    $("#pol").onclick = async () => { await api("POST","/demo/policy-rule",{on:!s.on}); renderPane() };
+    return;
+  } else if(tab==="activity"){
+    const r = await api("GET","/demo/activity");
+    p.innerHTML = `<div class="log">${r.map(a=>`<div class="${a.kind==="error"?"error":""}"><span class="muted">${a.t}</span> <b>${esc(a.kind)}</b> ${esc(a.phone??"")} ${esc(a.path??"")} ${a.extractor?`<span class="muted">[${esc(a.extractor)}]</span>`:""} ${esc(a.text??"")} ${a.escalation?"escalation "+esc(a.escalation):""}${a.trace?`<pre class="mono">${esc(a.trace)}</pre>`:""}</div>`).join("")||'<div class="empty">Nothing yet.</div>'}</div>`;
+  }
+  }catch(e){ if(e.message!=="no token") p.innerHTML=`<div class="empty">Could not load: ${esc(e.message)} ${esc(JSON.stringify(e.body??""))}</div>` }
+}
+
+$("#pane").addEventListener("click", async ev => {
+  const b = ev.target.closest("button"); if(!b) return;
+  try{
+    if(b.dataset.d){ const r=await api("POST",`/console/requests/${b.dataset.a}/decision`,{decision:b.dataset.d,idempotency_key:key(),note:"demo console"},true); toast(`${b.dataset.d}: ${JSON.stringify(r)}`) }
+    else if(b.dataset.w){ const note=prompt("Withdraw note (why):","driver called the dock office"); if(!note) return;
+      const r=await api("POST",`/console/requests/${b.dataset.w}/withdraw`,{reason_code:"DRIVER_REQUESTED",note,idempotency_key:key()},true); toast("Withdrawn: "+JSON.stringify(r)) }
+    else if(b.dataset.two){ const r=await api("POST","/demo/decide-twice",{appointment_id:b.dataset.two,facility:$("#fac").value}); toast(r.map(o=>`${o.who} ${o.decision} → ${o.status} ${JSON.stringify(o.body)}`).join("\n")) }
+    else if(b.dataset.to){ const reason=prompt("Why are you taking over?","driver upset, calling them"); if(!reason) return;
+      await api("POST",`/console/threads/${b.dataset.to}/takeover`,{reason},true); toast("You have the conversation; the agent is silent.") }
+    else if(b.dataset.hb){ const summary=prompt("Hand-back summary (at least 10 characters):","Called the driver, slot stays as booked"); if(!summary) return;
+      await api("POST",`/console/threads/${b.dataset.hb}/handback`,{summary},true); toast("Handed back to the agent.") }
+  }catch(e){}
+  tick();
+});
+
+// ---------------------------------------------------------------- checklist
+async function loadChecklist(){ checklist = await api("GET","/demo/checklist"); renderFlows(); renderGuide() }
+function renderFlows(){
+  $("#flows").innerHTML = FLOWS.map(([id,title,steps,exp])=>{ const c=checklist[id];
+    return `<div class="flow"><h4>${id} · ${esc(title)}</h4><ol>${steps.map(s=>`<li>${esc(s)}</li>`).join("")}</ol>
+    <div class="exp">Expect: ${esc(exp)}</div>
+    <textarea rows="2" id="note-${id}" placeholder="What you saw (optional)" style="margin-top:6px">${esc(c?.note??"")}</textarea>
+    <div class="row" style="margin-top:6px"><button class="ok" data-f="${id}" data-r="pass">Pass</button><button class="bad" data-f="${id}" data-r="fail">Fail</button><button class="ghost" data-f="${id}" data-r="skip">Skip</button>
+    <span class="${c?"res-"+c.result:""}">${c?`${c.result.toUpperCase()} · ${esc(c.at)}`:'<span class="muted">not checked</span>'}</span></div></div>` }).join("");
+}
+$("#flows").addEventListener("click", async ev => { const b=ev.target.closest("button[data-f]"); if(!b) return;
+  checklist = await api("POST","/demo/checklist",{flow:b.dataset.f,result:b.dataset.r,note:$("#note-"+b.dataset.f).value}); renderFlows() });
+
+// ---------------------------------------------------------------- wiring
+$("#send").onclick = () => say($("#msg").value);
+$("#msg").addEventListener("keydown", e => { if(e.key==="Enter") say($("#msg").value) });
+document.querySelectorAll("[data-q]").forEach(b => b.onclick = () => say(b.dataset.q));
+$("#driver").onchange = () => { try{ localStorage.setItem("demo.driver", phone()) }catch(e){} showDriver() };
+$("#newdrv").onclick = async () => { const name=prompt("Driver name:","Vikram Meena"); if(!name) return;
+  const fac = confirm("Jaipur? (Cancel = Gurugram)") ? "FAC-JAI-01" : "FAC-GGN-01";
+  const r = await api("POST","/demo/drivers",{name,facility:fac,eta_min:120}); await loadDrivers(r.phone) };
+$("#dup").onclick = async () => { try{ await api("POST","/demo/say",{phone:phone(),duplicate:true}); toast("Same webhook posted again") }catch(e){} tick() };
+$("#redeliver").onclick = async () => { try{ const r=await api("POST","/demo/redeliver",{phone:phone()}); toast("Redelivery: "+r.result) }catch(e){} tick() };
+$("#setnext").onclick = async () => { await api("POST","/demo/next-send",{phone:phone(),outcome:$("#nextsend").value}); toast("Set: next message to this phone → "+$("#nextsend").value) };
+$("#receipt").onclick = async () => { try{ const r=await api("POST","/demo/receipt",{phone:phone()}); toast("Receipt sent for "+r.notification_id) }catch(e){} tick() };
+$("#signin").onclick = signin;
+$("#tabs").addEventListener("click", e => { const b=e.target.closest("button"); if(!b) return;
+  document.querySelectorAll("#tabs button").forEach(x=>x.classList.toggle("on",x===b)); tab=b.dataset.t; paneHTML=null; renderPane() });
+
+async function tick(){ try{ await Promise.all([refreshPhone(), refreshState()]); if(!["docks","policy"].includes(tab)) await renderPane() }catch(e){} }
+let saved = null; try{ saved = localStorage.getItem("demo.driver") }catch(e){}
+loadDrivers(saved).then(()=>{ loadChecklist(); signin() });
+setInterval(tick, 2500);
+
+// ================================================================ guided walkthrough
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const short = (s, n = 160) => !s ? "(nothing)" : (s.length > n ? s.slice(0, n) + "…" : s);
+const chk = (ok, text) => ({ ok, text });                 // ok: true / false / null (information only)
+async function gToken(role = "planner") { return (await api("POST", "/demo/token", { role, facility: "FAC-JAI-01", user: "guide-" + role })).token }
+async function gPost(url, body, role = "planner") {
+  const t = await gToken(role);
+  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + t }, body: JSON.stringify(body) });
+  let j = null; try { j = await r.json() } catch (e) { }
+  return { status: r.status, body: j };
+}
+async function gGet(url, role = "planner") {
+  const t = await gToken(role);
+  return (await fetch(url, { headers: { Authorization: "Bearer " + t } })).json();
+}
+const gPhone = c => api("GET", "/demo/phone/" + encodeURIComponent(c.phone));
+const gState = c => api("GET", "/demo/state/" + encodeURIComponent(c.phone));
+async function gIns(c) { return (await gPhone(c)).filter(m => m.dir === "in") }
+async function gWaitIn(c, before, ms = 15000) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) { const ins = await gIns(c); if (ins.length > before) return ins[ins.length - 1].text; await sleep(700) }
+  return null;
+}
+async function gSay(c, text) {
+  const before = (await gIns(c)).length;
+  await api("POST", "/demo/say", { phone: c.phone, text });
+  const r = await gWaitIn(c, before); tick(); return r;
+}
+async function gEsc(c, code) { return (await gGet("/console/escalations")).escalations.filter(e => e.shipment_id === c.sid && e.reason_code === code) }
+async function gNotes(c, template) { return (await gState(c)).notifications.filter(n => n.template_id === template) }
+
+// ---------------------------------------------------------------- steps
+const S = {
+  start: name => ({
+    title: "A new driver is set up", who: "Setup",
+    why: "Each walkthrough uses a brand-new driver whose truck is due at the Jaipur warehouse in about 2 hours. Earlier tests can't get in the way. The phone panel below switches to this driver.",
+    run: async c => {
+      const r = await api("POST", "/demo/drivers", { name, facility: "FAC-JAI-01", eta_min: 120 });
+      c.phone = r.phone; c.sid = r.shipment_id; c.name = name;
+      try { localStorage.setItem("demo.driver", r.phone) } catch (e) { }
+      await loadDrivers(r.phone);
+      return [chk(true, `Driver ${name}, phone ${r.phone}, shipment ${r.shipment_id}`)];
+    }
+  }),
+  delay: {
+    title: "The driver reports a delay", who: "Driver (WhatsApp)",
+    why: "The driver writes: \"Stuck in traffic, reaching around 2 hours late. Any slot?\" The agent works out the new arrival time. If it isn't sure, it first asks the driver to confirm (the guide answers \"yes\"). Then it offers free dock slots.",
+    run: async c => {
+      let r = await gSay(c, "Stuck in traffic, reaching around 2 hours late. Any slot?");
+      const out = [];
+      if (r && /Reply YES/i.test(r) && !/Available slots/i.test(r)) {
+        out.push(chk(null, `Agent checked the time first: "${short(r)}". The driver answered "yes".`));
+        r = await gSay(c, "yes");
+      }
+      out.push(chk(!!r && /Available slots/i.test(r), `Agent offered slots: "${short(r, 300)}"`));
+      return out;
+    }
+  },
+  pick: n => ({
+    title: `The driver picks option ${n}`, who: "Driver (WhatsApp)",
+    why: `The driver replies "${n}". Nothing is booked yet: the agent reads the choice back so the driver can check it.`,
+    run: async c => {
+      const r = await gSay(c, String(n));
+      return [chk(!!r && /You selected/i.test(r), `Agent read back: "${short(r)}"`)];
+    }
+  }),
+  yes: policy => ({
+    title: "The driver says yes", who: "Driver (WhatsApp)",
+    why: policy
+      ? "The driver replies \"haan ji, kar do\" (Hinglish: \"yes, do it\"). The demo policy rule is ON, so the DATABASE confirms the booking itself, with no planner, and the driver is told it is confirmed."
+      : "The driver replies \"haan ji, kar do\" (Hinglish: \"yes, do it\"). Only an explicit yes after the read-back counts. The agent can't confirm a booking itself: it sends a REQUEST to the warehouse and tells the driver it is not confirmed yet.",
+    run: async c => {
+      const r = await gSay(c, "haan ji, kar do");
+      await sleep(800);
+      const a = (await gState(c)).appointments[0]; c.appt = a;
+      if (policy) return [
+        chk(!!a && a.status === "CONFIRMED" && a.basis === "POLICY", `Database: booking ${a?.status}, confirmed by ${a?.basis} (no person involved)`),
+        chk(!!r && !/NOT confirmed/i.test(r), `Driver told: "${short(r)}"`)];
+      return [
+        chk(!!r && /NOT confirmed/i.test(r), `Driver told it is only a request: "${short(r)}"`),
+        chk(!!a && a.status === "PENDING_CONFIRMATION" && a.approval === "OPEN", `Database: booking ${a?.status}, warehouse approval ${a?.approval}, dock ${a?.dock_code}`)];
+    }
+  }),
+  decide: (decision, role = "planner") => ({
+    title: decision === "CONFIRM" ? "The planner confirms the request" : "The planner rejects the request", who: "Warehouse console",
+    why: decision === "CONFIRM"
+      ? "A Jaipur planner sees the request in the console and presses Confirm. The database checks the dock is still free and compatible, then confirms. A workflow then tells the driver."
+      : "A Jaipur planner presses Reject. The held slot is released, and the driver is told.",
+    run: async c => {
+      const before = (await gIns(c)).length;
+      const r = await gPost(`/console/requests/${c.appt.appointment_id}/decision`, { decision, idempotency_key: key(), note: "guided walkthrough" }, role);
+      const msg = await gWaitIn(c, before);
+      const a = (await gState(c)).appointments[0];
+      const want = decision === "CONFIRM" ? ["CONFIRMED", "APPROVED"] : [null, "REJECTED"];
+      return [
+        chk(r.status === 200, `Console answer: ${r.status} ${r.body?.outcome ?? JSON.stringify(r.body)}`),
+        chk(a.approval === want[1] && (!want[0] || a.status === want[0]), `Database: booking ${a.status}, approval ${a.approval}, decided by ${a.decided_by}`),
+        chk(!!msg, `Driver's phone: "${short(msg)}"`)];
+    }
+  }),
+};
+
+const FLOW_STEPS = {
+  F1: { story: "A delayed driver gets a new slot that a warehouse planner approves.",
+    steps: [S.start("Ravi (F1)"), S.delay, S.pick(2), S.yes(false), S.decide("CONFIRM")] },
+  F2: { story: "The planner says no. The slot is released and the driver can ask again.",
+    steps: [S.start("Sunil (F2)"), S.delay, S.pick(2), S.yes(false), S.decide("REJECT"), {
+      title: "The driver asks again", who: "Driver (WhatsApp)",
+      why: "The driver writes \"koi aur slot? 2 ghante late\" (\"any other slot? 2 hours late\"). The conversation carries on normally.",
+      run: async c => { let r = await gSay(c, "koi aur slot? 2 ghante late");
+        if (r && /YES/.test(r) && !/slot/i.test(r)) r = await gSay(c, "haan");
+        return [chk(!!r && /Available slots/i.test(r), `Agent offered new slots: "${short(r, 300)}"`)] }
+    }] },
+  F3: { story: "Nobody at the warehouse answers in time. The request expires, a person is alerted and the driver is told.",
+    steps: [S.start("Mahesh (F3)"), S.delay, S.pick(2), S.yes(false), {
+      title: "Nobody answers (about 5 minutes)", who: "Clock",
+      why: "In the demo the warehouse has 5 minutes to answer (15 in production). The guide just waits; you'll see a countdown. When time runs out, the database expires the request, raises an alert for a person, and the driver is told.",
+      run: async (c, progress) => {
+        const before = (await gIns(c)).length, t0 = Date.now();
+        let a;
+        while (Date.now() - t0 < 7 * 60e3) {
+          a = (await gState(c)).appointments[0];
+          if (a.approval !== "OPEN") break;
+          progress(`Waiting… ${Math.round((Date.now() - t0) / 1000)} s (approval still OPEN)`); await sleep(5000);
+        }
+        const msg = await gWaitIn(c, before, 20000), esc = await gEsc(c, "PENDING_EXPIRED");
+        return [chk(a.approval === "EXPIRED", `Database: approval ${a.approval}, booking ${a.status}`),
+          chk(esc.length === 1, `Alert for a person: ${esc.length} PENDING_EXPIRED escalation(s)`),
+          chk(!!msg, `Driver's phone: "${short(msg)}"`)];
+      }
+    }] },
+  F4: { story: "The dock breaks down while the request waits. The request is cancelled and the driver is told.",
+    steps: [S.start("Deepak (F4)"), S.delay, S.pick(2), S.yes(false), {
+      title: "The planner blocks the dock (breakdown)", who: "Warehouse console",
+      why: "A planner records a breakdown on the requested dock for that hour. The database cancels the waiting request at once, because the slot no longer exists. The driver is told.",
+      run: async c => {
+        const before = (await gIns(c)).length, s = new Date(c.appt.start), e = new Date(s.getTime() + 3600e3);
+        const r = await gPost(`/console/docks/DOCK-JAI-${c.appt.dock_code}/blocks`, { event_id: "DE-" + key().slice(0, 8), start: s.toISOString(), end: e.toISOString(), type: "BREAKDOWN", reason: "hydraulic leak (guided walkthrough)" });
+        const msg = await gWaitIn(c, before);
+        const a = (await gState(c)).appointments[0];
+        const late = await gPost(`/console/requests/${c.appt.appointment_id}/decision`, { decision: "CONFIRM", idempotency_key: key(), note: "too late" });
+        return [chk(r.status === 200, `Dock ${c.appt.dock_code} blocked: ${r.status}`),
+          chk(a.approval === "INVALIDATED", `Database: approval ${a.approval} (${a.outcome_reason})`),
+          chk(!!msg, `Driver's phone: "${short(msg)}"`),
+          chk(late.status === 409, `A planner trying to confirm it now gets ${late.status} (nothing left to approve)`)];
+      }
+    }] },
+  F5: { story: "The driver reports an accident. No booking: a person takes over, then hands back.",
+    steps: [S.start("Harpreet (F5)"), {
+      title: "The driver reports an accident", who: "Driver (WhatsApp)",
+      why: "The driver writes \"accident ho gaya, truck side mein hai\" (\"there's been an accident, the truck is at the side\"). Safety comes first: the agent makes no booking, alerts a person, and tells the driver a coordinator will call.",
+      run: async c => {
+        const r = await gSay(c, "accident ho gaya, truck side mein hai"); await sleep(800);
+        const s = await gState(c), esc = await gEsc(c, "SAFETY");
+        return [chk(!!r && /coordinator/i.test(r), `Driver told: "${short(r)}"`),
+          chk(s.thread[0]?.human_active === true, `Conversation is now with a person (agent silent)`),
+          chk(esc.length >= 1, `Alert for a person: ${esc.length} SAFETY escalation(s)`),
+          chk(s.appointments.length === 0, `No booking request was made`)];
+      }
+    }, {
+      title: "The driver writes again while a person has the chat", who: "Driver (WhatsApp)",
+      why: "The driver writes \"hello? koi hai?\" (\"hello? anyone there?\"). A person has the conversation, so the agent must stay silent. The guide waits 8 seconds to make sure nothing is sent.",
+      run: async c => {
+        const before = (await gIns(c)).length;
+        await api("POST", "/demo/say", { phone: c.phone, text: "hello? koi hai?" });
+        const r = await gWaitIn(c, before, 8000); tick();
+        return [chk(r === null, r === null ? "The agent stayed silent" : `The agent replied anyway: "${short(r)}"`)];
+      }
+    }, {
+      title: "The coordinator hands the chat back to the agent", who: "Warehouse console",
+      why: "After calling the driver, an operations coordinator hands the conversation back with a short summary of the call. The driver is told, in their own language, that they can write again. The agent keeps the summary as background for 12 hours, so it knows what the call settled; the note can never book or change anything by itself.",
+      run: async c => {
+        const t = (await gState(c)).thread[0], before = (await gIns(c)).length;
+        const r = await gPost(`/console/threads/${t.thread_id}/handback`, { summary: "Called the driver; they are safe, truck waiting for a tow. Keep the current slot for now." }, "operations");
+        const msg = await gWaitIn(c, before);
+        const s = await gState(c);
+        return [chk(r.status === 200, `Hand-back: ${r.status}`), chk(s.thread[0].human_active === false, `Conversation is back with the agent`),
+          chk(!!msg, `Driver told: "${short(msg)}"`)];
+      }
+    }, {
+      title: "The driver writes again after the hand-back", who: "Driver (WhatsApp)",
+      why: "The driver asks \"ok, ab kya status hai?\" (\"ok, what is the status now?\"). The agent answers from the driver's own words. The coordinator's note is never read as if the driver had said it, so it cannot report, escalate, hold or book anything.",
+      run: async c => {
+        const escBefore = (await gEsc(c, "SAFETY")).length;
+        const r = await gSay(c, "ok, ab kya status hai?"); await sleep(800);
+        const s = await gState(c), escAfter = (await gEsc(c, "SAFETY")).length;
+        return [chk(!!r, `Agent replied: "${short(r)}"`),
+          chk(s.thread[0].human_active === false, `The conversation stays with the agent`),
+          chk(escAfter === escBefore, `No new alert from the note (SAFETY escalations: ${escAfter})`),
+          chk(s.appointments.length === 0, `No booking request was made`)];
+      }
+    }] },
+  F6: { story: "WhatsApp delivers the same message twice, and the queue repeats it. The driver still gets one reply.",
+    steps: [S.start("Farhan (F6)"), {
+      title: "The driver sends one message", who: "Driver (WhatsApp)",
+      why: "The driver writes \"45 minute late\". The agent replies once.",
+      run: async c => { const r = await gSay(c, "45 minute late"); c.ins = (await gIns(c)).length; return [chk(!!r, `Agent replied: "${short(r)}"`)] }
+    }, {
+      title: "WhatsApp delivers the same message again", who: "WhatsApp (simulated)",
+      why: "Meta sometimes posts the same message twice, with the same message id. Done right, nothing visible happens on the real phone: the system recognises the id, stores the message once and does not answer twice. So the guide shows you the evidence: a grey system note appears in the phone panel (it is not on the real phone), and the checks below count the copies in the database.",
+      run: async c => {
+        const d = await api("POST", "/demo/say", { phone: c.phone, duplicate: true });
+        const r = await gWaitIn(c, c.ins, 6000); tick();
+        return [chk(d.status === 200, `WhatsApp's repeat was accepted by the webhook (${d.status}), so Meta stops retrying`),
+          chk(d.copies === 1, `Copies of that message in the database: ${d.copies} (recognised by its message id)`),
+          chk(r === null, r === null ? "No second reply on the phone" : `A second reply appeared: "${short(r)}"`)];
+      }
+    }, {
+      title: "The queue hands the agent the same event again", who: "Queue (simulated)",
+      why: "The internal queue can also repeat a message (SQS delivers at least once). The agent must refuse to process it a second time.",
+      run: async c => {
+        const r = await api("POST", "/demo/redeliver", { phone: c.phone });
+        await sleep(3000); const ins = (await gIns(c)).length;
+        return [chk(/refused/i.test(r.result), `Agent: ${r.result}`), chk(r.replies === 1, `Agent replies stored for that message: ${r.replies}`),
+          chk(ins === c.ins, `Replies on the phone for that message: still ${ins - c.ins + 1}`)];
+      }
+    }] },
+  F7: { story: "The send to WhatsApp times out, so we don't know whether the driver got it. A delivery receipt settles it, and there is no duplicate.",
+    steps: [S.start("Rakesh (F7)"), S.delay, S.pick(2), S.yes(false), {
+      title: "The next message to this driver will time out", who: "WhatsApp (simulated)",
+      why: "The guide tells the WhatsApp stand-in that its next send to this driver times out. The message may or may not have arrived. Resending blindly could send it twice.",
+      run: async c => { await api("POST", "/demo/next-send", { phone: c.phone, outcome: "timeout" }); return [chk(true, "Next send to this phone: timeout")] }
+    }, {
+      title: "The planner confirms", who: "Warehouse console",
+      why: "The planner confirms. The approval message is sent, but the send times out, so its status becomes UNKNOWN rather than SENT.",
+      run: async c => {
+        const r = await gPost(`/console/requests/${c.appt.appointment_id}/decision`, { decision: "CONFIRM", idempotency_key: key(), note: "guided walkthrough" });
+        let n = []; for (let i = 0; i < 15; i++) { n = await gNotes(c, "booking_approved"); if (n[0] && n[0].status !== "PENDING" && n[0].status !== "SENDING") break; await sleep(700) }
+        tick();
+        return [chk(r.status === 200, `Confirm: ${r.status}`), chk(n[0]?.status === "UNKNOWN", `Approval message status: ${n[0]?.status}`)];
+      }
+    }, {
+      title: "WhatsApp's delivery receipt arrives", who: "WhatsApp (simulated)",
+      why: "Meta sends a signed \"delivered\" receipt for that message. The system marks it DELIVERED and does not send it again.",
+      run: async c => {
+        const r = await api("POST", "/demo/receipt", { phone: c.phone }); await sleep(4000);
+        const n = await gNotes(c, "booking_approved"), phone = await gIns(c);
+        const count = phone.filter(m => /confirmed by the warehouse/i.test(m.text)).length;
+        return [chk(r.status === 200, `Receipt accepted: ${r.status}`), chk(n[0]?.status === "DELIVERED", `Approval message status: ${n[0]?.status}`),
+          chk(count <= 1, `The approval message is on the phone ${count} time(s): never twice`)];
+      }
+    }] },
+  F8: { story: "An authorised rule lets the database confirm simple bookings without a planner. The driver is told it is confirmed.",
+    steps: [{
+      title: "Switch ON the demo auto-confirm rule", who: "Setup",
+      why: "A warehouse can authorise a rule: \"standard bookings at Jaipur may be confirmed automatically\". The guide switches on a demo-only version. The last step switches it off again.",
+      run: async c => { await api("POST", "/demo/policy-rule", { on: true }); return [chk(true, "Demo rule ON (authorised as DEMO-ONLY)")] }
+    }, S.start("Naveen (F8)"), S.delay, S.pick(1), S.yes(true), {
+      title: "Switch the demo rule OFF again", who: "Setup",
+      why: "Back to normal: every booking needs a planner.",
+      run: async c => { await api("POST", "/demo/policy-rule", { on: false }); return [chk(true, "Demo rule OFF")] }
+    }] },
+  F9: { story: "Two coordinators press different buttons at the same moment. Only one decision wins, and the driver gets one message.",
+    steps: [S.start("Ajay (F9)"), S.delay, S.pick(2), S.yes(false), {
+      title: "Two people decide at the same moment", who: "Warehouse console (two people)",
+      why: "A planner presses Confirm and an operations coordinator presses Reject at exactly the same time. The database lets exactly one win; the other gets \"already decided\" (409).",
+      run: async c => {
+        const before = (await gIns(c)).length;
+        const r = await api("POST", "/demo/decide-twice", { appointment_id: c.appt.appointment_id, facility: "FAC-JAI-01" });
+        await gWaitIn(c, before); await sleep(3000);
+        const ins = (await gIns(c)).slice(before);
+        return [chk(r.map(o => o.status).sort().join() === "200,409", r.map(o => `${o.who} ${o.decision} → ${o.status}`).join("; ")),
+          chk(ins.length === 1, `Driver got ${ins.length} outcome message(s): "${short(ins[0]?.text)}"`)];
+      }
+    }] },
+};
+
+// ---------------------------------------------------------------- guide UI
+const G = { flow: null, i: 0, ctx: {}, done: [], busy: false };
+function renderGuideFlows() {
+  $("#gflows").innerHTML = FLOWS.map(([id, title]) => { const c = checklist[id];
+    return `<button class="ghost gflow ${G.flow === id ? "on" : ""}" data-gf="${id}">${id}${c ? ` <span class="res-${c.result}">${c.result === "pass" ? "✓" : c.result === "fail" ? "✗" : "–"}</span>` : ""}<br><span class="muted" style="font-size:12px">${esc(title)}</span></button>` }).join("");
+}
+function renderGuide() {
+  renderGuideFlows();
+  const b = $("#gbody");
+  if (!G.flow) { b.innerHTML = `<p class="muted">Choose a flow above to start. F1 is the best first one.</p>`; return }
+  const f = FLOW_STEPS[G.flow], title = FLOWS.find(x => x[0] === G.flow)[1];
+  const all = G.done.flatMap(d => d.checks).filter(x => x.ok !== null), finished = G.i >= f.steps.length;
+  const failed = all.filter(x => !x.ok).length;
+  b.innerHTML = `<h3 style="margin-top:4px">${G.flow} · ${esc(title)}</h3><p style="margin:0 0 8px">${esc(f.story)}</p>
+    <ol class="gsteps">${f.steps.map((s, i) => { const d = G.done[i];
+      const mark = d ? (d.checks.some(x => x.ok === false) ? "✗" : "✓") : (i === G.i ? "▶" : "");
+      return `<li class="${i === G.i && !finished ? "cur" : ""}"><span class="gm">${mark}</span> <b>${esc(s.title)}</b> <span class="muted">· ${esc(s.who)}</span>
+        ${i === G.i && !finished ? `<div class="gwhy">${esc(s.why)}</div><div class="row" style="margin-top:6px"><button id="grun" ${G.busy ? "disabled" : ""}>${G.busy ? "Running…" : "Run this step"}</button><span id="gprog" class="muted"></span></div>` : ""}
+        ${d ? `<ul class="gchecks">${d.checks.map(x => `<li class="${x.ok === null ? "" : x.ok ? "res-pass" : "res-fail"}">${x.ok === null ? "ℹ" : x.ok ? "✓" : "✗"} <span style="font-weight:400;color:var(--ink)">${esc(x.text)}</span></li>`).join("")}</ul>` : ""}</li>` }).join("")}</ol>
+    ${finished ? `<div class="gend"><b>${failed ? `${failed} check(s) did not match what was expected.` : "Every check matched what was expected."}</b>
+      Look at the phone and console below, then record your verdict:
+      <textarea id="gnote" rows="2" placeholder="Your note (optional), e.g. wording that felt wrong">${esc(checklist[G.flow]?.note ?? "")}</textarea>
+      <div class="row" style="margin-top:6px"><button class="ok" data-gr="pass">Pass</button><button class="bad" data-gr="fail">Fail</button><button class="ghost" id="gagain">Run again</button></div></div>` : ""}`;
+}
+async function runStep() {
+  const f = FLOW_STEPS[G.flow]; if (G.busy || G.i >= f.steps.length) return;
+  G.busy = true; renderGuide();
+  let checks;
+  try { checks = await f.steps[G.i].run(G.ctx, t => { const p = $("#gprog"); if (p) p.textContent = t }) }
+  catch (e) {                              // a broken step stops the walkthrough here; "Run this step" retries it
+    G.busy = false; renderGuide();
+    toast("This step could not run: " + (e.body ? JSON.stringify(e.body) : e.message) + "\nPress \"Run this step\" to try again.");
+    return;
+  }
+  G.done[G.i] = { checks }; G.i++; G.busy = false; renderGuide(); tick();
+}
+$("#gflows").addEventListener("click", e => { const b = e.target.closest("[data-gf]"); if (!b || G.busy) return;
+  Object.assign(G, { flow: b.dataset.gf, i: 0, ctx: {}, done: [] }); renderGuide() });
+$("#gbody").addEventListener("click", async e => {
+  if (e.target.id === "grun") return runStep();
+  if (e.target.id === "gagain") { Object.assign(G, { i: 0, ctx: {}, done: [] }); return renderGuide() }
+  const r = e.target.dataset.gr; if (!r) return;
+  const auto = G.done.flatMap((d, i) => d.checks.map(x => `${x.ok === null ? "i" : x.ok ? "ok" : "NOT OK"}: ${x.text}`)).join(" | ");
+  const mine = $("#gnote").value.trim();
+  checklist = await api("POST", "/demo/checklist", { flow: G.flow, result: r, note: (mine ? mine + " || " : "") + "guided checks: " + auto });
+  renderFlows(); renderGuide(); toast(`${G.flow} recorded as ${r.toUpperCase()}`);
+});
+
+</script>
+</body>
+</html>

@@ -1,0 +1,4 @@
+# Development and test tools
+-r requirements.txt
+pytest==8.4.2
+pip-audit==2.10.1        # dependency vulnerability check (Phase D)
