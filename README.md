@@ -11,7 +11,7 @@ the same slot. **All driver, shipment, warehouse and booking data in this reposi
 | Phase 1 Frame, Phase 2 Design | Done |
 | Phase 3 Build, local | **Done.** 743 tests pass on local PostgreSQL 18 (developer-reported full run, 21 Nov 2026) |
 | Human checks | Demo walkthroughs F1–F9 done; F5 and F6 confirmed by the owner. Native-speaker Hindi/Hinglish review done (S4-R2-08) |
-| AWS deployment (step 6) | **Not started.** B-AWS-0 (the account is limited to Sydney, `ap-southeast-2`) and the six deployment gates in `phase3_build/DEPLOYMENT_GATES.md` are open |
+| AWS deployment (step 6) | **Not started.** B-AWS-0 (the account is limited to Sydney, `ap-southeast-2`) and the six deployment gates in `docs/operations/DEPLOYMENT_GATES.md` are open |
 | Live booking | **Off.** `SETUHAUL_BOOKING_ENABLED` stays off until the six gates pass and the owner approves |
 
 **Local work complete does not mean AWS accepted.** Everything above runs locally with stand-ins for AWS (local queue,
@@ -34,26 +34,33 @@ an optional provider. The code change for this is Phase B of the release plan; u
 
 | Path | Contents |
 |---|---|
-| `docs/` | Client brief (PDF) and reference architecture sketch |
+| `setuhaul/` | The application package: domain rules (ETA fusion, feasibility), API and booking service, agent (extraction, orchestrator, replies), approval workflow, outbound notifications, operations helpers |
+| `migrations/` | PostgreSQL migrations 0001–0022 (database functions own booking and approval state) |
+| `tests/` | The test suite (743 tests) |
+| `evals/` | Golden sets, held-out set, end-to-end replay, cost ledger and recorded results (evaluation evidence) |
+| `demo/` | Local demo console with guided walkthroughs |
+| `scripts/` | One-off tools: Phase 1 audit, feasibility prototype and solver spike (`frame/`), schema validator (`design/`), Bedrock spike (`spike/`) |
 | `data/` | Synthetic data package: SQLite snapshot, schema and seed SQL, data dictionary, ER diagram, guide |
-| `phase1_frame/` | **Phase 1 · Frame**: problem definition, data audit, variables, high-level design, ETA signal strategy |
-| `phase2_design/` | **Phase 2 · Design**: decision register, AWS architecture, data model (`schema.sql`), tool contracts, state machines, agent design, cost |
-| `phase3_build/` | **Phase 3 · Build**: migrations, database functions, ETA fusion, feasibility engine, booking flow, FastAPI backend, agent, workflow, notifications, tests, evaluation evidence, demo console |
+| `docs/brief/` | Client brief (PDF) and reference architecture sketch |
+| `docs/1-frame/` | **Phase 1 · Frame**: problem definition, data audit, variables, high-level design, ETA signal strategy |
+| `docs/2-design/` | **Phase 2 · Design**: decision register, AWS architecture, data model (`schema.sql`), tool contracts, state machines, agent design, cost; approval (B-WF-2) and outbound (B-WF-3) designs |
+| `docs/3-build/` | **Phase 3 · Build**: the build log (status, step history, evidence) |
+| `docs/review/` | `FINDINGS_LEDGER.md` (every review finding and its status), `TRACEABILITY.md` (requirement → test), `REVIEW_REQUEST.md`, `REVIEW_LOG.md` (review history, kept as written) |
+| `docs/operations/` | `DEPLOYMENT_GATES.md` (what step 6 must prove), `RUNBOOK_0011.md`, `COSTS.md` (model spend so far) |
 
-Key documents in `phase3_build/`: `README.md` (build detail), `DEPLOYMENT_GATES.md` (what step 6 must prove),
-`FINDINGS_LEDGER.md` (every review finding and its status), `TRACEABILITY.md` (requirement → test), `REVIEW_LOG.md`
-(review history, kept as written), `COSTS.md` (model spend so far).
+The project was built in phases (Frame, Design, Build); the code is at the top level and each phase's write-up is under
+`docs/`. Paths in `docs/review/REVIEW_LOG.md` predate this layout and are mapped at the top of that file.
 
 ## Run the tests
 
 Needs Python 3.14 and a local PostgreSQL 18 server.
 
 ```bash
-pip install -r phase3_build/requirements-dev.txt
+pip install -r requirements-dev.txt
 ```
 
 ```bash
-SETUHAUL_TEST_DSN="host=localhost port=55432 user=postgres" python -m pytest phase3_build/tests -q
+SETUHAUL_TEST_DSN="host=localhost port=55432 user=postgres" python -m pytest tests -q
 ```
 
 Without `SETUHAUL_TEST_DSN` only the database-free tests run (the rest are skipped). Configuration names are listed in
@@ -62,7 +69,7 @@ Without `SETUHAUL_TEST_DSN` only the database-free tests run (the rest are skipp
 ## Run the demo console
 
 ```bash
-python phase3_build/demo/server.py
+python demo/server.py
 ```
 
 Opens a local console at `http://127.0.0.1:8765/demo` with guided walkthroughs. It uses the rules-based reader, so no
@@ -73,11 +80,11 @@ model is called and nothing is billed.
 The audit and feasibility scripts need only the Python standard library; the solver spike needs OR-Tools.
 
 ```bash
-python phase1_frame/run_audit.py
+python scripts/frame/run_audit.py
 ```
 
 ```bash
-python phase1_frame/feasibility_prototype.py
+python scripts/frame/feasibility_prototype.py
 ```
 
 ```bash
@@ -85,11 +92,11 @@ pip install ortools==9.15.6755
 ```
 
 ```bash
-python phase1_frame/solver_spike.py
+python scripts/frame/solver_spike.py
 ```
 
 Validate the Phase 2 data model (creates and drops its own `setuhaul_validate` database):
 
 ```bash
-python phase2_design/validate_schema.py "host=localhost port=5432 user=postgres"
+python scripts/design/validate_schema.py "host=localhost port=5432 user=postgres"
 ```

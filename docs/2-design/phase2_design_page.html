@@ -1,0 +1,478 @@
+<title>SetuHaul Phase 2 Design</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap">
+<style>
+/* Layout: single reading column with a sticky section index; same dock-yard palette as Phase 1 (ink navy + signal amber) */
+:root{
+  --bg:#f6f7f9; --surface:#ffffff; --fg:#17202b; --muted:#566273; --line:#dde2e8;
+  --ink:#1d2f4a; --accent:#c97a06; --accent-soft:#fbefd9;
+  --ok:#1f7a4d; --ok-soft:#e3f3ea; --warn:#a15c00; --warn-soft:#fdf0dc; --bad:#b4282e; --bad-soft:#fbe6e7;
+  --pend:#7a5bb5; --pend-soft:#efe9f9;
+  --display:"Space Grotesk","Segoe UI",system-ui,sans-serif; --body:"IBM Plex Sans","Segoe UI",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#0f141b; --surface:#161d27; --fg:#e4e9f0; --muted:#9aa6b6; --line:#2a3442; --ink:#9fc0ff; --accent:#f0a83a; --accent-soft:#3a2a10;
+  --ok:#5fd29a; --ok-soft:#14301f; --warn:#f2b45a; --warn-soft:#38270d; --bad:#ff7b80; --bad-soft:#3a1719; --pend:#b79cf0; --pend-soft:#2a2140; color-scheme:dark; } }
+:root[data-theme="dark"]{
+  --bg:#0f141b; --surface:#161d27; --fg:#e4e9f0; --muted:#9aa6b6; --line:#2a3442; --ink:#9fc0ff; --accent:#f0a83a; --accent-soft:#3a2a10;
+  --ok:#5fd29a; --ok-soft:#14301f; --warn:#f2b45a; --warn-soft:#38270d; --bad:#ff7b80; --bad-soft:#3a1719; --pend:#b79cf0; --pend-soft:#2a2140; color-scheme:dark; }
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:15px/1.6 var(--body);margin:0}
+.wrap{max-width:1080px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:32px 64px}
+header.top{display:grid;gap:10px;padding-bottom:24px;border-bottom:1px solid var(--line)}
+.eyebrow{font:500 12px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+h1,h2,h3{font-family:var(--display);text-wrap:balance;margin:0;color:var(--fg)}
+h1{font-size:clamp(28px,4vw,40px);line-height:1.15;font-weight:700} h2{font-size:24px;line-height:1.25;font-weight:600} h3{font-size:17px;font-weight:600}
+p{margin:0;max-width:72ch} .lede{font-size:17px;color:var(--muted);max-width:70ch}
+nav.idx{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);border-bottom:1px solid var(--line);margin:0 -4px}
+nav.idx ul{display:flex;gap:4px 16px;flex-wrap:wrap;list-style:none;margin:0;padding:10px 4px}
+nav.idx a{font:500 13px/1.4 var(--body);color:var(--muted);text-decoration:none} nav.idx a:hover,nav.idx a:focus-visible{color:var(--accent)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+section{display:grid;gap:16px;padding-top:40px;scroll-margin-top:56px}
+.kicker{font:500 12px/1 var(--mono);color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:14px 16px;display:grid;gap:2px}
+.stat b{font:600 24px/1.1 var(--display);font-variant-numeric:tabular-nums} .stat span{font-size:13px;color:var(--muted)}
+.stat.hot{border-color:var(--accent);background:var(--accent-soft)}
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;vertical-align:top;padding:9px 12px;border-bottom:1px solid var(--line)}
+th{font:600 12px/1.3 var(--body);text-transform:uppercase;letter-spacing:.04em;color:var(--muted);background:var(--bg)}
+tr:last-child td{border-bottom:0}
+code{font:13px var(--mono);background:var(--bg);padding:1px 4px;border-radius:4px}
+.mono{font-family:var(--mono);font-size:13px;white-space:nowrap}
+.pill{display:inline-block;font:600 11px/1 var(--mono);padding:4px 7px;border-radius:999px;letter-spacing:.03em;white-space:nowrap}
+.p-high{background:var(--bad-soft);color:var(--bad)} .p-med{background:var(--warn-soft);color:var(--warn)} .p-ok{background:var(--ok-soft);color:var(--ok)} .p-pend{background:var(--pend-soft);color:var(--pend)}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px} .grid2>*{min-width:0}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:16px;display:grid;gap:8px;align-content:start}
+.card ul{margin:0;padding-left:18px;display:grid;gap:4px}
+.note{border-left:3px solid var(--accent);background:var(--surface);padding:12px 16px;border-radius:0 8px 8px 0;max-width:80ch}
+pre.mermaid{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:16px;overflow-x:auto;margin:0}
+pre.sql{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:14px 16px;overflow-x:auto;margin:0;font:13px/1.5 var(--mono)}
+footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);font-size:13px;color:var(--muted);display:grid;gap:6px}
+a{color:var(--ink)} html{scroll-behavior:smooth} @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+</style>
+
+<div class="wrap">
+<header class="top">
+  <div class="eyebrow">FDE challenge · Phase 2 of 5 · Design · baseline approved at fourth review; Build gates tracked</div>
+  <h1>SetuHaul exception service: decisions and architecture</h1>
+  <p class="lede">The brief's 13 decisions answered with evidence, 33 technology decisions, the production architecture in Mumbai, and the MVP slice Build will deliver with its acceptance gate. The data model is proven on PostgreSQL 18 with the real snapshot, 3,240 contested holds, a truck-level guard, row-level security on all 16 facility- or driver-owned tables, least-privilege grants, and an enforced notification resend limit: 88 database checks pass, with the race tests running as the least-privilege agent role. India-only inference, the Aurora PostgreSQL 18 run, the golden dataset and measured cost are open Build gates.</p>
+</header>
+
+<nav class="idx" aria-label="Sections"><ul>
+  <li><a href="#review">Review changes</a></li><li><a href="#proof">Integrity proof</a></li><li><a href="#decisions">Decisions</a></li>
+  <li><a href="#tech">Technology</a></li><li><a href="#arch">Architecture</a></li><li><a href="#auth">Auth</a></li><li><a href="#flow">Flow</a></li>
+  <li><a href="#data">Data model</a></li><li><a href="#tools">Tools &amp; states</a></li><li><a href="#agent">Agent</a></li>
+  <li><a href="#residency">Residency &amp; guardrails</a></li><li><a href="#evals">Evaluation</a></li><li><a href="#mvp">MVP slice</a></li>
+  <li><a href="#gate">Acceptance gate</a></li><li><a href="#why">Why an LLM</a></li>
+  <li><a href="#cost">Cost</a></li><li><a href="#signoff">Sign-off &amp; backlog</a></li><li><a href="#open">Open items</a></li>
+</ul></nav>
+
+<section id="review">
+  <div class="kicker">External review · every claim checked against AWS docs</div>
+  <h2>What changed after the review</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Review point</th><th>Outcome</th><th>Change</th></tr></thead>
+    <tbody>
+      <tr><td>Identity pool + SigV4 from the browser is over-complicated</td><td><span class="pill p-ok">Accepted</span></td><td>Cognito JWT for people (API Gateway JWT authoriser + FastAPI RBAC/ABAC); IAM roles for services; Meta HMAC for the webhook. No identity pool</td></tr>
+      <tr><td>Data API: credentials, session reset, writer-only</td><td><span class="pill p-ok">Accepted, verified</span></td><td>IAM authorises the call; DB credentials come from Secrets Manager. Session state is <code>DISCARD ALL</code>-reset, so RLS scope is set inside each transaction. FORCE RLS added. The reader is failover only</td></tr>
+      <tr><td>The outbox doesn't give exactly-once notifications</td><td><span class="pill p-ok">Accepted</span></td><td>"Nothing sent twice" withdrawn. At-least-once delivery, consumers deduplicate by <code>notification_id</code>, delivery tracked</td></tr>
+      <tr><td>SQS FIFO dedupe is only 5 minutes</td><td><span class="pill p-pend">Already covered</span></td><td>Persistent unique message ids, dedupe keys and idempotency records were already in the schema; now documented</td></tr>
+      <tr><td>Fixed workflow vs agent choosing tools</td><td><span class="pill p-ok">Accepted</span></td><td>Deterministic orchestration: Haiku extracts, Python picks every operation, Sonnet only phrases the reply. No autonomous tool choice in v1</td></tr>
+      <tr><td>"2" is a selection, not a booking</td><td><span class="pill p-ok">Accepted</span></td><td>Select → read-back → explicit yes → hold → <code>submit_booking_request</code> → warehouse confirms</td></tr>
+      <tr><td>Global inference may leave India</td><td><span class="pill p-ok">Accepted, extended</span></td><td>New finding: an <b>India-only inference profile</b> exists. The design now uses Sonnet 5 + Haiku 4.5 on <code>in.</code> profiles</td></tr>
+      <tr><td>Truck can be at two docks at once</td><td><span class="pill p-ok">Accepted</span></td><td>New <code>ex_one_dock_per_truck</code> exclusion constraint, tested</td></tr>
+      <tr><td>Defer AgentCore Memory</td><td><span class="pill p-ok">Accepted</span></td><td>Conversation and workflow state live in PostgreSQL and Step Functions</td></tr>
+      <tr><td>Add tenant_id</td><td><span class="pill p-med">Declined for v1</span></td><td>SetuHaul is one 3PL; the facility is the isolation boundary (RLS). Add a tenant only if this becomes multi-customer</td></tr>
+      <tr><td>Guardrails, evaluation, observability missing</td><td><span class="pill p-pend">Already covered</span></td><td>They were in the Markdown files but not on this page. Added below, with the reviewer's gates merged in</td></tr>
+      <tr><td>Too much to build</td><td><span class="pill p-ok">Accepted</span></td><td>Build delivers one complete workflow (MVP slice). The production architecture stays as the target</td></tr>
+    </tbody></table></div>
+</section>
+
+<section id="proof">
+  <div class="kicker">Validated on PostgreSQL 18 · validate_schema.py · test environment</div>
+  <h2>Double booking blocked by the database itself</h2>
+  <div class="stats">
+    <div class="stat hot"><b>1 winner</b><span>in every round of 10, 50 and 200 parallel holds on one slot</span></div>
+    <div class="stat"><b>3,240</b><span>contested hold attempts, 0 deadlocks</span></div>
+    <div class="stat"><b>0</b><span>overlaps after 150 random overlapping holds</span></div>
+    <div class="stat hot"><b>4 of 4</b><span>infeasible seed bookings rejected</span></div>
+    <div class="stat"><b>14 of 14</b><span>row-level security checks pass, reads and writes</span></div>
+    <div class="stat"><b>0</b><span>app roles that can bypass row-level security</span></div>
+  </div>
+  <div class="tbl"><table>
+    <thead><tr><th>Seed booking rejected on load</th><th>Database reason</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">APT1004 · D2 09:00</td><td>Overlaps SHP1002, still unloading until ~09:28</td></tr>
+      <tr><td class="mono">APT1005 · D3 09:00</td><td>20,500 kg is over D3's 20,000 kg limit</td></tr>
+      <tr><td class="mono">APT1015A · D5 17:00</td><td>Unload plus changeover runs into maintenance from 18:00</td></tr>
+      <tr><td class="mono">APT1014A · D1 11:00</td><td>21,000 kg is over D1's 20,000 kg limit</td></tr>
+    </tbody></table></div>
+  <p class="note">These results come from a local test environment. They show the constraints behave as designed under heavy contention; production gets the same tests in CI and a Locust run in the Break phase. Testing also surfaced two rules now in the design: a per-dock lock prevents deadlocks, and the app must never connect as a database superuser, because superusers bypass row-level security.</p>
+</section>
+
+<section id="decisions">
+  <div class="kicker">Decision register · Part A · the brief's 13 decisions</div>
+  <h2>What we decided and the evidence behind it</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>#</th><th>Decision</th><th>Answer</th><th>Evidence</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">1</td><td>What to collect before showing options</td><td>Which shipment (only if more than one), a usable ETA with its kind, hard time limits, browse or book. Everything else is looked up</td><td>THR001, THR003, THR002</td></tr>
+      <tr><td class="mono">2</td><td>Link a chat to driver, shipment, booking</td><td>Verified phone → driver → live shipments. Ask with order references if more than one</td><td>THR010 trace</td></tr>
+      <tr><td class="mono">3</td><td>Revised ETA and certainty</td><td>Deterministic <code>fuse_eta()</code> over driver, FASTag, pin, SIM, GPS and gate</td><td>SHP1006, SHP1013</td></tr>
+      <tr><td class="mono">4</td><td>What makes a slot feasible</td><td>One <code>is_feasible()</code> at listing and at commit; the database re-enforces it</td><td>Worked examples; validation</td></tr>
+      <tr><td class="mono">5</td><td>"Available" while another driver decides</td><td>No booking, block, in-dock truck or unexpired hold. Showing reserves nothing</td><td>Contention test</td></tr>
+      <tr><td class="mono">6</td><td>Option → hold → request → confirmed</td><td>Select → read-back → explicit yes → 3-min hold → <code>submit_booking_request</code> → pending (facility TTL) → warehouse confirms</td><td>State machine</td></tr>
+      <tr><td class="mono">7</td><td>Ordering simultaneous requests</td><td>First valid commit wins. Priority is applied by the scheduler, never by race. 90-min maximum yard wait</td><td>Solver spike</td></tr>
+      <tr><td class="mono">8</td><td>When the facility plan recalculates</td><td>ETA change over 15 min, gate-in, dock event or cancellation, debounced to 60 s. In-dock trucks fixed</td><td>Solver replay</td></tr>
+      <tr><td class="mono">9</td><td>Stale options, duplicates, retries</td><td>Re-check at hold; persistent unique ids and dedupe keys; idempotency records</td><td>THR001 / THR009</td></tr>
+      <tr><td class="mono">10</td><td>No feasible slot</td><td>Escalate with a complete hand-off and a time-bound driver message</td><td>SHP1015</td></tr>
+      <tr><td class="mono">11</td><td>Refusing the preferred slot</td><td>The reason plus the best alternative, in plain words</td><td>Two scripted refusals</td></tr>
+      <tr><td class="mono">12</td><td>Human approval or takeover</td><td>14 triggers, five modes, SLAs, timeouts that change nothing</td><td>HITL design</td></tr>
+      <tr><td class="mono">13</td><td>Proving no double booking</td><td>Dock and truck exclusion constraints, advisory lock, CI concurrency test, post-run checker</td><td>Validation results</td></tr>
+    </tbody></table></div>
+</section>
+
+<section id="tech">
+  <div class="kicker">Decision register · Part B</div>
+  <h2>Technology choices</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Area</th><th>Choice</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>Agent platform</td><td>AgentCore Runtime, Gateway, Identity, Policy, Observability, Evaluations; Strands as the harness. <b>Memory deferred</b></td><td>All available in Mumbai; operational state belongs in the database</td></tr>
+      <tr><td>Orchestration</td><td><b>Deterministic</b>: Python state machine picks every operation</td><td>Predictable and testable; the LLM can't be talked into an action</td></tr>
+      <tr><td>Models</td><td><code>in.anthropic.claude-haiku-4-5</code> extracts; <code>in.anthropic.claude-sonnet-5</code> phrases replies; templates otherwise</td><td>India-only inference; small model for structured extraction</td></tr>
+      <tr><td>Database</td><td>PostgreSQL: local for the MVP, Aurora Serverless v2 in production</td><td>Range-overlap constraints, transactions, RLS</td></tr>
+      <tr><td>Database access (production)</td><td>RDS Data API: IAM-authorised calls, credentials from Secrets Manager, scoped transactions</td><td>$0.397/M calls; no proxy, NAT or endpoints</td></tr>
+      <tr><td>Scheduler</td><td>OR-Tools CP-SAT with a dispatch-rule fallback</td><td>Optimal in 1.4 s on the snapshot</td></tr>
+      <tr><td>Ingest</td><td>SQS FIFO per driver + persistent dedupe in the database</td><td>Ordering; dedupe beyond SQS's 5-minute window</td></tr>
+      <tr><td>Workflows</td><td>Step Functions (approvals), EventBridge Scheduler (expiries)</td><td>Durable human waits and exact timers</td></tr>
+      <tr><td>Notifications</td><td>Outbox → at-least-once delivery with idempotent consumers</td><td>No lost events; duplicates suppressed</td></tr>
+      <tr><td>Guardrails</td><td>Bedrock Guardrails + deterministic masking + Pydantic + grounding check</td><td>Defence in depth (see below)</td></tr>
+      <tr><td>Maps</td><td>Offline Valhalla drive-time matrix on OSM</td><td>≈ $0 at runtime</td></tr>
+      <tr><td>ML</td><td>None in v1. ETA prediction may later adjust confidence only</td><td>Prediction is probabilistic; availability is deterministic</td></tr>
+    </tbody></table></div>
+</section>
+
+<section id="arch">
+  <div class="kicker">Production architecture · ap-south-1</div>
+  <h2>Code decides capacity; the model only reads and writes words</h2>
+<pre class="mermaid">
+flowchart TB
+  subgraph People
+    OPS[Ops console]
+    DRW[Driver web chat]
+  end
+  WA[Driver WhatsApp] --> WHK[Webhook<br/>Meta HMAC]
+  OPS --> CUP[Cognito user pool<br/>MFA · JWT]
+  DRW --> CUP
+  CUP -->|JWT| APIGW[API Gateway<br/>JWT authoriser]
+  APIGW --> API[FastAPI<br/>RBAC + facility ABAC]
+  WHK --> ING[Ingest<br/>dedupe · mask · safety]
+  ING --> Q[(SQS FIFO per driver)] --> DISP[Dispatcher<br/>takeover check]
+  DISP --> RT[AgentCore Runtime<br/>deterministic orchestrator]
+  RT -->|extract| H[Haiku 4.5 · India]
+  RT -->|phrase| S[Sonnet 5 · India]
+  RT --> GW[AgentCore Gateway + Policy]
+  GW --> TOOLS[Tool Lambdas<br/>is_feasible · fuse_eta · holds]
+  GW --> SCH[OR-Tools scheduler]
+  API --> CORE[Booking service]
+  TOOLS --> CORE
+  SCH --> CORE
+  CORE --> DAPI[RDS Data API<br/>IAM + Secrets Manager] --> DB[(Aurora PostgreSQL<br/>EXCLUDE · FORCE RLS · audit)]
+  DB -.outbox.-> EB[EventBridge] --> N[Notifications<br/>at-least-once]
+  SF[Step Functions approvals<br/>EventBridge Scheduler] --> CORE
+</pre>
+</section>
+
+<section id="auth">
+  <div class="kicker">Separate trust mechanisms</div>
+  <h2>JWT for people, IAM for services, signatures for webhooks</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Caller</th><th>Authenticates with</th><th>Authorised by</th></tr></thead>
+    <tbody>
+      <tr><td>Ops, planners, dispatchers</td><td>Cognito user pool, MFA</td><td>API Gateway JWT authoriser → FastAPI role (group) and facility scope (claim) → database RLS set inside each transaction</td></tr>
+      <tr><td>Driver on web chat</td><td>Cognito OTP on the registered phone</td><td>JWT; driver id taken from the token, never from the message</td></tr>
+      <tr><td>Driver on WhatsApp</td><td>Meta-verified sender number</td><td>Webhook HMAC + replay window; number mapped to the driver record</td></tr>
+      <tr><td>Lambdas, scheduler, workflows</td><td>IAM roles</td><td>Least-privilege IAM policies</td></tr>
+      <tr><td>Agent → tools</td><td>AgentCore Identity</td><td>Gateway IAM + AgentCore Policy + ownership checks in each tool</td></tr>
+      <tr><td>Database</td><td>Secrets Manager credentials via Data API</td><td>Non-superuser roles; FORCE RLS; system jobs use a separate BYPASSRLS role</td></tr>
+    </tbody></table></div>
+</section>
+
+<section id="flow">
+  <div class="kicker">Runtime flow</div>
+  <h2>Delay report to booking request</h2>
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant D as Driver
+  participant O as Orchestrator (Python)
+  participant L as Haiku / Sonnet (India)
+  participant T as Tools
+  participant DB as PostgreSQL
+  D->>O: "Reaching around 11:20. Any slot after 12?"
+  O->>L: Haiku extracts → ETA 11:20, after 12:00, ask options
+  O->>T: record_driver_report, find_feasible_options
+  T->>DB: fuse_eta · is_feasible
+  O->>L: Sonnet phrases verified options
+  O-->>D: "Free now, not reserved: 1) D1 13:00 2) D2 13:00 3) D3 13:00"
+  D->>O: "2"
+  O-->>D: "You selected D2 at 13:00, unloading until 13:55. Shall I request it?"
+  D->>O: "Yes"
+  O->>T: hold_option → submit_booking_request
+  T->>DB: lock · re-check · exclusion insert · pending + outbox
+  O-->>D: "Requested D2 13:00. The warehouse confirms by 09:55."
+</pre>
+</section>
+
+<section id="data">
+  <div class="kicker">Data model · 23 tables</div>
+  <h2>Every claim on dock time is one row</h2>
+<pre class="sql">CREATE EXTENSION IF NOT EXISTS btree_gist;
+CREATE TABLE dock_occupancy (
+  dock_id text, facility_id text, shipment_id text, vehicle_id text,  -- vehicle set by trigger
+  during tstzrange CHECK (lower_inc(during) AND NOT upper_inc(during)), -- half-open [start, end)
+  kind text CHECK (kind IN ('HOLD','APPOINTMENT','BLOCK','FIXED')),
+  active boolean, expires_at timestamptz,
+  CONSTRAINT ex_one_truck_per_dock EXCLUDE USING gist (dock_id WITH =, during WITH &amp;&amp;) WHERE (active),
+  CONSTRAINT ex_one_dock_per_truck EXCLUDE USING gist
+    (vehicle_id WITH =, during WITH &amp;&amp;, shipment_id WITH &lt;&gt;) WHERE (active AND vehicle_id IS NOT NULL)
+);</pre>
+  <div class="tbl"><table>
+    <thead><tr><th>Guard</th><th>Stops</th></tr></thead>
+    <tbody>
+      <tr><td>Dock exclusion</td><td>Double booking, spill-over unloads, broken docks, overrunning trucks</td></tr>
+      <tr><td>Truck exclusion</td><td>One truck holding or booking two docks at once for different shipments</td></tr>
+      <tr><td>Compatibility trigger</td><td>Wrong facility, overweight, non-reefer, non-heavy, cancelled shipment</td></tr>
+      <tr><td><code>place_hold()</code></td><td>Releases expired holds in the same transaction; per-dock lock prevents deadlocks</td></tr>
+      <tr><td>Unique ids, dedupe keys, idempotency records</td><td>Duplicates beyond SQS's 5-minute window</td></tr>
+      <tr><td>FORCE row-level security on all 16 facility- or driver-owned tables, including shipments and the other mirror tables</td><td>Cross-facility and cross-driver reads and writes; missing scope returns nothing and blocks writes; no bypass roles; a hidden shipment fails the write instead of skipping checks</td></tr>
+      <tr><td>Least-privilege grants: capacity changes only through owned, pinned-search-path functions; column-level writes per role; nothing for PUBLIC; no DELETE</td><td>The agent approving its own request, reading task tokens, clearing a human takeover or editing bookings directly</td></tr>
+      <tr><td><code>ex_one_dock_per_truck</code> is not assignment validation</td><td>It stops one truck holding two overlapping docks. Whether the truck and driver are really assigned is TMS data, checked before options are offered and escalated as contradictory data</td></tr>
+      <tr><td>Notification state machine</td><td>Two notifications for one event and channel; unscheduled retries; ambiguous timeouts are marked UNKNOWN, never blindly re-sent</td></tr>
+      <tr><td>Append-only audit</td><td>Rewritten booking history</td></tr>
+    </tbody></table></div>
+</section>
+
+<section id="tools">
+  <div class="kicker">Tools &amp; state machine</div>
+  <h2>Ten tools, called by code, not chosen by the model</h2>
+  <div class="grid2">
+    <div class="card"><h3>Tools (through AgentCore Gateway)</h3><ul>
+      <li><code>get_driver_context</code>, <code>record_driver_report</code>, <code>find_feasible_options</code></li>
+      <li><code>hold_option</code>, <code>submit_booking_request</code>, <code>release_hold</code>, <code>get_booking_status</code></li>
+      <li><code>request_location_pin</code>, <code>escalate_to_human</code>, <code>propose_facility_schedule</code></li>
+      <li>Identity from the session; every write idempotent; Policy and IAM still apply</li></ul></div>
+    <div class="card"><h3>Rules</h3><ul>
+      <li>A bare selection only moves the chat to SELECTED</li>
+      <li>Hold only after an explicit yes to the read-back</li>
+      <li>Only the warehouse or an auto-confirm rule confirms</li>
+      <li>Every time and dock in a reply must come from tool output</li>
+      <li>At most 3 clarifying questions, then a person</li></ul></div>
+  </div>
+<pre class="mermaid">
+stateDiagram-v2
+  [*] --> OptionShown
+  OptionShown --> Selected: driver picks one
+  Selected --> Held: yes to read-back
+  Selected --> OptionShown: no / changes mind
+  Held --> Lost: taken by another truck
+  Lost --> OptionShown: fresh options
+  Held --> Released: 3-min TTL
+  Held --> Pending: submit_booking_request
+  Pending --> Confirmed: warehouse confirms
+  Pending --> Rejected: warehouse rejects
+  Pending --> Expired: facility TTL
+  Confirmed --> AtRisk: ETA or dock event
+  AtRisk --> OptionShown: re-schedule
+  Confirmed --> InProgress: dock-in
+</pre>
+</section>
+
+<section id="agent">
+  <div class="kicker">Agent design</div>
+  <h2>The model reads and writes words; code does everything else</h2>
+  <div class="grid2">
+    <div class="card"><h3>Pipeline</h3><ul>
+      <li>Ingest → Haiku extracts (forced tool, schema-validated) → Python validates, fuses the ETA, picks the operation → tools → Sonnet phrases (no tools) → grounding check → send</li>
+      <li>Status checks and confirmations use templates</li>
+      <li>On model failure: deterministic template replies with numbered options</li></ul></div>
+    <div class="card"><h3>Build-phase spikes</h3><ul>
+      <li>Strands' Bedrock provider (boto3 Converse) with both India profiles</li>
+      <li>Strict tool schema on Haiku 4.5 via Converse; fallback is Pydantic + one retry</li>
+      <li>Avoid the Anthropic SDK Bedrock client for Haiku 4.5: current releases send an API version Bedrock accepts only for Claude 4.7+</li></ul></div>
+  </div>
+</section>
+
+<section id="residency">
+  <div class="kicker">Data residency &amp; guardrails</div>
+  <h2>Driver data stays in India; masking is defence in depth</h2>
+  <div class="grid2">
+    <div class="card"><h3>Residency decisions</h3><ul>
+      <li>Inference: India profile only (Mumbai ↔ Hyderabad); Global profiles denied in IAM. <b>Designed; runtime proof pending in Build (B1–B4)</b></li>
+      <li>Phone numbers never reach a model; registrations and licences pseudonymised</li>
+      <li>Coordinates stay out of model context; only derived ETA and confidence</li>
+      <li>Evaluation data synthetic or sanitised; online evals on sanitised traces</li>
+      <li>All stateful data in ap-south-1</li></ul></div>
+    <div class="card"><h3>Protection matrix</h3><ul>
+      <li>Prompt injection: Guardrails on user input, and the model has no tools to misuse</li>
+      <li>PII: deterministic pre-mask + Guardrails sensitive-information filter</li>
+      <li>Bad output: strict schema + Pydantic; grounding check on replies</li>
+      <li>Tool results are data: driver text inside them is quoted, capped and never treated as instructions</li>
+      <li>"Cancel all appointments": no such operation exists for a driver</li></ul></div>
+  </div>
+</section>
+
+<section id="evals">
+  <div class="kicker">Evaluation &amp; observability</div>
+  <h2>Gates that block a release</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Metric</th><th>Gate</th></tr></thead>
+    <tbody>
+      <tr><td>Structured-output validity</td><td class="mono">≥ 99 %</td></tr>
+      <tr><td>ETA extraction precision / recall</td><td class="mono">≥ 95 % / ≥ 95 %</td></tr>
+      <tr><td>Intent accuracy</td><td class="mono">≥ 95 %</td></tr>
+      <tr><td>Next-operation correctness (deterministic)</td><td class="mono">100 %</td></tr>
+      <tr><td>Tool argument correctness</td><td class="mono">≥ 98 %</td></tr>
+      <tr><td>Double bookings, rule violations, unauthorised or duplicate operations</td><td class="mono">0</td></tr>
+      <tr><td>Replies grounded in tool output</td><td class="mono">100 %</td></tr>
+      <tr><td>Golden scenario completion (60 scenarios)</td><td class="mono">≥ 95 %</td></tr>
+      <tr><td>Judge rubric mean (never &lt; 3 on overpromising)</td><td class="mono">≥ 4.0</td></tr>
+      <tr><td>Cost per resolved exception (production)</td><td class="mono">≤ $0.08</td></tr>
+    </tbody></table></div>
+  <p><b>One trace per message:</b> webhook → ingest → SQS (age, retries) → orchestrator (model, tokens, latency) → tool span → booking service (rule result) → PostgreSQL (constraint outcome, idempotency hit) → Step Functions → notification (delivery status). Never logged: phone numbers, coordinates, tokens, unmasked text. Human labels go to JSONL that Argilla can import later.</p>
+</section>
+
+<section id="mvp">
+  <div class="kicker">What Build delivers</div>
+  <h2>One complete workflow, real where it matters</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Component</th><th>MVP slice</th><th>Production target</th></tr></thead>
+    <tbody>
+      <tr><td>Database</td><td>Local PostgreSQL 18, same schema</td><td>Aurora Serverless v2 + Data API</td></tr>
+      <tr><td>Auth</td><td>Real Cognito + JWT, FastAPI RBAC</td><td>+ API Gateway JWT authoriser</td></tr>
+      <tr><td>Models</td><td>Real Bedrock, India profile</td><td>Same</td></tr>
+      <tr><td>AgentCore</td><td>Runtime, Gateway, Policy deployed for demos</td><td>Always on</td></tr>
+      <tr><td>Queue and workflows</td><td>Real SQS FIFO + Step Functions</td><td>+ EventBridge Scheduler, outbox relay</td></tr>
+      <tr><td>ETA signals</td><td>Mock FASTag, pin, SIM adapters</td><td>Real vendors</td></tr>
+      <tr><td>Notifications, console</td><td>One channel; React + FastAPI locally</td><td>All channels; CloudFront + WAF; live updates</td></tr>
+      <tr><td>Evals</td><td>pytest + 60-scenario golden set</td><td>+ AgentCore Evaluations (sanitised)</td></tr>
+    </tbody></table></div>
+  <div class="stats">
+    <div class="stat hot"><b>≈ ₹1,500–2,500</b><span>per month for the MVP (estimate)</span></div>
+    <div class="stat"><b>≈ $0.05</b><span>per development or eval conversation</span></div>
+  </div>
+</section>
+
+<section id="gate">
+  <div class="kicker">MVP acceptance gate · added at re-review</div>
+  <h2>Done means a driver's delay ends in a confirmed reschedule</h2>
+  <div class="grid2">
+    <div class="card"><h3>Definition of done (one trace end to end)</h3><ul>
+      <li>Driver signs in; the right driver and shipment are identified</li>
+      <li>Haiku extracts the ETA; Python validates and fuses it</li>
+      <li>Feasible options found; driver selects, then says yes to the read-back</li>
+      <li>Idempotent hold; booking request reaches the warehouse</li>
+      <li>Warehouse approves or rejects; driver gets the final outcome</li>
+      <li>Every step traced and audited</li></ul></div>
+    <div class="card"><h3>Failure scenarios that must pass</h3><ul>
+      <li>Duplicate driver message → one reply</li>
+      <li>Concurrent booking → one winner, losers get fresh options</li>
+      <li>Truck already assigned elsewhere → escalate; database rejects a forced booking</li>
+      <li>Expired hold → slot freed (tested)</li>
+      <li>LLM timeout → template reply</li>
+      <li>Warehouse timeout → no auto-approval; alternatives offered</li>
+      <li>Notification failure → retry, then fallback and alert</li>
+      <li>Wrong-facility access → 403 and 0 rows</li></ul></div>
+  </div>
+  <div class="tbl"><table>
+    <thead><tr><th>Re-review verification point</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td>A. Facility RLS on every table, no bypass roles, fail closed</td><td><span class="pill p-ok">Proven</span> 54 RLS checks on 16 tables, including writes, cross-driver access and the mirror tables; 20 privilege checks; a coverage check catches new tables</td></tr>
+      <tr><td>B. India profiles exist, are actually used, and evals follow suit</td><td><span class="pill p-pend">Build spike</span> List profiles; IAM allows only <code>in.</code> ARNs and denies <code>global.</code>; built-in evaluators off for production data</td></tr>
+      <tr><td>C. Durable notification states with provider ids and retries</td><td><span class="pill p-ok">Schema proven</span> PENDING → SENDING → SENT / RETRY / FAILED / UNKNOWN. Recovery resend limited to one by the schema (14 checks). At-least-once with a bounded, same-reference duplicate; no exactly-once claim</td></tr>
+      <tr><td>D. Select → read-back → yes → hold → request → warehouse</td><td><span class="pill p-ok">Expiry proven</span> Lazy release, exact timer and 1-minute reconciler</td></tr>
+    </tbody></table></div>
+  <p>New decisions T26–T30: PostgreSQL owns business state and Step Functions only waits; approvals are authenticated, expiring, idempotent and re-checked; every model call records its model, profile and prompt version; every dependency has timeouts, retries, circuit breakers and idempotent compensation; one release gate decides ship or no-ship.</p>
+</section>
+
+<section id="why">
+  <div class="kicker">The reviewer's key question</div>
+  <h2>Why an LLM here, and how we will prove it paid off</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Operation</th><th>Choice</th><th>Proof planned in Build</th></tr></thead>
+    <tbody>
+      <tr><td>Reading messy driver messages</td><td>Haiku 4.5</td><td>Rules-only extractor vs Haiku on the 60-scenario golden set: accuracy, clarification turns, escalations avoided. Haiku stays only if it wins by more than its ≈ $4.5 per 1,000 extractions</td></tr>
+      <tr><td>Identity, ETA fusion, feasibility, holds, priority, timers</td><td>Python + PostgreSQL</td><td>Unit, property, concurrency and RLS tests; zero tolerance</td></tr>
+      <tr><td>Re-sequencing a facility</td><td>OR-Tools CP-SAT</td><td>−32 % weighted wait vs first-come-first-served, replayed in CI</td></tr>
+      <tr><td>Explaining options and refusals</td><td>Sonnet 5, grounded</td><td>Templates vs Sonnet A/B: judge scores, clarification turns, time to outcome. Routes where templates score the same stay templates</td></tr>
+      <tr><td>Status, confirmations, safety messages</td><td>Templates</td><td>An LLM adds risk without value</td></tr>
+      <tr><td>Durable waits and approvals</td><td>Step Functions</td><td>Warehouse-timeout test</td></tr>
+    </tbody></table></div>
+  <p class="note">At 100 conversations a day the whole LLM bill is about $4 a day, less than ten minutes of a coordinator's time. The Build ablation turns this into a measured figure: escalations avoided per rupee spent. If the rules baseline matches Haiku, the LLM comes out of that step.</p>
+</section>
+
+<section id="cost">
+  <div class="kicker">Production cost · Mumbai price list, 17 Nov 2026</div>
+  <h2>About $440 a month at 100 conversations a day</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Line</th><th>Basis</th><th>100/day</th><th>1,000/day</th></tr></thead>
+    <tbody>
+      <tr><td>Aurora Serverless v2 (writer + failover reader)</td><td class="mono">✓ $0.18 / ACU-h</td><td class="mono">~$165</td><td class="mono">~$260</td></tr>
+      <tr><td>Aurora storage, I/O, Data API</td><td class="mono">✓ list</td><td class="mono">~$9</td><td class="mono">~$47</td></tr>
+      <tr><td>Bedrock, India profile (+10 %), + Guardrails</td><td>≈ $0.04 / conversation; confirm in console</td><td class="mono">~$120</td><td class="mono">~$1,200</td></tr>
+      <tr><td>AgentCore Runtime + Gateway</td><td class="mono">✓ list</td><td class="mono">~$20</td><td class="mono">~$200</td></tr>
+      <tr><td>Lambda, API Gateway, SQS, events, workflows</td><td class="mono">✓ list</td><td class="mono">~$15</td><td class="mono">~$100</td></tr>
+      <tr><td>CloudWatch, X-Ray</td><td class="mono">✓ list</td><td class="mono">~$35</td><td class="mono">~$120</td></tr>
+      <tr><td>Cognito, WAF, KMS, Secrets, security services, console</td><td>✓ / list</td><td class="mono">~$73</td><td class="mono">~$135</td></tr>
+      <tr><td><b>AWS total</b></td><td></td><td class="mono"><b>≈ $440</b></td><td class="mono"><b>≈ $2,060</b></td></tr>
+    </tbody></table></div>
+</section>
+
+<section id="signoff">
+  <div class="kicker">Third review · Phase 2 sign-off and Phase 3 backlog</div>
+  <h2>Baseline approved; four gates carried into Build</h2>
+  <p>The fourth review approved the baseline subject to three corrections: narrower database grants, an enforced resend-once rule, and tested mirror-table RLS. All three are made and pass. The third review's corrections are also made. What remains can only be proven by building, so each item is a named gate with a pass condition (<code>08_signoff_and_backlog.md</code>).</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Gate</th><th>Why it is open</th><th>Pass condition</th></tr></thead>
+    <tbody>
+      <tr><td><span class="pill p-pend">B1–B4</span> India-only inference</td><td>Choosing an India profile is not proof that every model call stays in India</td><td>IAM denies <code>global.</code>; 100 % of traces show an <code>in.</code> ARN; no other AI service receives driver data</td></tr>
+      <tr><td><span class="pill p-pend">G1</span> Aurora PostgreSQL 18.3+ (T33)</td><td>Validated on community PostgreSQL 18; the target is now the same major version, so no downgrade is needed (Aurora PostgreSQL 18 GA June 2026; Data API on 18.3+ in Mumbai)</td><td>The validator and Build tests pass on the Aurora cluster through the Data API</td></tr>
+      <tr><td><span class="pill p-pend">G3</span> Golden dataset</td><td>Specified, not yet built</td><td>60 labelled scenarios versioned in the repo before any prompt tuning</td></tr>
+      <tr><td><span class="pill p-pend">G4</span> Measured cost</td><td>$0.04 per conversation and $0.08 per resolved exception are hypotheses</td><td>Report four metrics separately: per conversation, per resolved exception, per successful reschedule, and escalation + retry overhead</td></tr>
+    </tbody></table></div>
+  <h3>Build order</h3>
+  <ol>
+    <li><b>Database and rules:</b> migrations, the remaining mutation functions on the least-privilege pattern, feasibility and ETA fusion, booking state machine</li>
+    <li><b>Deterministic backend:</b> FastAPI, tool contracts, identity and shipment linking, select → read-back → yes → hold → submit</li>
+    <li><b>Agent integration:</b> India-profile spike first, then Haiku extraction, Sonnet phrasing with grounding, template fallback, ablations</li>
+    <li><b>Workflow and humans:</b> SQS FIFO with persistent dedupe, Step Functions approval and expiry, outbox and notifications</li>
+    <li><b>Evaluation and observability:</b> golden set, replay harness, traces with model and prompt versions, the four cost metrics, load and fault tests</li>
+    <li><b>AWS and demo:</b> Cognito, IAM, Aurora run, AgentCore deployment, and one end-to-end trace: delay → options → yes → hold → warehouse approval → driver told</li>
+  </ol>
+</section>
+
+<section id="open">
+  <div class="kicker">Needs SetuHaul input</div>
+  <h2>Open items</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Item</th><th>Default until answered</th></tr></thead>
+    <tbody>
+      <tr><td>Warehouse confirmation time per facility and shift</td><td>Jaipur 15 / 10 min, Gurugram 15 / 0</td></tr>
+      <tr><td>Are the driver and truck double-assignments real?</td><td>Escalate as contradictory data</td></tr>
+      <tr><td>Priority weights and maximum yard wait</td><td>8 / 4 / 2 / 1, 90 min</td></tr>
+      <tr><td>Gate-to-dock and changeover per facility</td><td>Seeds; start capturing "called to dock" time</td></tr>
+      <tr><td>Tracking vendors and prices</td><td>Mocks in the MVP; quotes needed</td></tr>
+      <tr><td>Bedrock India-profile prices</td><td>Anthropic list +10 %; confirm in the console</td></tr>
+      <tr><td>Escalation SLAs and safety wording</td><td>10 / 5 min; placeholder text</td></tr>
+    </tbody></table></div>
+</section>
+
+<footer>
+  <div>Source files: <code>docs/2-design/01_decision_register.md</code> to <code>07_acceptance_and_verification.md</code>, <code>schema.sql</code>, <code>validate_schema.py</code>, <code>validation_results.md</code>.</div>
+  <div>Prices marked ✓ come from the AWS public price list for ap-south-1. The rupee figure assumes about ₹85 per US dollar.</div>
+</footer>
+</div>

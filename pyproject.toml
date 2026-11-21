@@ -1,0 +1,13 @@
+[project]
+name = "setuhaul"
+version = "0.1.0"
+description = "SetuHaul driver exception and dock re-scheduling service (FDE portfolio project, synthetic data only)"
+readme = "README.md"
+requires-python = ">=3.14"
+# Pinned dependencies live in requirements*.txt (runtime, aws, dev).
+
+[tool.setuptools.packages.find]
+include = ["setuhaul*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
