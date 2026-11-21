@@ -47,18 +47,38 @@ display:none;font-size:13px;white-space:pre-wrap}
 .gsteps>li.cur{border-left-color:var(--accent);background:var(--chip);border-radius:0 6px 6px 0}.gm{display:inline-block;width:14px}
 .gwhy{margin-top:4px}.gchecks{margin:4px 0 0 18px;padding:0;list-style:none}.gchecks li{margin:2px 0}
 .gend{border:1px solid var(--line);border-radius:8px;padding:10px;margin-top:8px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:99px;overflow:hidden}
+.seg button{border-radius:0;background:transparent;color:var(--ink);padding:3px 10px;font-size:12px}
+.seg button.on{background:var(--accent);color:#fff}
+.race{margin-top:8px}.race .won{color:var(--ok);font-weight:600}.race .lost{color:var(--muted)}
+.big{font-size:18px;font-weight:700}
 </style>
 </head>
 <body>
 <header>
   <h1>SetuHaul demo console</h1>
-  <span class="pill">local stack</span><span class="pill">AI: rules extractor (no model call)</span>
+  <span class="pill">local stack</span>
+  <span class="seg" title="Which reader turns driver messages into facts. Replies are templates either way."><button data-mode="rules">Rules</button><button data-mode="real">Real AI</button></span>
+  <span class="pill" id="modeinfo"></span>
   <span class="pill off">production booking switch OFF</span>
   <span class="banner">WhatsApp, Cognito, SQS and Step Functions are local stand-ins. Database, API, agent and workflow are the real code.</span>
 </header>
 
 <section class="card" style="margin:16px 16px 0">
-  <h2>Guided walkthrough</h2>
+  <h2>Presenter</h2>
+  <div class="row">
+    <button id="pA" title="Beat A: a fresh driver for the late-truck story">A · New late driver</button>
+    <label class="muted">B · Drivers racing for one slot</label>
+    <select id="raceN" style="width:auto"><option>2</option><option>5</option><option selected>10</option><option>50</option></select>
+    <span class="muted">a race always uses the rules reader (no model calls)</span>
+    <button id="pB">Race</button>
+    <button id="pC" class="ghost" title="Beat C: block the dock of the selected driver's pending request">C · Break that dock</button>
+    <button id="pD" title="Beat D: refrigerated load, no refrigerated dock: no feasible slot">D · Driver with no possible slot</button>
+  </div>
+  <div id="raceout" class="race"></div>
+</section>
+
+<details class="card" style="margin:16px 16px 0"><summary><b>Guided walkthrough (F1–F9 with automatic checks)</b> <span class="muted">· rehearsal, not for the live demo</span></summary>
   <details style="margin-bottom:8px"><summary class="muted">How this page works (read once)</summary>
     <p>You are looking at the whole system on your own computer. <b>Left:</b> a truck driver's WhatsApp. <b>Right:</b> the
     warehouse staff's screen. The agent sits between them: it reads the driver's messages, offers dock slots, and sends
@@ -66,10 +86,10 @@ display:none;font-size:13px;white-space:pre-wrap}
     <p>Pick a flow below, then press <b>Run this step</b> again and again. Each step says what is happening in real
     life, does it, and checks the result (✓ as expected, ✗ not as expected, ℹ for information). Watch the phone and
     the console below change as you go. At the end, press Pass or Fail. Your verdict is saved.</p>
-    <p class="muted">Nothing here touches WhatsApp, AWS or real trucks. The AI is replaced by simple rules, so there is no cost.</p></details>
+    <p class="muted">Nothing here touches WhatsApp, AWS or real trucks. In Rules mode there is no model call and no cost; in Real AI mode each driver message costs a fraction of a cent, capped per day.</p></details>
   <div class="row" id="gflows"></div>
   <div id="gbody" style="margin-top:8px"></div>
-</section>
+</details>
 <main>
 <!-- ============================================================ driver phone -->
 <section class="card">
@@ -315,6 +335,48 @@ async function tick(){ try{ await Promise.all([refreshPhone(), refreshState()]);
 let saved = null; try{ saved = localStorage.getItem("demo.driver") }catch(e){}
 loadDrivers(saved).then(()=>{ loadChecklist(); signin() });
 setInterval(tick, 2500);
+
+// ================================================================ presenter
+async function refreshMode(){
+  try{ const m = await api("GET","/demo/mode"); showMode(m) }catch(e){}
+}
+function showMode(m){
+  document.querySelectorAll("[data-mode]").forEach(b=>b.classList.toggle("on", b.dataset.mode===m.mode));
+  $("#modeinfo").textContent = m.mode==="real"
+    ? `Haiku via OpenRouter · today ${m.calls} calls, $${m.spent_usd.toFixed(4)} of $${m.budget_usd.toFixed(2)}`
+    : "rules reader · no model call, $0";
+  if(m.error) toast("Real AI unavailable: "+m.error);
+}
+document.querySelectorAll("[data-mode]").forEach(b => b.onclick = async () => showMode(await api("POST","/demo/mode",{mode:b.dataset.mode})));
+setInterval(refreshMode, 5000); refreshMode();
+
+async function useDriver(r){ try{ localStorage.setItem("demo.driver", r.phone) }catch(e){} await loadDrivers(r.phone) }
+$("#pA").onclick = async () => { await useDriver(await api("POST","/demo/drivers",{name:"Ramesh (late)",facility:"FAC-JAI-01",eta_min:120}));
+  $("#msg").value = "Tyre puncture near Neemrana, around 90 minutes late. Anything after that?"; $("#msg").focus(); toast("New driver ready. The message is typed in: press Send.") };
+$("#pD").onclick = async () => { await useDriver(await api("POST","/demo/drivers",{name:"Sanjay (reefer)",facility:"FAC-JAI-01",eta_min:120,reefer:true}));
+  $("#msg").value = "Frozen load, 2 ghante late hoon. Koi slot milega?"; $("#msg").focus(); toast("Refrigerated load; Jaipur has no refrigerated dock. Press Send.") };
+$("#pC").onclick = async () => {
+  const a = (await api("GET","/demo/state/"+encodeURIComponent(phone()))).appointments.find(x=>x.status==="PENDING_CONFIRMATION");
+  if(!a){ toast("The selected driver has no pending request. Get to the driver's YES first."); return }
+  const fac = drivers.find(d=>d.phone===phone()).facility, s = new Date(a.start), e = new Date(s.getTime()+3600e3);
+  const r = await api("POST",`/console/docks/DOCK-${fac==="FAC-GGN-01"?"GGN":"JAI"}-${a.dock_code}/blocks`,{event_id:"DE-"+key().slice(0,8),
+    start:s.toISOString(),end:e.toISOString(),type:"BREAKDOWN",reason:"hydraulic leak (live demo)"},true);
+  toast(`Dock ${a.dock_code} blocked (breakdown). Watch the phone.`); setTimeout(tick,1500); setTimeout(tick,4000);
+};
+$("#pB").onclick = async () => {
+  const n = +$("#raceN").value, btn = $("#pB"); btn.disabled = true;
+  $("#raceout").innerHTML = `<span class="muted">${n} drivers: reporting the delay, picking option 1, then all saying YES at the same moment…</span>`;
+  try{
+    const r = await api("POST","/demo/race",{n});
+    const ok = r.winners===1 && r.overlapping_bookings===0;
+    $("#raceout").innerHTML = `<div class="big ${ok?"res-pass":"res-fail"}">${r.n} drivers said YES to the same slot · ${r.winners} got it · ${r.n-r.winners} told it was taken · overlapping dock claims in the database: ${r.overlapping_bookings} · ${r.elapsed_s}s</div>
+      <div class="tablewrap"><table><tr><th>Driver</th><th>Result</th><th>What the driver was told</th><th></th></tr>${r.drivers.map(d=>
+      `<tr><td>${esc(d.name)}</td><td class="${d.won?"won":"lost"}">${d.won?"GOT IT · "+esc(d.slot.replace(/:00\+05:30$/,"")):"taken, new options offered"}</td><td>${esc(short(d.reply,140))}</td><td><button class="ghost" data-ph="${esc(d.phone)}">Show phone</button></td></tr>`).join("")}</table></div>`;
+    await loadDrivers(phone());
+  }catch(e){ $("#raceout").innerHTML = `<span class="res-fail">Race failed: ${esc(e.message)} ${esc(JSON.stringify(e.body??""))}</span>` }
+  btn.disabled = false; refreshMode();
+};
+$("#raceout").addEventListener("click", async e => { const b=e.target.closest("[data-ph]"); if(!b) return; await useDriver({phone:b.dataset.ph}) });
 
 // ================================================================ guided walkthrough
 const sleep = ms => new Promise(r => setTimeout(r, ms));

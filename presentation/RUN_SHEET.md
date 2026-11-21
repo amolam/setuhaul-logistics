@@ -28,7 +28,7 @@ Keep this beside the laptop. The deck is `SetuHaul_readout.pptx`. The speaker no
 | 4:30 | Console | Beat B: race with 2 drivers | — |
 | 6:00 | Console | Beat C: dock breakdown | **Drop C first** |
 | 7:15 | Console | Beat D: no slot, open the hand-off record | Never drop D (the brief requires it) |
-| 8:30 | Console, then 5 | Race with N = 50: 1 won, 49 refused, 0 overlaps | Show slide 5 only |
+| 8:30 | Console, then 5 | Race with N = 50: 1 won, 49 refused, 0 overlaps. Takes about 3.5 minutes on the laptop (N = 10 about 1 minute): start it at 6:00 during beat C, or run N = 10 live | Show slide 5 only |
 | 10:00 | 6 Evidence | 95% held-out, 0 hard gates, NO-GO stated plainly (30 s) | One sentence |
 | 10:30 | 7 Running cost | $440/month, $2,060 at 10× (4.7×); the model is the line to watch | Say the two totals only |
 | 11:15 | 8 Questions | Answer from the appendix (slides 9–17) | — |

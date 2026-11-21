@@ -3,7 +3,10 @@
 What is real here: the signed WhatsApp webhook, the HTTP API and its staff tokens, the database with its roles,
 functions and triggers, the agent orchestrator, the approval workflow port and the outbound relay.
 What stands in for AWS / Meta, exactly as in the flow tests:
-  * the AI model     -> the rules extractor (no model call, no cost); replies come from the stored templates
+  * the AI model     -> switchable in the header: "Rules" (rules extractor, no model call, no cost) or "Real AI"
+                        (OpenRouter Haiku extraction, metered against SETUHAUL_LLM_DAILY_BUDGET_USD, default $0.25/day).
+                        Replies always come from the stored templates (OD-3). If a model call fails, that turn falls
+                        back to the rules reader and the activity log says so.
   * Cognito          -> staff tokens signed with a key generated at start-up (never leaves this process)
   * SQS              -> LocalQueue
   * Step Functions   -> LocalApprovalWorkflow
@@ -14,6 +17,7 @@ SETUHAUL_BOOKING_ENABLED is not read and stays OFF. Uses its own database, setuh
 
     python demo/server.py --reset     # fresh database, migrated and seeded
     python demo/server.py             # keep the data from last time
+    python demo/server.py --mode real # start in Real AI mode (key: OPENROUTER_API_KEY or ~/.setuhaul/openrouter.key)
     then open http://127.0.0.1:8765/demo
 """
 from __future__ import annotations
@@ -26,6 +30,7 @@ import logging
 import os
 import sys
 import threading
+from concurrent.futures import ThreadPoolExecutor
 import time
 import traceback
 import uuid
@@ -43,6 +48,7 @@ from fastapi.responses import FileResponse
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 
+from setuhaul.agent.models import ModelError, model_for  # noqa: E402
 from setuhaul.agent.orchestrator import Orchestrator  # noqa: E402
 from setuhaul.api.app import Settings, create_app  # noqa: E402
 from setuhaul.api.db import Db  # noqa: E402
@@ -63,6 +69,9 @@ SESSION_SECRET = os.urandom(32)
 JAI, GGN = "FAC-JAI-01", "FAC-GGN-01"
 RESULTS = HERE / "checklist_results.json"
 DEMO_RULE = "demo-auto-standard"
+KEY_FILE = Path.home() / ".setuhaul" / "openrouter.key"
+DAILY_BUDGET = os.environ.get("SETUHAUL_LLM_DAILY_BUDGET_USD", "0.25")
+ACTIVE = "('PENDING_CONFIRMATION','CONFIRMED','IN_PROGRESS')"
 
 # ---------------------------------------------------------------- database
 DRIVERS = [("Ramesh Kumar", JAI, 120), ("Suresh Yadav", JAI, 150), ("Imran Khan", JAI, 180),
@@ -98,18 +107,21 @@ def reset_db() -> None:
         add_driver(name, fac, eta)
 
 
-def add_driver(name: str, facility: str, eta_min: int) -> dict:
+def add_driver(name: str, facility: str, eta_min: int, reefer: bool = False) -> dict:
+    """reefer=True: a refrigerated load. The demo warehouses have no refrigerated dock, so no slot can be feasible
+    and the agent must escalate (NO_FEASIBLE_SLOT) instead of inventing one (brief level 6, like SHP1015)."""
     u = uuid.uuid4().hex[:6].upper()
     drv, phone, sid, veh = f"DRV-{u}", f"+9198{uuid.uuid4().int % 10**8:08d}", f"SHP-{u}", f"VEH-{u}"
     with psycopg.connect(DSN, autocommit=True) as c:
         c.execute("SET search_path = setuhaul")
         c.execute("INSERT INTO drivers (driver_id,carrier_id,driver_name,phone_e164) VALUES (%s,'CAR1',%s,%s)", (drv, name, phone))
-        c.execute("INSERT INTO vehicles VALUES (%s,'CAR1','32FT',%s,20000,false)", (veh, f"RJ14-{u}"))
+        c.execute("INSERT INTO vehicles VALUES (%s,'CAR1','32FT',%s,20000,%s)", (veh, f"RJ14-{u}", reefer))
         c.execute("""INSERT INTO shipments (shipment_id,order_reference,carrier_id,driver_id,vehicle_id,destination_facility_id,
-                     load_weight_kg,expected_unload_min,planned_departure_ts,original_eta_ts,current_status)
+                     load_weight_kg,expected_unload_min,planned_departure_ts,original_eta_ts,current_status,
+                     temperature_control_required)
                      VALUES (%s,%s,'CAR1',%s,%s,%s,10000,45,now()+make_interval(mins=>%s)-interval '5 hours',
-                             now()+make_interval(mins=>%s),'IN_TRANSIT')""",
-                  (sid, f"ORD-{datetime.now(IST):%y%m%d}-{u}", drv, veh, facility, eta_min, eta_min))
+                             now()+make_interval(mins=>%s),'IN_TRANSIT',%s)""",
+                  (sid, f"ORD-{datetime.now(IST):%y%m%d}-{u}", drv, veh, facility, eta_min, eta_min, reefer))
     return {"driver_id": drv, "phone": phone, "shipment_id": sid}
 
 
@@ -140,7 +152,12 @@ class Demo:
         self.approvals = ApprovalOutboxRelay(self.db, self.workflow)
         self.provider = LocalProvider()
         self.outbound = OutboundRelay(self.db, self.provider)
-        self.orch = Orchestrator(self.app.state.service, self.app.state.sessions, model=None)   # rules, no AI
+        self.orch = Orchestrator(self.app.state.service, self.app.state.sessions, model=None)   # starts in rules mode
+        self.rules_orch = Orchestrator(self.app.state.service, self.app.state.sessions, model=None)
+        self.rules_only: set[str] = set()     # race drivers: always the rules reader, whatever the toggle (no N paid calls)
+        self.real_model = None                # built on the first switch to Real AI, then reused
+        self.mode_error: str | None = None
+        self.pool = ThreadPoolExecutor(max_workers=32, thread_name_prefix="agent")
         self.lock = threading.Lock()
         self.timeline: list[dict] = []        # what each phone shows: sent by the driver / delivered to the phone
         self.activity: list[dict] = []        # agent turns, worker errors
@@ -154,6 +171,36 @@ class Demo:
                   "cognito:groups": [role], "facility_scope": facility}
         return jwt.encode(claims, self.key, algorithm="RS256", headers={"kid": "demo-kid"})
 
+    # ------------------------------------------------------------ AI mode switch
+    def set_mode(self, mode: str) -> dict:
+        if mode == "rules":
+            self.orch.model = None
+        elif mode == "real":
+            if self.real_model is None:
+                env = dict(os.environ)
+                env.update(SETUHAUL_ENV="dev", SETUHAUL_DATA_CLASS="synthetic", SETUHAUL_MODEL_PROVIDER="openrouter",
+                           SETUHAUL_LLM_DAILY_BUDGET_USD=DAILY_BUDGET)
+                if not env.get("OPENROUTER_API_KEY") and KEY_FILE.exists():
+                    env["OPENROUTER_API_KEY"] = KEY_FILE.read_text(encoding="utf-8").strip()   # never logged or shown
+                try:
+                    self.real_model = model_for(env, db=self.db)
+                except ModelError as e:          # key-free message by contract (models.py)
+                    self.mode_error = str(e)
+                    self.note("error", text=f"Real AI unavailable, staying on rules: {e}")
+                    return self.mode()
+            self.orch.model = self.real_model
+        else:
+            raise ValueError(mode)
+        self.mode_error = None
+        self.note("mode", text=f"AI mode: {self.mode()['mode']}")
+        return self.mode()
+
+    def mode(self) -> dict:
+        spend = q("""SELECT coalesce(sum(cost_usd),0) AS spent, count(*) AS calls FROM setuhaul.model_usage
+                      WHERE day = (now() AT TIME ZONE 'UTC')::date""")[0]
+        return {"mode": "real" if self.orch.model is not None else "rules", "error": self.mode_error,
+                "spent_usd": float(spend["spent"]), "calls": spend["calls"], "budget_usd": float(DAILY_BUDGET)}
+
     def note(self, kind: str, **kw):
         with self.lock:
             self.activity.append({"t": datetime.now(IST).strftime("%H:%M:%S"), "kind": kind, **kw})
@@ -161,18 +208,11 @@ class Demo:
 
     def work_once(self):
         q_ = self.app.state.inbound
-        while (ev := q_.receive()) is not None:
-            phone = self._phone_of(ev)
-            try:
-                res = self.orch.handle(ev)
-                self.last_event[phone] = ev
-                if res is None:
-                    self.note("agent", phone=phone, text="(turn refused: already handled)")
-                else:
-                    self.note("agent", phone=phone, path=" -> ".join(res.path), extractor=getattr(res, "extractor", None),
-                              escalation=getattr(res, "escalation_id", None))
-            except Exception as e:                               # shown, never hidden
-                self.note("error", phone=phone, text=f"agent: {e}", trace=traceback.format_exc()[-1500:])
+        groups: dict[str, list[dict]] = {}       # like an SQS FIFO message group: one conversation in order,
+        while (ev := q_.receive()) is not None:  # different conversations at the same time (the race needs this)
+            groups.setdefault(str(ev.get("thread_id")), []).append(ev)
+        for f in [self.pool.submit(self._handle_group, evs) for evs in groups.values()]:
+            f.result()
         for step, fn in (("approval relay", self.approvals.run_once), ("workflow", self.workflow.tick),
                          ("reconcile", self.workflow.reconcile), ("outbound", lambda: self.outbound.run_once(limit=1000))):
             try:
@@ -184,6 +224,20 @@ class Demo:
             self._seen_delivered += len(new)
             for to, text, _key, _pid in new:
                 self.timeline.append({"t": datetime.now(IST).strftime("%H:%M:%S"), "phone": to, "dir": "in", "text": text})
+
+    def _handle_group(self, evs: list[dict]):
+        for ev in evs:
+            phone = self._phone_of(ev)
+            try:
+                res = (self.rules_orch if phone in self.rules_only else self.orch).handle(ev)
+                self.last_event[phone] = ev
+                if res is None:
+                    self.note("agent", phone=phone, text="(turn refused: already handled)")
+                else:
+                    self.note("agent", phone=phone, path=" -> ".join(res.path), extractor=getattr(res, "extractor", None),
+                              escalation=getattr(res, "escalation_id", None))
+            except Exception as e:                               # shown, never hidden
+                self.note("error", phone=phone, text=f"agent: {e}", trace=traceback.format_exc()[-1500:])
 
     def _phone_of(self, ev: dict) -> str:
         rows = q("""SELECT d.phone_e164 FROM setuhaul.chat_threads t JOIN setuhaul.drivers d USING (driver_id)
@@ -219,7 +273,104 @@ def build(demo: Demo):
 
     @app.post("/demo/drivers")
     def new_driver(b: dict = Body(...)):
-        return add_driver(b.get("name") or "New Driver", b.get("facility") or JAI, int(b.get("eta_min") or 120))
+        return add_driver(b.get("name") or "New Driver", b.get("facility") or JAI, int(b.get("eta_min") or 120),
+                          reefer=bool(b.get("reefer")))
+
+    @app.get("/demo/mode")
+    def get_mode():
+        return demo.mode()
+
+    @app.post("/demo/mode")
+    def set_mode(b: dict = Body(...)):
+        if b.get("mode") not in ("rules", "real"):
+            raise HTTPException(400, "mode must be rules or real")
+        return demo.set_mode(b["mode"])
+
+    @app.post("/demo/race")
+    def race(b: dict = Body(...)):
+        """Many drivers, one slot. N fresh drivers bound for Jaipur, all 2 hours late, so all are offered the same first
+        slot. Each picks option 1, then every YES is posted at the same moment. The database lets exactly one hold
+        it; every other driver is told it was taken and gets fresh options in the same reply."""
+        n = max(2, min(int(b.get("n") or 2), 50))
+        names = ["Ravi", "Sunil", "Mahesh", "Deepak", "Farhan", "Rakesh", "Naveen", "Ajay", "Kiran", "Vijay"]
+        tag = uuid.uuid4().hex[:3].upper()
+        t_start = time.time()
+        ds = []
+        for i in range(n):
+            name = f"{names[i % 10]}{'' if i < 10 else f' {i // 10 + 1}'} (race {tag})"
+            ds.append(dict(add_driver(name, JAI, 120), name=name))
+            demo.rules_only.add(ds[-1]["phone"])      # a race never calls the model
+
+        def send(d, text):
+            mid = f"wamid.demo.{uuid.uuid4().hex}"
+            demo.last_sent[d["phone"]] = {"msg_id": mid, "text": text}
+            with demo.lock:
+                demo.timeline.append({"t": datetime.now(IST).strftime("%H:%M:%S"), "phone": d["phone"], "dir": "out", "text": text})
+            return signed_post({"entry": [{"changes": [{"value": {"messages": [
+                {"from": d["phone"].lstrip("+"), "id": mid, "type": "text", "text": {"body": text}}]}}]}]})
+
+        def inbox(d):
+            with demo.lock:
+                return [m["text"] for m in demo.timeline if m["phone"] == d["phone"] and m["dir"] == "in"]
+
+        def wait_reply(d, before, secs=120):
+            t0 = time.time()
+            while time.time() - t0 < secs:
+                got = inbox(d)
+                if len(got) > before:
+                    return got[-1]
+                time.sleep(0.3)
+            return None
+
+        def step(text):                       # every driver sends; wait until every driver has an answer
+            before = {d["phone"]: len(inbox(d)) for d in ds}
+            for d in ds:
+                send(d, text)
+            return {d["phone"]: wait_reply(d, before[d["phone"]]) for d in ds}
+
+        demo.note("race", text=f"{n} drivers, one slot: setting up")
+        r = step("Stuck in traffic, reaching around 2 hours late. Any slot?")
+        if any(t and "Reply YES" in t and "Available slots" not in t for t in r.values()):   # time check first
+            step("yes")
+        picks = step("1")
+        gate = threading.Barrier(n)            # the moment that matters: every YES at once
+        before = {d["phone"]: len(inbox(d)) for d in ds}
+
+        def go(d):
+            gate.wait()
+            send(d, "haan ji, kar do")
+        ts = [threading.Thread(target=go, args=(d,)) for d in ds]
+        [t.start() for t in ts]
+        [t.join(30) for t in ts]
+        final = {d["phone"]: wait_reply(d, before[d["phone"]]) for d in ds}
+        # A request waiting for the planner is PENDING_CONFIRMATION with is_current = false until it is confirmed,
+        # so the winner is any active appointment row, current or not (race drivers start with no appointment).
+        appts = q(f"""SELECT a.shipment_id, k.dock_code, lower(a.during) AS start, a.status
+                        FROM setuhaul.appointments a JOIN setuhaul.docks k USING (dock_id)
+                       WHERE a.shipment_id = ANY(%s) AND a.status IN {ACTIVE}""",
+                  [d["shipment_id"] for d in ds])
+        # The integrity check is on dock_occupancy, where the database enforces one truck per dock: active claims of
+        # different shipments overlapping on one dock. Rows of one shipment may overlap (a booking and its hold).
+        dupes = q("""SELECT count(*) AS n FROM setuhaul.dock_occupancy a JOIN setuhaul.dock_occupancy b
+                       ON a.dock_id = b.dock_id AND a.occupancy_id < b.occupancy_id AND a.during && b.during
+                      AND a.shipment_id IS DISTINCT FROM b.shipment_id
+                    WHERE a.active AND b.active""")[0]["n"]
+        by_sid = {a["shipment_id"]: a for a in appts}
+        out = [{"name": d["name"], "phone": d["phone"], "picked": picks[d["phone"]], "won": d["shipment_id"] in by_sid,
+                "slot": f"{by_sid[d['shipment_id']]['dock_code']} {by_sid[d['shipment_id']]['start']}"
+                if d["shipment_id"] in by_sid else None, "reply": final[d["phone"]]} for d in ds]
+        winners = sum(o["won"] for o in out)
+        slots = sorted({o["slot"] for o in out if o["slot"]})
+        with demo.lock:
+            for d in ds:
+                demo.timeline.append({"t": datetime.now(IST).strftime("%H:%M:%S"), "phone": d["phone"], "dir": "sys",
+                                      "text": f"RACE {tag}: {n} drivers said YES to the same slot at the same moment. "
+                                              f"Requests holding a slot: {winners}. Overlapping bookings on any dock "
+                                              f"in the database: {dupes}."})
+        demo.note("race", text=f"{n} drivers, one slot: {winners} got it, {n - winners} told it was taken; "
+                               f"overlapping bookings anywhere: {dupes}")
+        return jsonable({"n": n, "tag": tag, "winners": winners, "slots": slots, "overlapping_bookings": dupes,
+                         "elapsed_s": round(time.time() - t_start, 1), "reader": "rules", "drivers": out})
 
     @app.post("/demo/token")
     def token(b: dict = Body(...)):
@@ -395,6 +546,7 @@ def build(demo: Demo):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--reset", action="store_true", help="drop and recreate the demo database, then seed it")
+    ap.add_argument("--mode", choices=("rules", "real"), default="rules", help="AI mode at start (switchable in the page)")
     a = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     with psycopg.connect(f"{BASE_DSN} dbname=postgres", autocommit=True) as c:
@@ -406,6 +558,8 @@ def main():
         migrate(DSN)                      # forward-only: applies any migration added since the demo database was made
     demo = Demo()
     build(demo)
+    if a.mode == "real":
+        demo.set_mode("real")
     threading.Thread(target=demo.loop, daemon=True, name="workers").start()
     print(f"\n  SetuHaul demo console: http://127.0.0.1:{PORT}/demo   (local only; production booking switch OFF)\n")
     uvicorn.run(demo.app, host="127.0.0.1", port=PORT, log_level="warning")
