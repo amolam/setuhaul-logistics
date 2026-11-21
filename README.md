@@ -9,7 +9,7 @@ the same slot. **All driver, shipment, warehouse and booking data in this reposi
 | Area | Status |
 |---|---|
 | Phase 1 Frame, Phase 2 Design | Done |
-| Phase 3 Build, local | **Done.** 743 tests pass on local PostgreSQL 18 (developer-reported full run, 21 Nov 2026) |
+| Phase 3 Build, local | **Done.** 800 tests pass on local PostgreSQL 18 (developer-reported full run after Phase B, 21 Nov 2026) |
 | Human checks | Demo walkthroughs F1–F9 done; F5 and F6 confirmed by the owner. Native-speaker Hindi/Hinglish review done (S4-R2-08) |
 | AWS deployment (step 6) | **Not started.** B-AWS-0 (the account is limited to Sydney, `ap-southeast-2`) and the six deployment gates in `docs/operations/DEPLOYMENT_GATES.md` are open |
 | Live booking | **Off.** `SETUHAUL_BOOKING_ENABLED` stays off until the six gates pass and the owner approves |
@@ -26,9 +26,10 @@ local workflow, locally signed tokens, a local WhatsApp provider). Real AWS acce
 - **Every reply is a fixed template** in English, Hindi or Hinglish (owner decision OD-3); no model writes replies.
 - **If the model is unavailable**, a rules-based reader takes over and booking is unaffected.
 
-Provider direction for the Sydney pilot: OpenRouter as the primary model provider for synthetic data, Amazon Bedrock as
-an optional provider. The code change for this is Phase B of the release plan; until then the deployed entry point
-(`production_model()`) accepts Bedrock only.
+**Model provider (decision T52):** OpenRouter is the primary provider for the synthetic-data Sydney pilot: Claude Haiku
+4.5, pinned to one zero-data-retention upstream route (Amazon Bedrock through OpenRouter) with fallbacks off, the key in
+AWS Secrets Manager, every attempt metered against a daily budget. Amazon Bedrock is kept as an optional provider.
+Details: `docs/3-build/README.md` ("Model provider") and `docs/operations/COSTS.md`.
 
 ## Layout
 
@@ -36,7 +37,7 @@ an optional provider. The code change for this is Phase B of the release plan; u
 |---|---|
 | `setuhaul/` | The application package: domain rules (ETA fusion, feasibility), API and booking service, agent (extraction, orchestrator, replies), approval workflow, outbound notifications, operations helpers |
 | `migrations/` | PostgreSQL migrations 0001–0022 (database functions own booking and approval state) |
-| `tests/` | The test suite (743 tests) |
+| `tests/` | The test suite (800 tests) |
 | `evals/` | Golden sets, held-out set, end-to-end replay, cost ledger and recorded results (evaluation evidence) |
 | `demo/` | Local demo console with guided walkthroughs |
 | `scripts/` | One-off tools: Phase 1 audit, feasibility prototype and solver spike (`frame/`), schema validator (`design/`), Bedrock spike (`spike/`) |

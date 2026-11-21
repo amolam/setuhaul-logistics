@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import httpx  # noqa: E402
 
 from evals.golden import ROOT, Scenario, load  # noqa: E402
-from evals.providers import OPENROUTER_URL, SyntheticEvalOnly  # noqa: E402
+from evals.providers import OPENROUTER_URL, require_synthetic_eval  # noqa: E402
 
 GENERATOR = "anthropic/claude-sonnet-5"
 SHIFT_MIN = 40
@@ -181,7 +181,7 @@ def main():
     a = ap.parse_args()
     budget, _ = from_args(a)                        # generation is never cached: each call writes new variants
     key = os.environ.get("OPENROUTER_API_KEY", "")
-    SyntheticEvalOnly.from_env()                     # synthetic data, evaluation environment only (T38)
+    require_synthetic_eval()                         # synthetic data, evaluation environment only (T52)
     scenarios, ds = load("v4")
     out, log, dropped = [], [], []
     client = httpx.Client(timeout=90)

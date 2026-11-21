@@ -21,7 +21,8 @@ the test harness.
 
 ## Current status (21 Nov 2026)
 
-- **Local build:** complete; 743 tests pass (developer-reported full run).
+- **Local build:** complete; 800 tests pass after Phase B (developer-reported full run).
+- **Phase B (T52):** OpenRouter primary (Haiku 4.5 pinned to a zero-data-retention route), Secrets Manager, usage ledger and daily budget (migration 0023), Bedrock optional.
 - **Human checks:** F5 and F6 confirmed by the owner. Native-speaker Hindi/Hinglish review done and closed (S4-R2-08).
 - **B-AI-3:** superseded by OD-3; the Sonnet comparison was not run.
 - **AWS step 6:** not started. B-AWS-0 (Sydney-only account) and all six gates in `DEPLOYMENT_GATES.md` are open.

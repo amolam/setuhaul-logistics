@@ -110,3 +110,7 @@ and response. Phase 2 findings were closed at Phase 2 sign-off (`../docs/2-desig
   synthetic-data pilot, which will use OpenRouter; Bedrock stays optional.
 - **Step 6 gates** AWS_QUEUE, AURORA, RECOVERY_WORKER, BOOKING_WORKFLOW, WORKLOAD_IDENTITY, OUTBOUND_DELIVERY: open, no
   AWS evidence yet. Local tests do not count as gate evidence.
+- **Phase B (21 Nov 2026), decision T52:** OpenRouter primary for the synthetic Sydney pilot (Haiku 4.5 pinned to the
+  `amazon-bedrock` zero-data-retention route, fallbacks off), Secrets Manager credentials in staging/pilot, usage ledger
+  and daily budget (migration 0023), rules-reader fallback on every failure, Bedrock optional (`au.` profile in Sydney).
+  Supersedes T4/T38 and modifies T24 for this pilot. Tests: `tests/test_providers.py`.

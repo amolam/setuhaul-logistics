@@ -1,4 +1,4 @@
-# Model spend ledger (OpenRouter, evaluation only)
+# Model spend ledger (OpenRouter)
 
 Every figure says how it is known:
 - **computed**: provider-reported tokens × published list price, from a result file;
@@ -38,3 +38,43 @@ About $1.5 of this was full-set reruns after fixes that touched a few scenarios.
 | `anthropic/claude-sonnet-5` | 2.00 | 10.00 |
 
 A model without a price in this table is never called.
+
+## Sydney pilot (decision T52, migration 0023)
+
+**Per call.** One extraction is about 900 input and 80 output tokens: about **$0.0013** at Haiku 4.5 list prices
+($1 / $5 per million), up to about $0.0035 with a long conversation context (the G3 runs measured $0.0035). The ledger
+reserves a conservative upper bound before each attempt (request size ÷ 3 tokens plus 600 output tokens, +20 %, at
+least $0.001) and settles it to OpenRouter's reported `usage.cost`.
+
+**What is charged to the budget.**
+
+| Attempt outcome | Charged |
+|---|---|
+| Answer received | OpenRouter's reported cost (`cost_source = provider`) |
+| Rejected by OpenRouter before inference (400, 401, 402, 403, 404, 429, 503) | $0 |
+| Never sent (connection failure, budget refusal) | $0 (`not_sent`) |
+| Unknown (read timeout, 500/502/504, unreadable answer) | the whole reservation (`reservation`): conservative |
+| A process that crashed between reserve and settle | the reservation stays counted for that day |
+
+**Recommended limits, for the owner to approve and set:**
+
+| Limit | Where | Recommendation |
+|---|---|---|
+| Application daily budget | `SETUHAUL_LLM_DAILY_BUDGET_USD` | **$2.00/day** (about 600–1,500 extractions; the pilot demo needs far fewer) |
+| OpenRouter key credit limit | OpenRouter dashboard → Keys → the pilot key → credit limit | **$20/month**, a separate key for the pilot |
+| OpenRouter privacy | OpenRouter dashboard → Settings → Privacy | turn on ZDR-only routing for Anthropic models and leave safety-retention endpoints off, as a second layer behind the per-request `zdr: true` |
+
+**How to inspect usage** (as `setuhaul_system`, read-only):
+
+```sql
+SELECT day, spent_usd, reserved_usd FROM setuhaul.model_budget_day ORDER BY day DESC LIMIT 7;
+```
+
+```sql
+SELECT status, error_category, count(*), sum(cost_usd), avg(latency_ms)::int
+  FROM setuhaul.model_usage WHERE day = (now() AT TIME ZONE 'UTC')::date GROUP BY 1, 2 ORDER BY 3 DESC;
+```
+
+The OpenRouter dashboard (Activity) shows the same calls by generation id (`model_usage.generation_id`).
+
+**Not free.** Neither OpenRouter nor Bedrock inference is free for this account; no free-tier credit is assumed.

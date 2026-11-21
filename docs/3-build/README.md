@@ -6,10 +6,10 @@ Build follows the order in `docs/2-design/08_signoff_and_backlog.md` §4.
 
 | Area | Status |
 |---|---|
-| Local build (steps 1–5) | **Done.** 743 tests pass on local PostgreSQL 18 (developer-reported full run, 21 Nov 2026) |
+| Local build (steps 1–5) | **Done.** 800 tests pass on local PostgreSQL 18 (after Phase B; developer-reported full run, 21 Nov 2026) |
 | Human checks | Demo walkthroughs F1–F9 done; F5 and F6 confirmed by the owner (21 Nov). Native-speaker Hindi/Hinglish review done and applied (S4-R2-08, 21 Nov) |
 | Replies | Fixed templates in English, Hindi and Hinglish; no phrasing model in production (OD-3). B-AI-3 is superseded by OD-3: the Sonnet comparison and the human scoring sheet were **not** run |
-| Model provider | Code today: deployed entry point is Bedrock only (`production_model()`). Approved direction for the Sydney pilot: OpenRouter primary (synthetic data only), Bedrock optional. That change is Phase B of the release plan |
+| Model provider | **Phase B done (T52):** `model_for()` builds OpenRouter (primary, Haiku 4.5 pinned to the `amazon-bedrock` zero-data-retention route, key from Secrets Manager in staging/pilot, every attempt metered against a daily budget, migration 0023) or Bedrock (optional). Details below |
 | AWS (step 6) | **Not started.** B-AWS-0: the AWS account is limited to Sydney (`ap-southeast-2`). The six gates in `DEPLOYMENT_GATES.md` (AWS_QUEUE, AURORA, RECOVERY_WORKER, BOOKING_WORKFLOW, WORKLOAD_IDENTITY, OUTBOUND_DELIVERY) have no AWS evidence yet |
 | Booking switch | `SETUHAUL_BOOKING_ENABLED` **off** |
 | Deferred by the owner | "Talk to a person" requests (S4-R2-08b); device evidence (FASTag, location pins, SIM, telematics); the driver app is cancelled |
@@ -19,6 +19,23 @@ synthetic data, approved and capped runs only (`COSTS.md`). *Staging / pilot*: A
 off; not built yet.
 
 The sections below are the build history, kept as written; dated statements describe the state on that date.
+
+## Model provider (decision T52, Phase B)
+
+| Setting | Pilot value |
+|---|---|
+| Entry point | `setuhaul.agent.models.model_for()`, called once at start-up; the provider never changes during a conversation |
+| Environments | `dev`, `eval`, `ci`, `staging`, `pilot`; `production` is refused. `SETUHAUL_DATA_CLASS=synthetic` is mandatory |
+| Primary provider | OpenRouter, model `anthropic/claude-haiku-4.5` (extraction only; replies are templates, OD-3) |
+| Upstream route | Pinned to `amazon-bedrock`: `order` and `only` name it, `allow_fallbacks: false`, no model fallback list. A response from another provider is refused |
+| Data retention | `zdr: true` and `data_collection: deny` on every request. On 21 Nov 2026 OpenRouter listed this route as zero-data-retention with safety retention off. ZDR is OpenRouter's routing promise, not proof of the upstream provider's compliance; the data is synthetic in any case |
+| Credentials | staging/pilot: AWS Secrets Manager, `SETUHAUL_OPENROUTER_SECRET_ID` (an environment-variable key is refused). dev/eval/ci: `OPENROUTER_API_KEY` allowed. The key is never logged or put in an error |
+| Timeouts | connect 3 s, response 10 s |
+| Retries | at most one: a connection failure before sending, a 429 with Retry-After ≤ 2 s, a 500/502. Never: read timeout, 504/408, 503 (no route meets the pin/ZDR rules), 401/403/402, 400, malformed answers, provider mismatch, budget refusal |
+| Fallback | every failure ends in the rules reader (`TurnResult.fallback_reason` says why); never another provider |
+| Usage ledger | migration 0023: one row per attempt (request id, call id, attempt, model, requested and actual provider, tokens, cost, latency, status, error category); no prompt or driver text |
+| Daily budget | `SETUHAUL_LLM_DAILY_BUDGET_USD`, UTC day, reserved atomically before each attempt; exhausted → no request, rules reader. Recommended start: **$2.00/day** (owner to approve) |
+| Bedrock | optional: region `ap-southeast-2`, `au.` geographic profile; not metered yet, so dev/eval/ci only. Model access in the Sydney account not verified (the AWS session was not signed in) |
 
 
 | Step | Status |
@@ -120,7 +137,7 @@ Every paid runner supports `--estimate-only`, `--approved`, `--max-usd` and `--n
 
 | Evidence | Where it runs | What it proves | What it does **not** prove |
 |---|---|---|---|
-| `tests/` (743 tests) and `scripts/design/validate_schema.py` (88 checks) | **Local community PostgreSQL 18.6** on a developer machine | Business rules, constraints, RLS, least privilege, function behaviour, API behaviour, concurrency on one host | Aurora storage and I/O, Aurora parameter groups and extension allow-list, RDS Data API transport and limits, IAM, API Gateway, network |
+| `tests/` (800 tests) and `scripts/design/validate_schema.py` (88 checks) | **Local community PostgreSQL 18.6** on a developer machine | Business rules, constraints, RLS, least privilege, function behaviour, API behaviour, concurrency on one host | Aurora storage and I/O, Aurora parameter groups and extension allow-list, RDS Data API transport and limits, IAM, API Gateway, network |
 | Aurora PostgreSQL 18.3+ run through the Data API | **Not run yet** (gate G1, step 6) | The same suites on the production engine | — |
 
 The production target is **Aurora PostgreSQL 18.3+** (decision T33): Aurora PostgreSQL 18 is generally available since June 2026, and the RDS Data API supports 18.3 and later in ap-south-1 and ap-south-2. The earlier plan for a local PostgreSQL 16 run is withdrawn.
@@ -245,7 +262,7 @@ SETUHAUL_TEST_DSN="host=localhost port=55432 user=postgres" python -m pytest tes
 
 ## Results (18 Nov 2026, local PostgreSQL 18.6)
 
-**743 passed** in about 12 minutes (the replay gate takes about 3½) (17 Nov, steps 1–2: 256 passed; `test_concurrency.py` was then run 5 more times in a row with no failures). On this Windows machine, the two `tmp_path` tests in `test_migrations.py` need `--basetemp` pointed at a writable folder.
+**800 passed** in about 18 minutes (the replay gate takes about 3½) (17 Nov, steps 1–2: 256 passed; `test_concurrency.py` was then run 5 more times in a row with no failures). On this Windows machine, the two `tmp_path` tests in `test_migrations.py` need `--basetemp` pointed at a writable folder.
 
 **Production booking switch:** `SETUHAUL_BOOKING_ENABLED` (default **false**). Off, the agent can understand, find options, read back and record the yes, but cannot hold or request a slot (REQUIRES_HUMAN / BOOKING_DISABLED). The API tests turn it on explicitly. The four review findings that gated it (B2-14…B2-17) are closed in code (migrations 0010–0011); it stays off until step 6 (reviewer R1.9: NO-GO before real SQS, Aurora, recovery worker and booking workflow are verified). Turning it on without those now fails at start-up. The Phase 2 validator passes 88/88 on the frozen schema.
 

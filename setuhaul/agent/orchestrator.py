@@ -52,6 +52,7 @@ class TurnResult:
     extractor: str = "model"                                    # model | rules-fallback
     escalation_id: str | None = None
     extraction: dict | None = None                              # what the model said, after merging earlier turns
+    fallback_reason: str | None = None                          # why the rules reader was used (T52: budget, timeout...)
 
 
 _NUMBER_ANSWER = re.compile(r"^\s*(?:no\.?\s*)?([1-9])\s*(?:number|no\.?|wala|vala|वाला|नंबर)?\s*[.!]?\s*$", re.I)
@@ -261,7 +262,9 @@ class Orchestrator:
                 res.traces.append(tr)
                 return Extraction(**raw)
             except (ModelError, ValidationError, TypeError) as e:          # model down or off-contract → rules
-                log.warning("extraction fell back to rules: %s", e)
+                res.fallback_reason = getattr(e, "category", None) or (
+                    "invalid_schema" if isinstance(e, (ValidationError, TypeError)) else "model_error")
+                log.warning("extraction fell back to rules (%s)", res.fallback_reason)
         res.extractor = "rules-fallback" if self.model is not None else "rules"
         tf = data.get("turn_facts") if flow["state"] != "HUMAN" else None
         return rules_extractor.extract(text, [o["option_id"] for o in flow["options"]],

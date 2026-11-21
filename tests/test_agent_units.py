@@ -276,16 +276,16 @@ def test_bedrock_extract_request_shape_and_parsing():
                                                                          "toolUseId": "t1"}}]}},
                         "usage": {"inputTokens": 900, "outputTokens": 80, "cacheReadInputTokens": 700},
                         "metrics": {"latencyMs": 640}, "stopReason": "tool_use"})
-    m = BedrockModel(client=stub)
+    m = BedrockModel(client=stub)                              # T52: Sydney, the AU geographic profile by default
     out, tr = m.extract("Driver message: Reaching around 11:20")
     req = stub.requests[0]
-    assert req["modelId"].startswith("in.anthropic.claude-haiku-4-5")
+    assert req["modelId"].startswith("au.anthropic.claude-haiku-4-5") and tr.region == "ap-southeast-2"
     assert req["toolConfig"]["toolChoice"] == {"tool": {"name": "record_driver_report"}}      # forced tool call
     assert req["toolConfig"]["tools"][0]["toolSpec"]["inputSchema"]["json"]["additionalProperties"] is False
     assert req["system"][1] == {"cachePoint": {"type": "default"}} and req["inferenceConfig"]["temperature"] == 0
     assert Extraction(**out).declared_eta_local == "11:20"
     assert (tr.input_tokens, tr.output_tokens, tr.cache_read_tokens, tr.latency_ms) == (900, 80, 700, 640)
-    assert tr.prompt_version and tr.schema_version and tr.model_id.startswith("in.")
+    assert tr.prompt_version and tr.schema_version and tr.model_id.startswith("au.")
 
 
 def test_bedrock_failures_become_model_errors():
@@ -307,7 +307,7 @@ def test_fake_model_scripts_answers_and_failures():
     assert f.phrase("hi")[0] == "HI"
 
 
-# ---------------------------------------------------------------- provider switch: OpenRouter for synthetic data only (T38)
+# ---------------------------------------------------------------- providers: OpenRouter primary, Bedrock optional (T52)
 import json as _json  # noqa: E402
 import subprocess  # noqa: E402
 import sys  # noqa: E402
@@ -317,22 +317,13 @@ import httpx  # noqa: E402
 
 BUILD = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BUILD))
-from evals.providers import OpenRouterModel, SyntheticEvalOnly, model_from_env  # noqa: E402
-from setuhaul.agent.models import production_model  # noqa: E402
+from setuhaul.agent.openrouter import SONNET_OR, OpenRouterModel  # noqa: E402
 
-EVAL = {"SETUHAUL_ENV": "eval", "SETUHAUL_DATA_CLASS": "synthetic"}
 GOOD_ARGS = {"intent": "REPORT_DELAY", "shipment_ref_mentioned": None, "delay_kind": "ARRIVAL_TIME",
              "declared_eta_local": "11:20", "declared_eta_range_local": None, "declared_delay_min": None,
              "earliest_start_local": "12:00", "latest_finish_local": None, "latest_finish_kind": None,
              "exception_type": "TRAFFIC", "vehicle_fixed": None, "safety_concern": False, "selected_option_id": None,
              "explicit_confirmation": False, "language": "en"}
-
-
-@pytest.fixture
-def eval_process(monkeypatch):
-    """This test process declares itself an evaluation run on synthetic data."""
-    for k, v in EVAL.items():
-        monkeypatch.setenv(k, v)
 
 
 def or_model(handler, **kw):
@@ -341,96 +332,59 @@ def or_model(handler, **kw):
     def h(req):
         sent.append(_json.loads(req.content))
         return handler(req)
-    m = OpenRouterModel("test-key", SyntheticEvalOnly.from_env(), client=httpx.Client(transport=httpx.MockTransport(h)), **kw)
+    m = OpenRouterModel("test-key", client=httpx.Client(transport=httpx.MockTransport(h)), sleep=lambda s: None, **kw)
     return m, sent
 
 
-def tool_reply(args, provider="Anthropic"):
+def tool_reply(args, provider="Amazon Bedrock"):
     return httpx.Response(200, json={"provider": provider, "usage": {"prompt_tokens": 900, "completion_tokens": 80,
                                                                     "prompt_tokens_details": {"cached_tokens": 700}},
                                      "choices": [{"message": {"tool_calls": [{"function": {
                                          "name": "record_driver_report", "arguments": _json.dumps(args)}}]}}]})
 
 
-def test_openrouter_extract_forces_the_tool_and_denies_data_collection(eval_process):
+def test_openrouter_extract_forces_the_tool_and_pins_a_zero_retention_route():
     m, sent = or_model(lambda r: tool_reply(GOOD_ARGS))
     out, tr = m.extract("Driver message: Reaching around 11:20")
     assert Extraction(**out).declared_eta_local == "11:20"
     b = sent[0]
-    assert b["model"] == "anthropic/claude-haiku-4.5" and b["temperature"] == 0
+    assert b["model"] == "anthropic/claude-haiku-4.5" and b["temperature"] == 0 and "models" not in b
     assert b["tool_choice"] == {"type": "function", "function": {"name": "record_driver_report"}}
     assert b["tools"][0]["function"]["parameters"]["additionalProperties"] is False
-    assert b["provider"] == {"data_collection": "deny", "require_parameters": True}
-    assert (tr.input_tokens, tr.output_tokens, tr.cache_read_tokens, tr.region) == (900, 80, 700, "openrouter:Anthropic")
+    assert b["provider"] == {"order": ["amazon-bedrock"], "only": ["amazon-bedrock"], "allow_fallbacks": False,
+                             "require_parameters": True, "data_collection": "deny", "zdr": True}
+    assert (tr.input_tokens, tr.output_tokens, tr.cache_read_tokens, tr.region) == (900, 80, 700, "openrouter:Amazon Bedrock")
 
 
 @pytest.mark.parametrize("resp", [
     httpx.Response(429, json={"error": {"message": "rate limited"}}),
-    httpx.Response(200, json={"choices": [{"message": {"content": "sure!"}}]}),                     # no tool call
-    httpx.Response(200, json={"choices": [{"message": {"tool_calls": [{"function": {
+    httpx.Response(200, json={"provider": "Amazon Bedrock", "choices": [{"message": {"content": "sure!"}}]}),  # no tool call
+    httpx.Response(200, json={"provider": "Amazon Bedrock", "choices": [{"message": {"tool_calls": [{"function": {
         "name": "record_driver_report", "arguments": "{not json"}}]}}]}),
     httpx.Response(502, text="bad gateway"),
 ])
-def test_openrouter_failures_become_model_errors(eval_process, resp):
+def test_openrouter_failures_become_final_model_errors(resp):
     m, _ = or_model(lambda r: resp)
-    with pytest.raises(ModelError):
+    with pytest.raises(ModelError) as e:
         m.extract("x")
+    assert e.value.retryable is False                       # the client already retried what was safe to retry
 
 
-def test_openrouter_phrase_returns_text(eval_process):
-    m, sent = or_model(lambda r: httpx.Response(200, json={"choices": [{"message": {"content": " 1. Dock D2, 1:00 PM "}}]}))
+def test_openrouter_phrase_returns_text():
+    m, sent = or_model(lambda r: httpx.Response(200, json={"provider": "Amazon Bedrock",
+                                                           "choices": [{"message": {"content": " 1. Dock D2, 1:00 PM "}}]}),
+                       phrase_model=SONNET_OR)
     text, tr = m.phrase("FACTS: ...")
     assert text == "1. Dock D2, 1:00 PM" and sent[0]["model"] == "anthropic/claude-sonnet-5" and "tools" not in sent[0]
 
 
-OR = {"SETUHAUL_MODEL_PROVIDER": "openrouter", "OPENROUTER_API_KEY": "k"}
-
-
-@pytest.mark.parametrize("env,error", [
-    ({**OR, "SETUHAUL_DATA_CLASS": "synthetic"}, "SETUHAUL_ENV must be set"),                 # missing env: refused
-    ({**OR, **EVAL, "SETUHAUL_ENV": "production"}, "RESIDENCY"),
-    ({**OR, **EVAL, "SETUHAUL_ENV": "staging"}, "RESIDENCY"),                                  # allowlist, not denylist
-    ({**OR, **EVAL, "SETUHAUL_ENV": "prod"}, "RESIDENCY"),
-    ({**OR, "SETUHAUL_ENV": "eval"}, "SETUHAUL_DATA_CLASS=synthetic"),
-    ({**OR, "SETUHAUL_ENV": "eval", "SETUHAUL_DATA_CLASS": "real"}, "SETUHAUL_DATA_CLASS=synthetic"),
-    ({"SETUHAUL_MODEL_PROVIDER": "bedrock", "SETUHAUL_ENV": "eval", "SETUHAUL_BEDROCK_REGION": "ap-southeast-2"}, "RESIDENCY"),
-    ({"SETUHAUL_MODEL_PROVIDER": "gemini", "SETUHAUL_ENV": "eval"}, "unknown"),
-])
-def test_the_eval_switch_fails_closed(eval_process, env, error):
-    with pytest.raises(ModelError, match=error):
-        model_from_env(env)
-
-
-def test_a_hand_made_env_cannot_unlock_openrouter_in_a_deployed_process(monkeypatch):
-    monkeypatch.setenv("SETUHAUL_ENV", "production")
-    monkeypatch.delenv("SETUHAUL_DATA_CLASS", raising=False)
-    with pytest.raises(ModelError, match="RESIDENCY"):
-        model_from_env({**OR, **EVAL})                     # the dict says eval; the process says production
-    with pytest.raises(ModelError, match="RESIDENCY"):
-        OpenRouterModel("k", SyntheticEvalOnly("eval"))   # a hand-built capability does not help either
-
-
-def test_the_eval_switch_builds_openrouter_only_when_everything_says_synthetic_eval(eval_process):
-    m = model_from_env({**OR, **EVAL})
-    assert isinstance(m, OpenRouterModel) and m.extract_model == "anthropic/claude-haiku-4.5"
-
-
-@pytest.mark.parametrize("env,error", [
-    ({}, "SETUHAUL_ENV must be set"),
-    ({"SETUHAUL_ENV": "production", "SETUHAUL_MODEL_PROVIDER": "openrouter"}, "India Bedrock only"),
-    ({"SETUHAUL_ENV": "production", "SETUHAUL_BEDROCK_REGION": "ap-southeast-2"}, "RESIDENCY"),
-])
-def test_deployed_code_has_one_model_path_and_it_is_india_bedrock(env, error):
-    with pytest.raises(ModelError, match=error):
-        production_model(env)
-
-
-def test_the_deployed_package_contains_no_non_india_client():
-    """Deployment-level check: nothing under setuhaul/ names OpenRouter's endpoint or the eval providers, and importing
-    every deployed module (in a fresh process) never loads the eval providers."""
+def test_the_deployed_package_never_imports_the_eval_tools():
+    """Deployment-level check: setuhaul/ never imports evals/, OpenRouter's endpoint is named in one module only, and
+    importing every deployed module (in a fresh process) never loads the eval package."""
     for f in (BUILD / "setuhaul").rglob("*.py"):
         src = f.read_text(encoding="utf-8")
-        assert "openrouter.ai" not in src and not re.search(r"^\s*(from|import)\s+evals\b", src, re.M), f
+        assert not re.search(r"^\s*(from|import)\s+evals\b", src, re.M), f
+        assert ("openrouter.ai" in src) == (f.name == "openrouter.py"), f
     probe = ("import pkgutil, sys, setuhaul\n"
              "for m in pkgutil.walk_packages(setuhaul.__path__, 'setuhaul.'):\n"
              "    try: __import__(m.name)\n"
@@ -442,12 +396,14 @@ def test_the_deployed_package_contains_no_non_india_client():
     assert out.stdout.strip() == "[]"
 
 
-def test_sonnet_phrasing_never_sends_a_temperature(eval_process):
+def test_sonnet_phrasing_never_sends_a_temperature():
     """Sonnet 5 rejects a non-default temperature (found by the OpenRouter spike; the Bedrock path had the same bug)."""
     stub = StubBedrock({"output": {"message": {"content": [{"text": "1. Dock D2, 1:00 PM"}]}}, "usage": {}, "metrics": {}})
-    BedrockModel(client=stub).phrase("FACTS: ...")
+    BedrockModel(region="ap-south-1", phrase_model="in.anthropic.claude-sonnet-5", client=stub).phrase("FACTS: ...")
     assert "temperature" not in stub.requests[0]["inferenceConfig"]
-    m, sent = or_model(lambda r: httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]}))
+    m, sent = or_model(lambda r: httpx.Response(200, json={"provider": "Amazon Bedrock",
+                                                           "choices": [{"message": {"content": "ok"}}]}),
+                       phrase_model=SONNET_OR)
     m.phrase("FACTS: ...")
     assert "temperature" not in sent[0]
 

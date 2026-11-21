@@ -21,14 +21,18 @@ AGENT_FUNCTIONS = {"hold_option", "submit_booking_request", "release_hold", "rec
                    "escalate_thread", "bind_thread_shipment", "scope_allows", "driver_or_staff",
                    "note_turn_facts",           # 0008: earlier-turn facts, own thread only, fixed keys (never a booking)
                    "resolve_thread_shipment",   # 0010: own thread + own shipment, resolved and bound under the lock
-                   "assert_turn_fence"}         # 0012: read-only check that this worker still holds the turn
+                   "assert_turn_fence",         # 0012: read-only check that this worker still holds the turn
+                   # 0023 (T52): the agent asks for a model-budget reservation and reports the outcome; the database
+                   # decides against the cap. Neither touches booking, approval or capacity state.
+                   "reserve_model_call", "settle_model_call"}
 # Never writable by the agent in any way.
 PROTECTED = {"dock_occupancy", "appointments", "approval_requests", "notifications", "facilities", "facility_config",
              "docks", "shipments", "appointment_slots", "dock_events", "drivers", "vehicles", "carriers",
              "shown_options", "eta_signals", "driver_exceptions", "escalations", "booking_events", "outbox", "thread_facts",
              "idempotency_keys", "option_selections", "confirmation_attestations",
              "inbound_receipts", "deployment_evidence",
-             "staff_context", "approval_role_rules", "booking_holds", "confirmation_rules", "outbox_consumptions"}  # 0015
+             "staff_context", "approval_role_rules", "booking_holds", "confirmation_rules", "outbox_consumptions",  # 0015
+             "model_budget_day", "model_usage"}                                                        # 0023
 
 
 def test_agent_role_attributes(conn):
@@ -108,7 +112,9 @@ def test_every_table_is_rls_forced_or_reasoned(conn):
              "staff_context",         # one row per console transaction, read only for that transaction (B-WF-2 §15)
              "approval_role_rules",   # role-per-kind configuration, no facility data
              "confirmation_rules",    # versioned policy configuration, append-only
-             "outbox_consumptions"}   # consumer bookkeeping (consumer, event id), no facility data
+             "outbox_consumptions",   # consumer bookkeeping (consumer, event id), no facility data
+             # 0023 (T52): model usage ledger; no facility or driver data, written only by the definer functions
+             "model_budget_day", "model_usage"}
     bad = [r[0] for r in conn.execute("""SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
                                          WHERE n.nspname='setuhaul' AND c.relkind='r'
                                            AND NOT (c.relrowsecurity AND c.relforcerowsecurity)""") if r[0] not in allow]
