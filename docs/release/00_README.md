@@ -78,7 +78,7 @@ Since the restructure (`git diff --name-only 77e82cc HEAD`): `README.md`; `.env.
 | Bedrock model access in the Sydney account not verified | external access | AWS CLI not signed in; Bedrock is optional |
 | B-AWS-0 (India Bedrock) | open, not blocking | T52 |
 | S4-R2-08b "talk to a person" intent | deferred by owner | unchanged |
-| Commit author e-mail visible in the repository | owner decision | rewrite to GitHub `noreply` before the first push, or keep |
+| Commit author e-mail visible in the repository | decided | owner keeps their address (22 Nov 2026) |
 | Challenge brief PDF in the repository | owner decision | fine while private |
 | Race panel with N = 50 takes about 3.5 minutes on the laptop | presentation | run sheet updated |
 | Booking enablement | owner decision, later | only after all six gates pass |

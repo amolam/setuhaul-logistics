@@ -14,7 +14,7 @@ re-run; **assumed**; **not tested**; **blocked** = needs access this workstation
 | Key in logs and errors | `tests/test_providers.py::test_the_key_never_reaches_logs_or_errors`, `test_a_secret_that_cannot_be_read_fails_without_revealing_anything` | Pass in the suite | verified |
 | `/health` | Returns status, database reachability, booking switch, environment name and version only; tests assert no DSN fragment appears | Pass | verified |
 | Deck | `presentation/SetuHaul_readout.pptx` XML parts scanned; author field "SetuHaul FDE team" | Clean | verified |
-| Commit author | All commits carry the owner's personal e-mail as author | Not a secret, but it becomes visible to anyone with access to the GitHub repository. Optional: rewrite to a GitHub `noreply` address before the first push (owner decision) | verified |
+| Commit author | All commits carry the owner's personal e-mail as author | Visible to anyone with access to the private repository. **Owner decision (22 Nov 2026): keep it**; no history rewrite | verified |
 | Synthetic data only | Seed, golden sets and eval caches are from the challenge data package or generated; phone numbers are `+9198…` test ranges | No real driver or customer data found | verified (by inspection of the data sources), assumed for free-text eval inputs |
 
 The scanner is a regex scan, not a commercial tool (gitleaks/trufflehog are not installed here). Recommended

@@ -32,7 +32,7 @@ and the owner's own `gh` / git sign-in.
 | Dependencies portable | ✅ only `name==version` pins, no paths or local wheels; a clean virtual environment installed from them with no conflicts, audited clean, and ran 394 API/agent/provider tests |
 | Booking switch | ✅ `SETUHAUL_BOOKING_ENABLED=false` in `.env.example`; default `false` in `Settings.from_env` |
 | No real data | ✅ synthetic only (`02_SECURITY_SCAN.md` §1) |
-| Commit author e-mail | ⚠ owner's personal address on every commit; optional rewrite to the GitHub `noreply` address before the first push (owner decision; a rewrite changes every commit id) |
+| Commit author e-mail | ✅ decided: the owner keeps their own address on the commits (owner, 22 Nov 2026); no history rewrite |
 | Repository visibility | must be **private** |
 
 ## 3. Commit structure (local, current)
