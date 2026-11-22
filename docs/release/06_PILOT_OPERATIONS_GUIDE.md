@@ -43,11 +43,11 @@ For the synthetic-data Sydney pilot, once deployed (`04_SYDNEY_PILOT_DEPLOYMENT_
 |---|---|
 | Messages in the DLQ | Read the message attributes (never the driver text into a ticket), fix the cause, redrive with the SQS redrive tool; the orchestrator's generation fencing makes a redelivered message safe |
 | Webhook failing | Check the Meta app secret in Secrets Manager and the API Gateway logs; Meta retries for up to 7 days |
-| Notifications not delivered | `OutboundRelay` retries; check the Meta token, template status and the outbound log; never re-send by hand (duplicate prevention is at the provider) |
+| Notifications not delivered | `OutboundRelay` retries; check the Meta token, template status and the outbound log; never re-send by hand (duplicate prevention is at the provider). A NOTIFICATION_FAILED escalation with `TEMPLATE_NOT_APPROVED` or `WINDOW_CLOSED` means the driver's 24-hour window had passed: contact the driver another way, and list newly approved templates in the `whatsapp_approved_templates` context |
 | Model failing or over budget | Nothing to do for safety (rules reader takes over); check `model_usage.error_category`; `auth`/`credits` → check the OpenRouter key and credit (owner) |
 | A conversation needs a person | Console → thread → **Take over**; the agent stops replying; **Hand back** with a summary when done |
-| Incident | 1. Confirm booking switch OFF. 2. If the agent misbehaves, take over the affected threads, then point the agent Lambda alias back to the previous version. 3. Record the incident in `docs/review/REVIEW_LOG.md` |
-| Rollback | Lambda and state machine aliases back to the previous version; migrations are forward-only (fix forward) |
+| Incident | 1. Confirm booking switch OFF. 2. If the agent misbehaves, take over the affected threads, then roll back (next row). 3. Record the incident in `docs/review/REVIEW_LOG.md` |
+| Rollback | There are no Lambda versions or aliases (review E5-05). Redeploy the previous reviewed Cloud Assembly: run `cdk deploy --app cdk.out` with the `pilot-build` artifact of that earlier run (its assembly check and manifest are already recorded); this takes minutes. The state machine alias moves with it. Migrations are forward-only (fix forward) |
 | Backup and recovery | Aurora automated backups (7 days) and point-in-time restore; the data is synthetic, so a restore is a drill, not a recovery |
 
 ## 5. Monthly cost estimate (pilot)
@@ -60,9 +60,9 @@ AWS on 21 Nov 2026 where known, otherwise marked "estimate". Not measured in AWS
 | **1. AWS infrastructure** | | |
 | Aurora Serverless v2 | 0.5 ACU minimum around the clock (or auto-pause to 0 ACU when idle) + 1 GB storage + I/O | $45–65 (estimate; less with auto-pause) |
 | Lambda, API Gateway, SQS, Step Functions, EventBridge, Cognito | pilot volume, mostly inside the always-free allowances | $1–5 (estimate) |
-| Secrets Manager | 4–6 secrets at $0.40 + API calls | $2–3 |
+| Secrets Manager | 9 secrets at $0.40 (owner, 6 logins, application, OpenRouter) + API calls | ≈ $3.60 |
 | KMS | 1–2 customer keys | $1–2 |
-| WAF (on API Gateway) | web ACL + 5 managed rules + requests | $10–12 |
+| WAF (on the REST API) | web ACL + 3 rules + requests | $8–9 |
 | GuardDuty, Security Hub, AWS Config | small account, few resources | $5–15 (estimate) |
 | **2. OpenRouter inference** | Haiku 4.5 extraction, $0.0013–0.0035 per extraction measured in evaluation runs; capped by the app at $0.25/day and by the key at $3/month | **at most $3** (the key limit binds; at 50 conversations/day the daily cap is reached and the rules reader takes the rest) |
 | **3. Bedrock (optional)** | not used in the pilot (dev/eval only, not metered); same Haiku 4.5 list price as above if enabled later | $0 |

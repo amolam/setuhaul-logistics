@@ -1,0 +1,85 @@
+{
+ "no_token /console/threads": [
+  401,
+  null
+ ],
+ "no_token /console/threads/anything": [
+  401,
+  null
+ ],
+ "no_token /console/requests": [
+  401,
+  null
+ ],
+ "no_token /console/escalations": [
+  401,
+  null
+ ],
+ "forged alg_none": [
+  401,
+  "{\"detail\":\"invalid token: PyJWKClientError\"}"
+ ],
+ "forged bad_signature_rs256": [
+  401,
+  "{\"detail\":\"invalid token: PyJWKClientError\"}"
+ ],
+ "forged hs256_any_key": [
+  401,
+  "{\"detail\":\"invalid token: PyJWKClientError\"}"
+ ],
+ "forged garbage": [
+  401,
+  "{\"detail\":\"malformed token\"}"
+ ],
+ "cors on GET": null,
+ "cors preflight": [
+  405,
+  null
+ ],
+ "path /app/assets/../console_site.py": [
+  404,
+  false
+ ],
+ "path /app/assets/%2e%2e%2fapp.py": [
+  404,
+  false
+ ],
+ "path /app/.env": [
+  404,
+  false
+ ],
+ "path /app/index.html": [
+  404,
+  false
+ ],
+ "path /demo/sign": [
+  404,
+  false
+ ],
+ "page headers": {
+  "Content-Security-Policy": null,
+  "X-Content-Type-Options": null,
+  "Referrer-Policy": null,
+  "X-Frame-Options": null,
+  "Strict-Transport-Security": null,
+  "Cache-Control": null
+ },
+ "inline script in html": false,
+ "live asset scan": {
+  "assets/app.css?v=0f2a5ac72478": {
+   "status": 200,
+   "cache": null,
+   "hits": []
+  },
+  "assets/app.js?v=91f25f0bea53": {
+   "status": 200,
+   "cache": null,
+   "hits": []
+  }
+ },
+ "config.json keys": [
+  "apiBase",
+  "clientId",
+  "cognitoDomain"
+ ]
+}

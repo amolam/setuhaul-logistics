@@ -95,3 +95,16 @@ def conn(dsn):
     import psycopg
     with psycopg.connect(dsn, autocommit=True) as c:
         yield c
+
+
+# E3: SETUHAUL_TEST_DATA_API=1 sends every Db.tx() through the RDS Data API backend (setuhaul/aws/data_api.py) and a
+# local emulator of the rds-data client (tests/data_api_emulator.py), so the existing database tests also prove the
+# Data API path: literal binding, typed results, error translation, transactions.
+if os.environ.get("SETUHAUL_TEST_DATA_API") == "1":
+    @pytest.fixture(scope="session", autouse=True)
+    def _route_db_through_data_api():
+        from data_api_emulator import install
+        mp = pytest.MonkeyPatch()
+        install(mp)
+        yield
+        mp.undo()

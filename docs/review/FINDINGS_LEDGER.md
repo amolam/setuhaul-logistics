@@ -121,3 +121,26 @@ and response. Phase 2 findings were closed at Phase 2 sign-off (`../docs/2-desig
   R5 (Info, crashed-process reservations): **open follow-ups**. Tests: `tests/test_providers.py`.
 - **Phase D (21 Nov 2026):** secret scan of files and history clean; 47 dependency advisories closed by upgrading
   FastAPI, Starlette, PyJWT, cryptography and pytest (`docs/release/02_SECURITY_SCAN.md`).
+- **Phase E (22 Nov 2026), branch phase-e/aws-implementation:** E0–E6 implemented and tested locally, not deployed
+  (`docs/release/07_AWS_IMPLEMENTATION.md`). Found and fixed while building: the Data API would have broken untyped
+  string parameters (fixed by literal binding); `/health` used the system role (now ingest); a CDK dependency cycle;
+  a non-reproducible Lambda zip. Open: notices outside the 24-hour WhatsApp window need template sending (owner
+  decision); application secret split; `/tools` roles on the API workload; action SHA pins.
+- **Phase E consolidated review of 250b794 (22 Nov 2026), branch phase-e/aws-implementation-fixes:** fixed locally:
+  E5-01 synthesis output directory, E5-02 deploy the checked assembly (`cdk deploy --app cdk.out`), E5-03 the zip is
+  the Lambda asset and a credential-free check hashes the staged asset (`setuhaul/ops/assembly.py`), E6-01 approved
+  templates outside the 24-hour window with escalation when none is approved, IAM-01 WhatsApp token in its own secret
+  (outbound only), IAM-02 `/tools` off in staging and pilot (API logins ingest + console), E4-01 callback completion
+  tracking (migration 0024, `approval_callbacks`), E5-04 actions pinned by SHA and the CDK CLI by exact version, E5-05
+  rollback documented as redeploying the previous assembly, E0-01 4xx alarm renamed. Outstanding: E5-06 (Ubuntu
+  reproducibility, runs in CI), E3-01 to E3-04 (AURORA gate), the OIDC deploy role, Meta submission and the Hinglish
+  gate. Record: `docs/release/07_AWS_IMPLEMENTATION.md`; tests: `docs/release/01_TEST_REPORT.md`.
+- **Phase E second review round (22 Nov 2026), on top of 5a9a16d:** E4-02 (High) callback backoff cast to integer
+  before the cap, overflowing from 31 attempts: **resolved** (exponent capped first in 0024;
+  `test_e4_02_the_backoff_is_capped_at_30_minutes_without_integer_overflow`). E5-07 (Medium) the assembly check
+  ignored `S3Bucket`: **resolved** (each function's bucket and key must match one destination of the staged asset;
+  `test_e5_07_*` and `test_the_assembly_check_fails_when_a_function_points_elsewhere`). E5-08 (High) a manual
+  dispatch could deploy from any branch: **resolved in the repository** (allow-list `refs/heads/release/fde-sydney-pilot`
+  in the job condition and a first-step guard, typed confirmation kept; `tests/test_pipeline.py`); the matching OIDC
+  trust (subject with `ref`, exact `StringEquals`, `infra/github_oidc_deploy_trust_policy.json`) is documented, and
+  its enforcement in GitHub and AWS stays an **external gate**. Record: `docs/release/07_AWS_IMPLEMENTATION.md`.

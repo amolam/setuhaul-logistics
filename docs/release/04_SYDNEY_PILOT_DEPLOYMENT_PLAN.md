@@ -1,5 +1,9 @@
 # Phase E: AWS Sydney pilot deployment plan
 
+**Update 22 Nov 2026: build items E0–E6 are implemented and tested locally (`07_AWS_IMPLEMENTATION.md`); still not
+deployed.** Two corrections from that work: the API is a REST API (AWS WAF cannot attach to an HTTP API), and the
+least-privilege login table in §4 is now proven by tests (`07_AWS_IMPLEMENTATION.md`).
+
 **Status: planned, not deployed.** Nothing has been created in AWS. The AWS CLI on this workstation is not signed in,
 and deploying needs the owner's approval of this plan. Region `ap-southeast-2` for everything. Synthetic data only.
 `SETUHAUL_BOOKING_ENABLED=false` throughout this phase.
@@ -22,7 +26,7 @@ and deploying needs the owner's approval of this plan. Region `ap-southeast-2` f
 ## 2. Recommended pilot shape (smallest that can pass the six gates)
 
 ```
-Meta test number ──HTTPS──► API Gateway (HTTP API) ─► Lambda "api" (FastAPI via an ASGI adapter)
+Meta test number ──HTTPS──► API Gateway (REST API, WAF) ─► Lambda "api" (FastAPI via an ASGI adapter)
                                                        │  webhook: verify HMAC, store, enqueue
                                                        ▼
                                          SQS FIFO setuhaul-inbound.fifo ──► DLQ setuhaul-inbound-dlq.fifo
@@ -60,15 +64,45 @@ These are code changes; each will come with tests and a review before deployment
 
 | Workload | Allowed | Database role |
 |---|---|---|
-| api | `sqs:SendMessage` on the inbound queue; read its own DB secret | ingest, console (two secrets, chosen by route) |
-| agent | `sqs:ReceiveMessage`, `DeleteMessage`, `ChangeMessageVisibility` on the inbound queue; read the OpenRouter secret and its own DB secret | agent |
-| recovery | the queue actions above; its DB secret | system |
-| outbound | read the Meta token secret; its DB secret | system |
+| api | `sqs:SendMessage` on the inbound queue; read its own DB secrets | ingest, console (`/tools` is off in staging and pilot) |
+| agent | `sqs:ReceiveMessage`, `DeleteMessage`, `ChangeMessageVisibility` on the inbound queue; read the OpenRouter secret and its own DB secrets | agent, feasibility, ingest |
+| recovery | `sqs:SendMessage`; its DB secrets | system, ingest |
+| outbound | read the WhatsApp token secret (the only function that can); its DB secret | system |
 | approval-relay | `states:StartExecution` on the published state machine version; its DB secret | system |
 | pipeline | `rds-data` for `setuhaul_deploy_evidence` only | deploy_evidence |
 
 No workload may assume another's role, use `setuhaul_rpc`, the owner or a superuser (DEPLOYMENT_GATES.md, workload
 identity acceptance 1–5).
+
+### Deploy role: GitHub OIDC trust (review E5-08; created in AWS 22 Nov 2026 and read back)
+
+The pipeline may deploy only from `refs/heads/release/fde-sydney-pilot`, the one pilot release branch. The workflow
+enforces it twice: the deploy job's condition (`github.ref == 'refs/heads/release/fde-sydney-pilot'`, together with
+`workflow_dispatch` and the typed confirmation `pilot`) and a first step that refuses any other ref before checkout or
+sign-in (`tests/test_pipeline.py`). The AWS role must enforce the same identity on its side, because a workflow file
+can be changed on any branch:
+
+1. **GitHub (repository setting):** the OIDC subject claim is customised with
+   `include_claim_keys: ["repo", "context", "ref"]`. GitHub enforces its immutable subject format for this repository
+   (owner and repository ids in the prefix; `use_immutable_subject` cannot be turned off), so the deploy job's token
+   subject is exactly
+   `repo:amolam@19927631/setuhaul-logistics@1466862604:environment:pilot:ref:refs/heads/release/fde-sydney-pilot`.
+   The plain form of the same identity is
+   `repo:amolam/setuhaul-logistics:environment:pilot:ref:refs/heads/release/fde-sydney-pilot`.
+2. **AWS:** the deploy role `setuhaul-pilot-github-deploy` trusts `token.actions.githubusercontent.com` with
+   **StringEquals** on `token.actions.githubusercontent.com:aud` = `sts.amazonaws.com` and
+   `token.actions.githubusercontent.com:sub` = those two exact strings, with no `StringLike` and no wildcard. Source:
+   `infra/github_oidc_deploy_trust_policy.json`. Its permissions: the CDK bootstrap roles, the Data API on the pilot
+   cluster, the pilot database secrets and their key (`08_AWS_DEPLOYMENT_REQUEST.md` §3).
+3. **Do not rely on the environment subject alone.** Without the customisation, a job with `environment: pilot` gets
+   the subject `repo:amolam/setuhaul-logistics:environment:pilot`, which names no branch: a role trusting it would
+   accept any branch that reaches the environment. On a free private repository the environment cannot restrict
+   deployment branches either, so the environment proves nothing about the branch.
+
+Status (22 Nov 2026): the subject customisation, the OIDC provider and the role exist; the role's trust and
+permissions were read back from IAM and match this file. Still to be shown by a run: that a token from the release
+branch is accepted (the first deploy) and one from another branch is refused (a dispatch elsewhere is already stopped by
+the workflow before any sign-in, so a refused token needs a deliberate test).
 
 ## 5. Configuration per environment
 
@@ -86,14 +120,18 @@ identity acceptance 1–5).
 
 1. The owner signs in to the AWS CLI for the Sydney account (Claude never enters credentials).
 2. `cdk bootstrap` and `cdk deploy` the stacks into `ap-southeast-2`.
-3. Run migrations 0001–0023 against Aurora through the migration runner as the owner role, once.
+3. Run migrations 0001–0024 against Aurora through the migration runner as the owner role, once.
 4. Store the OpenRouter key and the Meta token in Secrets Manager (owner, from their own machine).
 5. Smoke test: `GET /health` → `{"status": "ok", "booking_enabled": false}`; one synthetic driver message through the
    Meta test number; check the usage ledger row and the reply.
 6. Run the gate checks in the order in `05_STEP6_GATE_STATUS.md` and record evidence.
-7. **Rollback:** Lambda aliases point at the previous version (instant); the state machine alias points at the previous
-   published version; migrations are forward-only, so a schema problem is fixed by a new migration, never by editing
-   one. Aurora point-in-time restore is the last resort (synthetic data, so no data-loss risk).
+7. **Rollback:** the stack publishes no Lambda versions or aliases (review E5-05), so rolling back the application
+   means redeploying the previous reviewed Cloud Assembly: `cdk deploy --app cdk.out` with the `pilot-build` artifact
+   of that earlier run, whose assembly check and manifest were already recorded. That replaces the functions' code and
+   configuration together (minutes, not instant). The state machine's `live` alias moves with that deployment to the
+   version that assembly published. Migrations are forward-only, so a schema problem is fixed by a new migration, never
+   by editing one, and an older assembly must still work with the newer schema. Aurora point-in-time restore is the
+   last resort (synthetic data, so no data-loss risk).
 
 ## 7. WhatsApp in the pilot
 

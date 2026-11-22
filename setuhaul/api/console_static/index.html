@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>SetuHaul Staff Console</title>
+<link rel="stylesheet" href="assets/app.css">
+<script src="assets/app.js" defer></script>
+</head>
+<body>
+<header>
+  <h1>SetuHaul staff console</h1>
+  <span class="pill">AWS pilot · synthetic data</span>
+  <span class="pill off">booking execution OFF</span>
+  <span class="pill">WhatsApp: internal test sink only</span>
+  <span class="grow"></span>
+  <span id="who" class="muted"></span>
+  <button class="ghost" id="signout" hidden>Sign out</button>
+</header>
+
+<section id="signin" class="card signin" hidden>
+  <h2>Sign in</h2>
+  <p class="muted">Staff sign in with Cognito, with multi-factor authentication. What you can see and do is decided by
+    the server from your account's groups.</p>
+  <button id="signinbtn">Sign in with Cognito</button>
+  <p id="autherr" class="err"></p>
+</section>
+
+<section id="app" hidden>
+  <div class="tabs" id="tabs" style="margin:12px 16px 0">
+    <button data-t="threads" class="on">Conversations</button><button data-t="requests">Requests</button>
+    <button data-t="escalations">Escalations</button><button data-t="docks">Docks</button>
+  </div>
+  <main class="console">
+    <section class="card" id="left">
+      <div class="row"><h2 class="grow" id="lefttitle">Conversations</h2><button class="ghost" id="refresh">Refresh</button></div>
+      <div id="list" class="list"></div>
+      <div class="row" style="margin-top:6px"><button class="ghost" id="more" hidden>Older</button></div>
+    </section>
+    <section class="card" id="detail"><div class="empty">Select a conversation.</div></section>
+  </main>
+</section>
+<div id="toast"></div>
+</body>
+</html>

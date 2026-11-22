@@ -170,11 +170,13 @@ class BookingService:
                         attestation_id=str(row[6]) if row[6] else None)
         last = c.execute("SELECT max(created_at) FROM shown_options WHERE thread_id=%s", (p.thread_id,)).fetchone()[0]
         if last:
-            for oid, dock, during, appr, exp in c.execute(
-                    """SELECT o.option_id, d.dock_code, o.during, o.needs_approval, o.expires_at
+            # lower()/upper(), not the range itself: the RDS Data API cannot return range types (seen on AWS,
+            # 22 Nov 2026: UnsupportedResultException, so every option list failed and the driver was told "no slot")
+            for oid, dock, start, end, appr, exp in c.execute(
+                    """SELECT o.option_id, d.dock_code, lower(o.during), upper(o.during), o.needs_approval, o.expires_at
                          FROM shown_options o JOIN docks d USING (dock_id)
                         WHERE o.thread_id=%s AND o.created_at=%s ORDER BY o.rank""", (p.thread_id, last)):
-                f.shown[str(oid)] = {"dock_code": dock, "start": during.lower, "end": during.upper,
+                f.shown[str(oid)] = {"dock_code": dock, "start": start, "end": end,
                                      "needs_approval": appr, "expires_at": exp}
         version = row[5]
         if f.state is S.SUBMITTED and f.appointment_id:
@@ -292,10 +294,10 @@ class BookingService:
                                WHERE thread_id=%s AND updated_at > now() - interval '2 hours'""", (p.thread_id,)).fetchone()
             last = c.execute("SELECT max(created_at) FROM shown_options WHERE thread_id=%s", (p.thread_id,)).fetchone()[0]
             if last:
-                flow["options"] = [{"option_id": str(o), "dock_code": dc, "start": human_time(d.lower), "end": human_time(d.upper),
-                                    "start_ts": d.lower.isoformat(), "needs_approval": na}
-                                   for o, dc, d, na in c.execute(
-                                       """SELECT o.option_id, k.dock_code, o.during, o.needs_approval
+                flow["options"] = [{"option_id": str(o), "dock_code": dc, "start": human_time(lo), "end": human_time(hi),
+                                    "start_ts": lo.isoformat(), "needs_approval": na}
+                                   for o, dc, lo, hi, na in c.execute(        # lower()/upper(): see _flow
+                                       """SELECT o.option_id, k.dock_code, lower(o.during), upper(o.during), o.needs_approval
                                             FROM shown_options o JOIN docks k USING (dock_id)
                                            WHERE o.thread_id=%s AND o.created_at=%s AND o.expires_at > now() ORDER BY o.rank""",
                                        (p.thread_id, last))]
@@ -591,6 +593,109 @@ class BookingService:
                                   FROM escalations ORDER BY created_at DESC LIMIT 200""").fetchall()
         return [dict(zip(("escalation_id", "reason_code", "mode", "facility_id", "shipment_id", "thread_id", "status"), r))
                 for r in rows]
+
+    # ---------------------------------------------------------------- read-only conversation views (hosted console)
+    THREAD_PAGE_MAX = 50
+    MESSAGES_MAX = 200
+
+    @staticmethod
+    def _mask_phone(phone: str | None) -> str | None:
+        return None if not phone else phone[:4] + "•" * max(len(phone) - 8, 0) + phone[-4:]
+
+    @staticmethod
+    def _delivery(provider_message_id: str | None) -> str | None:
+        """Which kind of sender accepted it, never the id itself beyond its kind (test sink vs a real provider)."""
+        if not provider_message_id:
+            return None
+        return "test_sink" if provider_message_id.startswith("testsink.") else "provider"
+
+    def list_threads(self, p: Principal, limit: int = 25, before: datetime | None = None) -> dict:
+        """Conversations visible to this person (row-level security: only their facilities), newest activity first.
+        Read only. Pages by the latest-message time (`before`); at most THREAD_PAGE_MAX per page."""
+        self.require(p, "list_requests")
+        limit = max(1, min(int(limit), self.THREAD_PAGE_MAX))
+        with self.db.tx("console", p.facilities, readonly=True) as c:
+            rows = c.execute("""
+                SELECT t.thread_id, t.driver_id, d.phone_e164, s.destination_facility_id, t.shipment_id, t.status,
+                       t.human_active, f.state, m.created_at, m.sender_type, left(m.body_masked, 120),
+                       tf.facts, n.status, n.template_id, n.provider_message_id
+                  FROM chat_threads t
+                  LEFT JOIN drivers d ON d.driver_id = t.driver_id
+                  LEFT JOIN shipments s ON s.shipment_id = t.shipment_id
+                  LEFT JOIN thread_flow f ON f.thread_id = t.thread_id
+                  LEFT JOIN thread_facts tf ON tf.thread_id = t.thread_id
+                  LEFT JOIN LATERAL (SELECT created_at, sender_type, body_masked FROM chat_messages x
+                                      WHERE x.thread_id = t.thread_id ORDER BY created_at DESC, message_id DESC LIMIT 1) m ON true
+                  LEFT JOIN LATERAL (SELECT status, template_id, provider_message_id FROM notifications y
+                                      WHERE y.thread_id = t.thread_id ORDER BY created_at DESC LIMIT 1) n ON true
+                 WHERE m.created_at IS NOT NULL AND (%s::timestamptz IS NULL OR m.created_at < %s::timestamptz)
+                 ORDER BY m.created_at DESC, t.thread_id
+                 LIMIT %s""", (before, before, limit + 1)).fetchall()
+        more = len(rows) > limit
+        rows = rows[:limit]
+        out = [{"thread_id": r[0], "driver_id": r[1], "driver_phone": self._mask_phone(r[2]), "facility_id": r[3],
+                "shipment_id": r[4], "status": r[5], "human_active": r[6], "flow_state": r[7],
+                "last_message_at": r[8], "last_sender": r[9], "last_message_preview": r[10],
+                "intent": (r[11] or {}).get("intent"), "notification_status": r[12], "notification_template": r[13],
+                "notification_delivery": self._delivery(r[14])} for r in rows]
+        return {"threads": out, "next_before": out[-1]["last_message_at"] if more and out else None}
+
+    def thread_detail(self, p: Principal, thread_id: str) -> dict:
+        """One conversation as stored: messages (masked), the facts the reader carried, the ETA it recorded, the
+        options shown and picked, and every notification with its delivery status. Read only. A thread outside this
+        person's facilities is indistinguishable from one that does not exist (404)."""
+        self.require(p, "list_requests")
+        if not thread_id or len(thread_id) > 80:
+            raise ServiceError(404, "NOT_FOUND", "no such conversation")
+        with self.db.tx("console", p.facilities, readonly=True) as c:
+            t = c.execute("""SELECT t.thread_id, t.driver_id, d.phone_e164, s.destination_facility_id, t.shipment_id,
+                                    t.status, t.human_active, t.human_active_since, t.opened_at, t.closed_at,
+                                    t.clarification_turns, f.state, f.selected_option, f.appointment_id, f.updated_at
+                               FROM chat_threads t
+                               LEFT JOIN drivers d ON d.driver_id = t.driver_id
+                               LEFT JOIN shipments s ON s.shipment_id = t.shipment_id
+                               LEFT JOIN thread_flow f ON f.thread_id = t.thread_id
+                              WHERE t.thread_id = %s""", (thread_id,)).fetchone()
+            if t is None:
+                raise ServiceError(404, "NOT_FOUND", "no such conversation")
+            msgs = c.execute("""SELECT * FROM (
+                                  SELECT message_id, sender_type, channel, left(body_masked, 1000), created_at, reply_to
+                                    FROM chat_messages WHERE thread_id = %s ORDER BY created_at DESC, message_id DESC LIMIT %s
+                                ) m ORDER BY created_at, message_id""", (thread_id, self.MESSAGES_MAX)).fetchall()
+            facts = c.execute("SELECT facts, asked, updated_at FROM thread_facts WHERE thread_id = %s", (thread_id,)).fetchone()
+            eta = c.execute("""SELECT source, derived_eta, confidence, uncertainty_min, observed_at FROM eta_signals
+                                WHERE shipment_id = %s ORDER BY observed_at DESC LIMIT 5""", (t[4],)).fetchall() if t[4] else []
+            options = c.execute("""SELECT o.option_id, k.dock_code, lower(o.during), upper(o.during), o.needs_approval,
+                                          o.rank, o.expires_at, o.created_at
+                                     FROM shown_options o LEFT JOIN docks k ON k.dock_id = o.dock_id
+                                    WHERE o.thread_id = %s ORDER BY o.created_at DESC, o.rank LIMIT 30""", (thread_id,)).fetchall()
+            picks = c.execute("""SELECT option_id, selected_at FROM option_selections WHERE thread_id = %s
+                                  ORDER BY selected_at DESC LIMIT 10""", (thread_id,)).fetchall()
+            notes = c.execute("""SELECT notification_id, template_id, channel, status, attempts, max_attempts,
+                                        provider_message_id, last_error, chat_message_id, created_at, updated_at
+                                   FROM notifications WHERE thread_id = %s ORDER BY created_at DESC LIMIT 50""",
+                              (thread_id,)).fetchall()
+        return {
+            "thread": {"thread_id": t[0], "driver_id": t[1], "driver_phone": self._mask_phone(t[2]), "facility_id": t[3],
+                       "shipment_id": t[4], "status": t[5], "human_active": t[6], "human_active_since": t[7],
+                       "opened_at": t[8], "closed_at": t[9], "clarification_turns": t[10]},
+            "flow": {"state": t[11], "selected_option": t[12], "appointment_id": t[13], "updated_at": t[14]},
+            "messages": [{"message_id": m[0], "sender": m[1], "channel": m[2], "body_masked": m[3], "at": m[4],
+                          "reply_to": m[5]} for m in msgs],
+            "extracted": {"facts": facts[0] if facts else None, "asked": facts[1] if facts else None,
+                          "updated_at": facts[2] if facts else None,
+                          "eta_signals": [{"source": e[0], "derived_eta": e[1], "confidence": e[2],
+                                           "uncertainty_min": e[3], "observed_at": e[4]} for e in eta]},
+            "options": [{"option_id": o[0], "dock_code": o[1], "start": o[2], "end": o[3], "needs_approval": o[4],
+                         "rank": o[5], "expires_at": o[6], "shown_at": o[7]} for o in options],
+            "selections": [{"option_id": s[0], "selected_at": s[1]} for s in picks],
+            "notifications": [{"notification_id": n[0], "template_id": n[1], "channel": n[2], "status": n[3],
+                               "attempts": n[4], "max_attempts": n[5], "delivery": self._delivery(n[6]),
+                               "test_sink_reference": n[6] if self._delivery(n[6]) == "test_sink" else None,
+                               "last_error": (n[7] or "")[:120] or None, "chat_message_id": n[8],
+                               "created_at": n[9], "updated_at": n[10]} for n in notes],
+            "limits": {"messages": self.MESSAGES_MAX, "options": 30, "notifications": 50},
+        }
 
     def decide(self, p: Principal, appointment_id: str, decision: str, note: str | None, key: str) -> dict:
         self.require(p, "decide")

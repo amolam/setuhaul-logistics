@@ -1,0 +1,244 @@
+{
+  "generated_from": "setuhaul/notify/outbound.py",
+  "submitted": false,
+  "templates": [
+    {
+      "name": "setuhaul_booking_approved",
+      "language": "en",
+      "category": "UTILITY",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Your dock booking is confirmed by the warehouse."
+        }
+      ]
+    },
+    {
+      "name": "setuhaul_booking_confirmed",
+      "language": "en",
+      "category": "UTILITY",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Your dock booking is confirmed."
+        }
+      ]
+    },
+    {
+      "name": "setuhaul_booking_expired",
+      "language": "en",
+      "category": "UTILITY",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "The warehouse did not confirm in time, so that slot was released. Your earlier booking, if any, still stands. Reply here and we will help."
+        }
+      ]
+    },
+    {
+      "name": "setuhaul_booking_invalidated",
+      "language": "en",
+      "category": "UTILITY",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "That slot is no longer available. Reply here and we will find another one."
+        }
+      ]
+    },
+    {
+      "name": "setuhaul_booking_rejected",
+      "language": "en",
+      "category": "UTILITY",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "The warehouse could not take that slot. Reply here and we will find another one."
+        }
+      ]
+    },
+    {
+      "name": "setuhaul_booking_superseded",
+      "language": "en",
+      "category": "UTILITY",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Your booking was changed by the warehouse. Reply here if you have a question."
+        }
+      ]
+    },
+    {
+      "name": "setuhaul_booking_withdrawn",
+      "language": "en",
+      "category": "UTILITY",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Your slot request was withdrawn as agreed with the dock office."
+        }
+      ]
+    },
+    {
+      "name": "setuhaul_booking_approved",
+      "language": "hi",
+      "category": "UTILITY",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "वेयरहाउस ने आपकी डॉक बुकिंग पक्की कर दी है।"
+        }
+      ]
+    },
+    {
+      "name": "setuhaul_booking_confirmed",
+      "language": "hi",
+      "category": "UTILITY",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "आपकी डॉक बुकिंग पक्की हो गई है।"
+        }
+      ]
+    },
+    {
+      "name": "setuhaul_booking_expired",
+      "language": "hi",
+      "category": "UTILITY",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "वेयरहाउस ने समय पर पुष्टि नहीं की, इसलिए वह स्लॉट छोड़ दिया गया। अगर पहले से कोई बुकिंग थी, तो वह अब भी पक्की है। यहाँ जवाब दें, हम मदद करेंगे।"
+        }
+      ]
+    },
+    {
+      "name": "setuhaul_booking_invalidated",
+      "language": "hi",
+      "category": "UTILITY",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "वह स्लॉट अब उपलब्ध नहीं है। यहाँ जवाब दें, हम दूसरा स्लॉट ढूँढ देंगे।"
+        }
+      ]
+    },
+    {
+      "name": "setuhaul_booking_rejected",
+      "language": "hi",
+      "category": "UTILITY",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "वेयरहाउस वह स्लॉट नहीं ले पाया। यहाँ जवाब दें, हम दूसरा स्लॉट ढूँढ देंगे।"
+        }
+      ]
+    },
+    {
+      "name": "setuhaul_booking_superseded",
+      "language": "hi",
+      "category": "UTILITY",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "वेयरहाउस ने आपकी बुकिंग बदल दी है। कोई सवाल हो तो यहाँ जवाब दें।"
+        }
+      ]
+    },
+    {
+      "name": "setuhaul_booking_withdrawn",
+      "language": "hi",
+      "category": "UTILITY",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "डॉक ऑफ़िस से हुई बात के अनुसार आपका स्लॉट अनुरोध वापस ले लिया गया है।"
+        }
+      ]
+    },
+    {
+      "name": "setuhaul_booking_approved_hl",
+      "language": null,
+      "category": "UTILITY",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Warehouse ne aapki dock booking pakki kar di hai."
+        }
+      ],
+      "submission_gate": "HINGLISH_TEMPLATES"
+    },
+    {
+      "name": "setuhaul_booking_confirmed_hl",
+      "language": null,
+      "category": "UTILITY",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Aapki dock booking pakki ho gayi hai."
+        }
+      ],
+      "submission_gate": "HINGLISH_TEMPLATES"
+    },
+    {
+      "name": "setuhaul_booking_expired_hl",
+      "language": null,
+      "category": "UTILITY",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Warehouse ne time par confirm nahi kiya, isliye wo slot chhod diya gaya. Agar pehle se koi booking thi, to wo abhi bhi pakki hai. Yahan reply kijiye, hum madad karenge."
+        }
+      ],
+      "submission_gate": "HINGLISH_TEMPLATES"
+    },
+    {
+      "name": "setuhaul_booking_invalidated_hl",
+      "language": null,
+      "category": "UTILITY",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Wo slot ab khaali nahi hai. Yahan reply kijiye, hum doosra slot dhoondh denge."
+        }
+      ],
+      "submission_gate": "HINGLISH_TEMPLATES"
+    },
+    {
+      "name": "setuhaul_booking_rejected_hl",
+      "language": null,
+      "category": "UTILITY",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Warehouse wo slot nahi le paaya. Yahan reply kijiye, hum doosra slot dhoondh denge."
+        }
+      ],
+      "submission_gate": "HINGLISH_TEMPLATES"
+    },
+    {
+      "name": "setuhaul_booking_superseded_hl",
+      "language": null,
+      "category": "UTILITY",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Warehouse ne aapki booking badal di hai. Koi sawaal ho to yahan reply kijiye."
+        }
+      ],
+      "submission_gate": "HINGLISH_TEMPLATES"
+    },
+    {
+      "name": "setuhaul_booking_withdrawn_hl",
+      "language": null,
+      "category": "UTILITY",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Dock office se baat ke mutabik aapki slot request wapas le li gayi hai."
+        }
+      ],
+      "submission_gate": "HINGLISH_TEMPLATES"
+    }
+  ]
+}

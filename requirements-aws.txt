@@ -1,3 +1,5 @@
 # AWS runtime extras: SQS inbound queue and the optional Amazon Bedrock provider (imported lazily)
 -r requirements.txt
-boto3==1.40.70
+boto3==1.44.7           # 1.44.7 (19 Nov 2026) is the first SDK with RDS EnableVPCNetworking / EnableInternetAccessGateway,
+botocore==1.44.7        # which the private express Aurora create needs (setuhaul/aws/express_cluster.py)
+mangum==0.22.0           # API Gateway HTTP API -> ASGI adapter for the API Lambda (E1)

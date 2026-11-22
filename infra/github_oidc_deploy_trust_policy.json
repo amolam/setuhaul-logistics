@@ -1,0 +1,27 @@
+{
+  "_comment": [
+    "Trust policy of the pilot deploy role (review E5-08). Created in AWS on 22 Nov 2026 from this file with <ACCOUNT_ID> filled in, and read back from IAM to confirm it matches (docs/release/04_SYDNEY_PILOT_DEPLOYMENT_PLAN.md section 4).",
+    "The default subject of a job that uses `environment: pilot` is repo:amolam/setuhaul-logistics:environment:pilot. It names no branch, so a role trusting it would accept a dispatch from any branch that reaches the environment. Do not use it alone.",
+    "Required GitHub setting (owner, repository level): OIDC subject claim customisation with include_claim_keys [\"repo\", \"context\", \"ref\"]. GitHub enforces its immutable subject format for this repository (owner and repository ids in the prefix; use_immutable_subject cannot be turned off), so the subject it issues is the second string below; the first is the plain form of the same identity. Both bind repository, environment and branch together.",
+    "StringEquals only: no StringLike and no wildcard on sub, so no other repository, environment or branch matches."
+  ],
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::<ACCOUNT_ID>:oidc-provider/token.actions.githubusercontent.com"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+          "token.actions.githubusercontent.com:sub": [
+            "repo:amolam/setuhaul-logistics:environment:pilot:ref:refs/heads/release/fde-sydney-pilot",
+            "repo:amolam@19927631/setuhaul-logistics@1466862604:environment:pilot:ref:refs/heads/release/fde-sydney-pilot"
+          ]
+        }
+      }
+    }
+  ]
+}

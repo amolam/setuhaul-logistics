@@ -16,8 +16,9 @@ import pytest
 from conftest import as_role
 from setuhaul.api.db import Db
 from setuhaul.agent.replies import DEVANAGARI
-from setuhaul.notify.outbound import (ACCEPTED, AMBIGUOUS, PERMANENT, RETRYABLE, TEMPLATES, LocalProvider,
-                                      OutboundRelay, ProviderTimeout, WhatsAppCloudProvider, template_text)
+from setuhaul.notify.outbound import (ACCEPTED, AMBIGUOUS, PERMANENT, RETRYABLE, TEMPLATES, ApprovedTemplates,
+                                      LocalProvider, OutboundRelay, ProviderTimeout, WhatsAppCloudProvider,
+                                      template_params, template_text)
 from test_api import app, client, keys, post_signed  # noqa: F401
 from test_approvals import pending
 from test_db_requests import JAI, decide, driver_says, setup_thread
@@ -443,3 +444,132 @@ def test_r3_a_receipt_that_cannot_be_stored_is_not_acknowledged(app, client, mon
     body = {"entry": [{"changes": [{"value": {"statuses": [
         {"id": "wamid.x", "status": "delivered", "biz_opaque_callback_data": str(uuid.uuid4())}]}}]}]}
     assert post_signed(client, json.dumps(body).encode()).status_code == 503       # Meta redelivers the batch
+
+
+# ================================================================ E6-01: WhatsApp's 24-hour customer-service window
+def _age_driver_messages(conn, t, age="25 hours"):
+    """The driver's last message was `age` ago (the test database's superuser rewrites the receipt time)."""
+    conn.execute(f"""UPDATE setuhaul.chat_messages SET created_at = now() - interval '{age}'
+                      WHERE thread_id = %s AND sender_type = 'DRIVER'""", (t["tid"],))
+
+
+def _wa_relay(dsn, approved=(), margin=30):
+    p = LocalProvider(service_window=True)
+    return p, OutboundRelay(Db(dsn), p, approved_templates=ApprovedTemplates.parse(json.dumps(list(approved))),
+                            window_margin_min=margin)
+
+
+def _rejected(conn, said=None, age=None):
+    t, r = pending(conn)
+    if said:
+        driver_says(conn, t, said)
+    if age:
+        _age_driver_messages(conn, t, age)
+    decide(conn, r["appointment_id"], "REJECT")
+    return t
+
+
+def test_e6_inside_the_window_a_notice_is_sent_as_text(conn, dsn):
+    t = _rejected(conn)                                          # the driver wrote moments ago
+    p, r = _wa_relay(dsn, approved=["setuhaul_booking_rejected:en"])
+    drain(r, 2)
+    n = note_by_shipment(conn, t["sid"], "booking_rejected")
+    assert n["status"] == "SENT"
+    assert [d[1] for d in mine(p, n["notification_id"])] == [template_text("booking_rejected", "hi-Latn")]
+
+
+def test_e6_outside_the_window_a_late_approval_notice_goes_as_the_approved_template(conn, dsn):
+    t = _rejected(conn, said="I will be there soon, thanks", age="25 hours")
+    p, r = _wa_relay(dsn, approved=["setuhaul_booking_rejected:en"])
+    drain(r, 2)
+    n = note_by_shipment(conn, t["sid"], "booking_rejected")
+    assert n["status"] == "SENT"
+    assert [d[1] for d in mine(p, n["notification_id"])] == ["template:setuhaul_booking_rejected:en:"]
+
+
+@pytest.mark.parametrize("said,approved,expected", [
+    ("मैं थोड़ा लेट हो जाऊँगा", ["setuhaul_booking_rejected:en", "setuhaul_booking_rejected:hi"],
+     "template:setuhaul_booking_rejected:hi:"),
+    ("bhai thoda late ho jaunga, slot rakhna", ["setuhaul_booking_rejected:en"],
+     "template:setuhaul_booking_rejected:en:"),                  # Hinglish not approved: the approved English one
+    ("bhai thoda late ho jaunga, slot rakhna", ["setuhaul_booking_rejected:en", "setuhaul_booking_rejected_hl:xx"],
+     "template:setuhaul_booking_rejected_hl:xx:"),               # whatever code Meta approved it under; none assumed
+])
+def test_e6_the_template_follows_the_drivers_language_only_when_that_version_is_approved(conn, dsn, said, approved,
+                                                                                         expected):
+    t = _rejected(conn, said=said, age="25 hours")
+    p, r = _wa_relay(dsn, approved=approved)
+    drain(r, 2)
+    n = note_by_shipment(conn, t["sid"], "booking_rejected")
+    assert [d[1] for d in mine(p, n["notification_id"])] == [expected]
+
+
+def test_e6_with_no_approved_template_the_notice_fails_and_a_person_is_told(conn, dsn):
+    t = _rejected(conn, age="25 hours")
+    p, r = _wa_relay(dsn, approved=[])
+    drain(r, 2)
+    n = note_by_shipment(conn, t["sid"], "booking_rejected")
+    assert n["status"] == "FAILED" and n["last_error"].startswith("TEMPLATE_NOT_APPROVED booking_rejected")
+    assert escalated(conn, n["notification_id"]) == 1 and mine(p, n["notification_id"]) == []
+
+
+def test_e6_an_agent_reply_outside_the_window_fails_and_a_person_is_told(conn, dsn):
+    t = setup_thread(conn)
+    mid = reply(conn, t)
+    _age_driver_messages(conn, t)
+    p, r = _wa_relay(dsn, approved=["setuhaul_booking_rejected:en"])
+    drain(r, 1)
+    n = note(conn, mid)
+    assert n["status"] == "FAILED" and n["last_error"].startswith("WINDOW_CLOSED")
+    assert escalated(conn, n["notification_id"]) == 1 and mine(p, n["notification_id"]) == []
+
+
+@pytest.mark.parametrize("age,as_template", [("23 hours", False), ("23 hours 45 minutes", True)])
+def test_e6_the_window_is_closed_early_by_the_safety_margin(conn, dsn, age, as_template):
+    t = _rejected(conn, said="I will be there soon, thanks", age=age)
+    p, r = _wa_relay(dsn, approved=["setuhaul_booking_rejected:en"], margin=30)
+    drain(r, 2)
+    n = note_by_shipment(conn, t["sid"], "booking_rejected")
+    sent = [d[1] for d in mine(p, n["notification_id"])]
+    assert sent == (["template:setuhaul_booking_rejected:en:"] if as_template else [TEMPLATES["booking_rejected"]])
+
+
+def test_e6_a_provider_without_the_window_rule_is_unchanged(conn, dsn):
+    t = _rejected(conn, said="I will be there soon, thanks", age="25 hours")
+    p = LocalProvider()                                          # e.g. SMS or the local provider: no window
+    drain(relay(dsn, p), 2)
+    n = note_by_shipment(conn, t["sid"], "booking_rejected")
+    assert [d[1] for d in mine(p, n["notification_id"])] == [TEMPLATES["booking_rejected"]]
+
+
+def test_e6_the_whatsapp_adapter_sends_templates_and_keeps_metas_refusal_code():
+    seen = []
+
+    def handler(req):
+        seen.append(json.loads(req.content))
+        if seen[-1]["template"]["name"] == "missing":
+            return httpx.Response(400, json={"error": {"code": 132001, "message": "template does not exist"}})
+        return httpx.Response(200, json={"messages": [{"id": "wamid.T"}]})
+
+    wa = WhatsAppCloudProvider("123", "token", client=httpx.Client(transport=httpx.MockTransport(handler)))
+    assert wa.service_window is True
+    nid = str(uuid.uuid4())
+    res = wa.send_template("+919800000000", "setuhaul_booking_rejected", "en", [], nid)
+    assert (res.outcome, res.provider_message_id) == (ACCEPTED, "wamid.T")
+    assert seen[-1] == {"messaging_product": "whatsapp", "to": "919800000000", "type": "template",
+                        "template": {"name": "setuhaul_booking_rejected", "language": {"code": "en"}},
+                        "biz_opaque_callback_data": nid}
+    wa.send_template("+91", "x", "en", ["D4", "10:00"], nid)
+    assert seen[-1]["template"]["components"] == [{"type": "body", "parameters": [
+        {"type": "text", "text": "D4"}, {"type": "text", "text": "10:00"}]}]
+    bad = wa.send_template("+91", "missing", "en", [], nid)
+    assert bad.outcome == PERMANENT and bad.error == "HTTP 400 meta=132001"
+
+
+def test_e6_template_variables_must_match_the_reviewed_text():
+    assert template_params("booking_rejected", {}) == []            # the reviewed texts have no variables
+    with pytest.raises(ValueError, match="0 placeholders, 1 variables"):
+        template_params("booking_rejected", {"dock": "D4"}, variables={"booking_rejected": ("dock",)})
+    with pytest.raises(ValueError, match="must be a JSON list"):
+        ApprovedTemplates.parse('["no-language"]')
+    assert ApprovedTemplates().choose("booking_rejected", "en") is None   # nothing is assumed approved

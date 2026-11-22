@@ -1,5 +1,71 @@
 # Phase C: test report
 
+## Phase E second review round: E4-02, E5-07, E5-08 (22 Nov 2026, on top of `5a9a16d`)
+
+Run once each, one after the other, after the last code change of this commit (only this report was edited after).
+
+| Run | Command | Exit | Result | Time |
+|---|---|---|---|---|
+| C. Focused regression tests | `SETUHAUL_TEST_DSN="host=localhost port=55432 user=postgres" python -m pytest tests/test_pipeline.py tests/test_infra.py tests/test_aws.py -q -p no:cacheprovider -rs -k "e4_02 or e5_07 or points_elsewhere or pipeline or deploy or branch or oidc or confirmation or environment_only"` | 0 | **46 passed**, 48 deselected | 30 s |
+| A. Full suite, normal mode | `SETUHAUL_TEST_DSN="host=localhost port=55432 user=postgres" python -m pytest tests -q -p no:cacheprovider -rs` | 0 | **1004 passed, 1 skipped**, 0 failed, 0 deselected, no warnings reported | 09:41:50 → 10:12:56 IST (31 min 0 s) |
+| B. Data API mode | `SETUHAUL_TEST_DSN="host=localhost port=55432 user=postgres" SETUHAUL_TEST_DATA_API=1 python -m pytest tests/test_api.py tests/test_db_requests.py tests/test_approvals.py tests/test_orchestrator.py tests/test_outbound.py tests/test_inbound_delivery.py tests/test_concurrency.py tests/test_data_api.py tests/test_aws.py -q -p no:cacheprovider -rs` | 0 | **378 passed**, 0 failed, 0 skipped | 10:13:15 → 10:29:29 IST (16 min 10 s) |
+
+- The one skip in A is `test_data_api.py::test_the_suite_really_goes_through_the_data_api_backend` (Data API mode only;
+  it passed in B). The nine files in B are the list from the previous Phase E record.
+- Tests collected: 961 at `5a9a16d`, 1005 now (+44): 10 E4-02 cases in `test_aws.py`, 12 E5-07 tests in
+  `test_infra.py`, 22 E5-08 checks in the new `tests/test_pipeline.py`. B grows by the 10 E4-02 cases (368 → 378).
+- E4-02 regression shown both ways: with the committed (old) 0024, the attempts = 31, 32 and 1,000,000 cases fail
+  with `integer out of range`; with the fix all ten pass.
+- Run A took longer than the previous full run (17 min); no test failed or was retried.
+- Not run: CI on GitHub (Ubuntu), anything in AWS. The OIDC subject customisation and deploy role are not verified
+  (external gate).
+
+## Phase E review fixes (22 Nov 2026, branch `phase-e/aws-implementation-fixes`, from `250b794`)
+
+Both runs below were made once, one after the other, after the last code change of the fix commit. Documentation was
+edited during the first run; no code changed after it started.
+
+| Run | Command | Result | Time |
+|---|---|---|---|
+| Full suite, normal mode | `SETUHAUL_TEST_DSN="host=localhost port=55432 user=postgres" python -m pytest tests -q -p no:cacheprovider -rs` | **960 passed, 1 skipped**, 0 failed | 03:39:56 → 03:57:11 IST (17 min 10 s) |
+| Database test files through the RDS Data API backend (emulated) | the same with `SETUHAUL_TEST_DATA_API=1`, files `test_api`, `test_db_requests`, `test_approvals`, `test_orchestrator`, `test_outbound`, `test_inbound_delivery`, `test_concurrency`, `test_data_api`, `test_aws` | **368 passed**, 0 failed, 0 skipped | 03:57:31 → 04:06:13 IST (8 min 40 s) |
+
+The skip is `test_data_api.py::test_the_suite_really_goes_through_the_data_api_backend`, which runs only in the
+Data API mode (it passed there). Tests collected: 928 at `250b794`, 961 now. The fix commit adds 33: 12 in
+`test_outbound.py` (E6-01), 9 in `test_aws.py` (E4-01, IAM-01, IAM-02), 12 in `test_infra.py` (E5-01 to E5-03,
+IAM-01, IAM-02, E0-01, Hinglish). The earlier 924-passed run counted 925 because it predated `250b794`'s last change,
+which added the three error-class tests.
+
+Also run locally on Windows (the pipeline sequence, no AWS call; not CI evidence):
+
+| Step | Result |
+|---|---|
+| `python scripts/build_lambda.py`, twice | both zips byte-identical, SHA-256 `d0761360cdf3f1199f6fe06484d350eb498717cdcd6f69bd6c3578767138abcd` |
+| `python infra/app.py` | Cloud Assembly written to `cdk.out/` |
+| `python -m setuhaul.ops.assembly cdk.out --zip build/lambda.zip` | passes: 8 functions, one staged zip, staged SHA-256 = built SHA-256 = the value above |
+| `npx --yes aws-cdk@2.1148.0 ls --app cdk.out` | `SetuHaulPilot` (the pinned CLI reads the assembly) |
+| `python -m setuhaul.ops.manifest cdk.out <stand-in outputs>` then the assembly check with `--manifest` | passes: the manifest's `artifact_sha256` is the staged zip's |
+
+**Not yet run:** CI on GitHub (Ubuntu): the Ubuntu build reproducibility (E5-06), synthesis and the assembly check on
+the runner. It runs when the branch is pushed, which waits for the owner's approval. Nothing was run in AWS.
+
+Evidence labels: everything above is **verified** locally or **emulated** (the Data API mode, the Step Functions,
+SQS, Secrets Manager and Meta stubs); nothing is **AWS-verified**.
+
+## Phase E update (22 Nov 2026, branch `phase-e/aws-implementation`, commit `250b794`)
+
+| | |
+|---|---|
+| Full suite | **924 passed, 1 skipped**, 0 failed, 0 deselected, 1,160 s (19 min 20 s), 00:07 → 01:27 IST |
+| The skip | `test_data_api.py::test_the_suite_really_goes_through_the_data_api_backend`: runs only in the Data API mode below (by design) |
+| New tests (60) | `test_data_api.py` (Data API backend), `test_aws.py` (Lambda entry points, Step Functions adapter, least-privilege logins), `test_infra.py` (CDK template assertions, manifest, WhatsApp templates), `test_migrate_data_api.py` (migrations and logins over the Data API) |
+| Database tests through the RDS Data API backend (emulated): `test_api`, `test_db_requests`, `test_approvals`, `test_orchestrator`, `test_outbound`, `test_inbound_delivery`, `test_concurrency`, `test_data_api`, `test_aws` with `SETUHAUL_TEST_DATA_API=1` | First run: 343 passed, **1 failed** (`test_turn_facts_are_written_only_through_the_checked_function`: the refusal arrived with the right SQLSTATE but not as `psycopg.errors.InsufficientPrivilege`). Fixed: Data API errors now arrive as the exact psycopg class for their SQLSTATE (3 new tests). Re-run after the fix: **347 passed**, 0 failed, 17 min 03 s |
+| After that last code change | the four AWS test files in normal mode: **63 passed, 1 skipped** (the fix touches only Data API error translation, which the psycopg path does not use; the full normal suite above predates it) |
+| External services | none: AWS, Meta and OpenRouter are stubs or emulators; no paid call |
+
+The section below is the release report for `v0.1.0-fde-pilot` (21–22 Nov), kept as written.
+
+
 ## Full suite (one run, after the last code change)
 
 | | |

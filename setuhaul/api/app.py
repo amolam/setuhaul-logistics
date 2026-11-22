@@ -1,7 +1,7 @@
 """HTTP surface. Three audiences, three authentication mechanisms, no shared endpoints.
 
     /webhooks/whatsapp   Meta → us            X-Hub-Signature-256 (HMAC of the raw body)
-    /tools/{tool}        agent orchestrator   X-Setuhaul-Session (driver session token) [+ IAM SigV4 at API Gateway]
+    /tools/{tool}        agent orchestrator   X-Setuhaul-Session (driver session token); off in staging and pilot
     /console/...         planners, ops        Authorization: Bearer <Cognito access token> [+ API Gateway JWT authorizer]
 
 Run locally:  uvicorn setuhaul.api.app:app  (settings from environment, see Settings.from_env)
@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from typing import Callable, Literal
 
 import psycopg
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Path, Query, Request
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 from pydantic import AwareDatetime, BaseModel, Field, model_validator
@@ -45,6 +45,14 @@ class Settings:
     # Tests and the replay only: lets the booking path run on LocalQueue without deployment gates. from_env never
     # sets it, so a deployed service with the switch on always goes through check_booking_preconditions (S4-05).
     local_test_harness: bool = False
+    # /tools/{tool} serves an orchestrator that runs outside AWS. In AWS the agent Lambda calls the service directly,
+    # so the route is off in staging and pilot whatever the environment says (review IAM-02): the API function then
+    # needs no agent or feasibility database login.
+    tools_route: bool = True
+    # The hosted staff console, served by this API under /app/ (same origin, so no CORS): its Cognito hosted domain
+    # and the public client id. Unset: no console page.
+    cognito_domain: str | None = None
+    console_client_id: str | None = None
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -56,8 +64,12 @@ class Settings:
                    queue_url=os.environ.get("SETUHAUL_QUEUE_URL") or None,
                    processing_lease_s=int(os.environ.get("SETUHAUL_PROCESSING_LEASE_S", "120")),
                    environment=os.environ.get("SETUHAUL_ENVIRONMENT") or None,
+                   cognito_domain=os.environ.get("COGNITO_DOMAIN") or None,
+                   console_client_id=os.environ.get("COGNITO_CONSOLE_CLIENT_ID") or None,
                    deployment_id=os.environ.get("SETUHAUL_DEPLOYMENT_ID") or None,
-                   deployment_manifest=os.environ.get("SETUHAUL_DEPLOYMENT_MANIFEST") or None)
+                   deployment_manifest=os.environ.get("SETUHAUL_DEPLOYMENT_MANIFEST") or None,
+                   tools_route=(os.environ.get("SETUHAUL_TOOLS_ROUTE", "on").lower() not in ("off", "false", "0")
+                                and os.environ.get("SETUHAUL_ENV") not in ("staging", "pilot")))
 
 
 class ToolCall(BaseModel):
@@ -128,7 +140,17 @@ log = logging.getLogger("setuhaul.api")
 
 def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, queue=None) -> FastAPI:
     app = FastAPI(title="SetuHaul exception service", version="0.2.0", docs_url=None, redoc_url=None)
-    db = Db(settings.dsn)
+    from .console_site import mount_console
+    mount_console(app, settings.cognito_domain, settings.console_client_id)
+
+    @app.middleware("http")
+    async def _no_store_for_staff_data(request: Request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith("/console/"):      # staff data: never kept by a browser or proxy cache
+            response.headers["Cache-Control"] = "no-store"
+        return response
+    from ..aws.data_api import make_db                     # SETUHAUL_DSN=rds-data: the Data API backend (E3)
+    db = make_db(settings.dsn)
     svc = BookingService(db, clock or (lambda: datetime.now(timezone.utc)), settings.facilities,
                          booking_enabled=settings.booking_enabled)
     verifier = CognitoVerifier(settings.cognito_issuer, settings.cognito_client_ids, settings.jwks)
@@ -155,7 +177,7 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
         """Readiness for the load balancer and the pilot run sheet (Phase G). Public and read-only: it reports whether
         the database answers and how the booking switch is set, and nothing else (no DSN, key, queue URL or data)."""
         try:
-            with db.tx("system") as c:
+            with db.tx("ingest", readonly=True) as c:              # a role the API workload has anyway (E3)
                 c.execute("SELECT 1")
             database = "ok"
         except psycopg.Error:
@@ -236,9 +258,10 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
         return {"status": "received"}
 
     # ---------------------------------------------------------------- agent tools
-    @app.post("/tools/{tool}")
-    def tool(tool: str, call: ToolCall, p: Principal = Depends(driver)):
-        return svc.call_tool(p, tool, call.turn_id, call.args)
+    if settings.tools_route:
+        @app.post("/tools/{tool}")
+        def tool(tool: str, call: ToolCall, p: Principal = Depends(driver)):
+            return svc.call_tool(p, tool, call.turn_id, call.args)
 
     # ---------------------------------------------------------------- console
     @app.get("/console/requests")
@@ -276,6 +299,16 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
     @app.get("/console/escalations")
     def escalations(p: Principal = Depends(staff)):
         return {"escalations": svc.list_escalations(p)}
+
+    @app.get("/console/threads")
+    def threads(limit: int = Query(25, ge=1, le=50), before: datetime | None = None, p: Principal = Depends(staff)):
+        """Read only: conversations in this person's facilities, newest activity first (paged by `before`)."""
+        return svc.list_threads(p, limit, before)
+
+    @app.get("/console/threads/{thread_id}")
+    def thread(thread_id: str = Path(min_length=1, max_length=80), p: Principal = Depends(staff)):
+        """Read only: one conversation as stored (masked messages, facts, ETA, options, notifications)."""
+        return svc.thread_detail(p, thread_id)
 
     @app.post("/console/threads/{thread_id}/takeover")
     def takeover(thread_id: str, body: Takeover, p: Principal = Depends(staff)):
