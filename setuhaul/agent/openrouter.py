@@ -140,6 +140,10 @@ class OpenRouterModel:
                                              self._reserve_usd(model_id, body))
                 except psycopg.Error as e:                        # no ledger, no paid call
                     tr.outcome = "error:meter"
+                    diag = getattr(e, "diag", None)
+                    # what failed, never what was sent: class, SQLSTATE and the server's primary message only
+                    log.warning("usage ledger unavailable: %s sqlstate=%s message=%s", type(e).__name__,
+                                getattr(e, "sqlstate", None), str(getattr(diag, "message_primary", "") or "")[:200])
                     raise ModelError(f"usage ledger unavailable ({type(e).__name__})", "meter_error", False) from None
                 if res.status != "RESERVED":
                     tr.outcome = f"error:{res.status.lower()}"

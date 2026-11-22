@@ -83,8 +83,8 @@ class Pilot:
         d["driver_id"] = self.rows(f"SELECT driver_id FROM setuhaul.drivers WHERE phone_e164 = {q(d['phone'])}")[0][0]
         return d
 
-    def say(self, phone: str, text: str) -> dict:
-        mid = f"wamid.SYN.{uuid.uuid4().hex}"
+    def say(self, phone: str, text: str, mid: str | None = None) -> dict:
+        mid = mid or f"wamid.SYN.{uuid.uuid4().hex}"
         body = json.dumps({"entry": [{"changes": [{"value": {"messages": [
             {"from": phone.lstrip("+"), "id": mid, "timestamp": str(int(time.time())), "type": "text",
              "text": {"body": text}}]}}]}]}).encode()
@@ -129,8 +129,12 @@ def result(case, scenario, inp, evidence, checks) -> dict:
 
 
 def a1(p: Pilot) -> dict:
+    """The agent reads the delay back first ("Do you mean ... Reply YES"); the ETA is recorded and the options are
+    computed against Aurora only after the driver confirms it."""
     d = p.add_driver(eta_min=60)
-    t = p.turn(d["phone"], "Traffic jam near Shahpura, I will reach about 2 hours late")
+    first = p.turn(d["phone"], "Traffic jam near Shahpura, I will reach about 2 hours late")
+    t = p.turn(d["phone"], "YES")
+    t["read_back"] = first["agent_reply"]
     usage = p.rows(f"""SELECT status, coalesce(error_category,''), purpose, model FROM setuhaul.model_usage
                         WHERE created_at > now() - interval '5 minutes' ORDER BY created_at DESC LIMIT 3""")
     eta = p.rows(f"SELECT source, derived_eta FROM setuhaul.eta_signals WHERE shipment_id = {q(d['shipment_id'])} "
@@ -139,7 +143,8 @@ def a1(p: Pilot) -> dict:
     appts = p.rows(f"SELECT count(*) FROM setuhaul.appointments WHERE shipment_id = {q(d['shipment_id'])}")
     ev = {**d, **t, "model_usage_recent": usage, "eta_signal": eta, "shown_options": opts[0][0], "appointments": appts[0][0]}
     return result("A1", "delay message: extraction, policy, feasibility against Aurora, options returned", t["message_id"], ev, {
-        "webhook accepted (200)": t["status"] == 200, "driver message stored": t["stored_driver_message"],
+        "webhook accepted (200)": t["status"] == 200 and first["status"] == 200,
+        "delay read back for confirmation": first["agent_reply"], "driver message stored": t["stored_driver_message"],
         "agent reply stored": t["agent_reply"], "driver ETA recorded": eta, "options computed and stored": opts[0][0] > 0,
         "no booking": appts[0][0] == 0})
 
@@ -183,14 +188,17 @@ def a4(p: Pilot) -> dict:
 
 def a5(p: Pilot) -> dict:
     d = p.add_driver(eta_min=60)
+    since = int(time.time() * 1000) - 5000
     t = p.turn(d["phone"], "Traffic, reaching 2 hours late")
     usage = p.rows("""SELECT status, coalesce(error_category,'') FROM setuhaul.model_usage
                        WHERE created_at > now() - interval '5 minutes' ORDER BY created_at DESC LIMIT 3""")
-    rules = [l for l in t["agent_log"] if "extractor=rules" in l or "fallback" in l]
+    rules = [e["message"].strip()[:300] for e in p.logs.filter_log_events(
+        logGroupName=p.log_groups["agent"], startTime=since, filterPattern='"fell back to rules"').get("events", [])]
+    t["fallback_log"] = rules
     return result("A5", "model unavailable (OpenRouter refuses the key): the rules reader answers", t["message_id"],
                   {**d, **t, "model_usage_recent": usage}, {
                       "reply stored": t["agent_reply"], "model attempt settled as an error": any(u[0] == "ERROR" for u in usage),
-                      "rules reader used": rules})
+                      "rules reader used": rules, "not a ledger failure": not any("meter_error" in r for r in rules)})
 
 
 def a6(p: Pilot) -> dict:
@@ -207,7 +215,26 @@ def a6(p: Pilot) -> dict:
                   {**d, **t, "model_usage_recent": usage}, {
                       "reply stored": t["agent_reply"],
                       "no attempt settled as OK": not any(u[0] == "OK" for u in usage),
-                      "refused by the budget": any(u[0] == "BUDGET_EXHAUSTED" for u in usage) or not usage})
+                      "refused by the budget": any(u[0] == "BUDGET_EXHAUSTED" for u in usage)})
+
+
+def d1(p: Pilot) -> dict:
+    """Meta retries webhooks: the same signed message delivered twice is stored once and answered once."""
+    d = p.add_driver(eta_min=60)
+    mid = f"wamid.SYN.{uuid.uuid4().hex}"
+    first = p.say(d["phone"], "Truck breakdown, I will be 2 hours late", mid)
+    again = p.say(d["phone"], "Truck breakdown, I will be 2 hours late", mid)
+    row = p.wait(f"SELECT message_id FROM setuhaul.chat_messages WHERE external_message_id = {q(mid)}", 60)
+    reply = p.wait(f"""SELECT message_id FROM setuhaul.chat_messages WHERE sender_type = 'AGENT'
+                        AND reply_to = {row[0][0] if row else 0}""", 180) if row else []
+    time.sleep(30)                                        # leave time for a second (duplicate) reply to appear
+    stored = p.rows(f"SELECT count(*) FROM setuhaul.chat_messages WHERE external_message_id = {q(mid)}")[0][0]
+    replies = p.rows(f"""SELECT count(*) FROM setuhaul.chat_messages WHERE sender_type = 'AGENT'
+                          AND reply_to = {row[0][0] if row else 0}""")[0][0]
+    return result("D1", "duplicate webhook delivery: stored once, answered once", mid,
+                  {**d, "first": first, "again": again, "stored": stored, "replies": replies}, {
+                      "both deliveries acknowledged (200)": first["status"] == 200 and again["status"] == 200,
+                      "stored once": stored == 1, "answered once": replies == 1})
 
 
 def s1(p: Pilot) -> dict:
@@ -241,7 +268,7 @@ def s1(p: Pilot) -> dict:
         "stage throttling 20/40": throttle.get("throttlingRateLimit") == 20 and throttle.get("throttlingBurstLimit") == 40})
 
 
-SCENARIOS = {"A1": a1, "A2": a2, "A3": a3, "A4": a4, "A5": a5, "A6": a6, "S1": s1}
+SCENARIOS = {"A1": a1, "A2": a2, "A3": a3, "A4": a4, "A5": a5, "A6": a6, "D1": d1, "S1": s1}
 
 
 def main() -> int:
