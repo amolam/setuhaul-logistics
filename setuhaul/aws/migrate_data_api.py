@@ -17,9 +17,12 @@ transaction, without changing any migration file or the resulting catalog:
 * `ALTER ... OWNER TO setuhaul_rpc`: the new owner must hold CREATE on the schema unless a superuser runs it. The
   runner grants CREATE on `setuhaul` to `setuhaul_rpc` before the first such statement and revokes it before the
   migration commits, so the final privileges are those a superuser run gives.
-* Roles created by a non-superuser cannot be SET ROLE to by their creator on PostgreSQL 16+, which ALTER OWNER needs:
-  `createrole_self_grant = 'set'` for the transaction makes the migration user a member of the roles it creates
-  (INHERIT FALSE), as the cluster's owner would be in any case.
+* Roles created by a non-superuser cannot be SET ROLE to by their creator on PostgreSQL 16+, which ALTER OWNER and
+  CREATE OR REPLACE of a function owned by `setuhaul_rpc` need. Aurora (17.9, express configuration) gives the creator
+  no grant at all, not even the ADMIN option and not with `createrole_self_grant` (seen on the first deploy: "must be
+  owner of function hold_option" in 0003). So the runner grants the migration user membership (INHERIT, SET) in every
+  `setuhaul_*` group role it cannot SET to, at the start of each migration and after any statement that creates a
+  role, as the cluster's owner would have in any case. Login roles are never granted.
 
     python -m setuhaul.aws.migrate_data_api      # env: SETUHAUL_DB_CLUSTER_ARN, SETUHAUL_DB_OWNER_SECRET_ARN
 """
@@ -40,6 +43,22 @@ _SUPER_ATTRS = {"NOSUPERUSER": "rolsuper", "NOBYPASSRLS": "rolbypassrls"}
 def _code(s: str) -> str:
     s = re.sub(r"--[^\n]*", "", s)
     return re.sub(r"/\*.*?\*/", "", s, flags=re.S).strip()
+
+
+_GROUP_ROLES_TO_JOIN = ("""SELECT rolname FROM pg_roles WHERE rolname LIKE 'setuhaul!_%' ESCAPE '!' AND NOT rolcanlogin
+                           AND NOT pg_has_role(current_user, oid, 'SET') ORDER BY rolname""")
+_CREATES_ROLE = re.compile(r"\bCREATE\s+ROLE\b", re.I)
+
+
+def join_group_roles(conn) -> list[str]:
+    """Non-superuser runs: be a member (INHERIT, SET) of each setuhaul group role, as the owner is meant to be."""
+    joined = []
+    for (role,) in conn.execute(_GROUP_ROLES_TO_JOIN).fetchall():
+        if not re.fullmatch(r"setuhaul_[a-z0-9_]+", role):
+            raise MigrationError(f"unexpected role name {role!r}")
+        conn.execute(f"GRANT {role} TO current_user WITH INHERIT TRUE, SET TRUE")
+        joined.append(role)
+    return joined
 
 
 def adapt_for_non_superuser(conn, statement: str, state: dict) -> str | None:
@@ -134,13 +153,15 @@ class OwnerSession:
             superuser = conn.execute("SELECT rolsuper FROM pg_roles WHERE rolname = current_user").fetchone()[0]
             state: dict = {}
             if not superuser:
-                conn.execute("SET LOCAL createrole_self_grant = 'set, inherit'")
+                join_group_roles(conn)
             for s in statements:
                 if not superuser:
                     s = adapt_for_non_superuser(conn, s, state)
                     if s is None:
                         continue
                 conn.execute(s.replace("%", "%%"))                  # no parameters: % is literal
+                if not superuser and _CREATES_ROLE.search(_code(s)):
+                    join_group_roles(conn)
             if state.get("create_granted"):
                 conn.execute("REVOKE CREATE ON SCHEMA setuhaul FROM setuhaul_rpc")
             conn.execute("RESET search_path")

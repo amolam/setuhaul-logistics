@@ -62,6 +62,33 @@ def test_create_is_granted_once_before_the_first_ownership_change():
     assert plain.sql == []                                                 # a comment does not trigger the grant
 
 
+def test_the_runner_joins_group_roles_it_cannot_set_to_and_never_login_roles():
+    """Regression (deploy run 45019293465): Aurora gives the creator of a role no membership, so 0003's CREATE OR
+    REPLACE of hold_option (owned by setuhaul_rpc) failed with "must be owner". The runner grants itself the group
+    roles explicitly; the query it uses selects only non-login setuhaul_* roles."""
+    from setuhaul.aws.migrate_data_api import _GROUP_ROLES_TO_JOIN, join_group_roles
+
+    class Conn:
+        def __init__(self, rows):
+            self.sql, self.rows = [], rows
+
+        def execute(self, sql, params=None):
+            self.sql.append(sql)
+            rows = self.rows if sql == _GROUP_ROLES_TO_JOIN else []
+
+            class R:
+                def fetchall(self_inner):
+                    return rows
+            return R()
+    c = Conn([("setuhaul_agent",), ("setuhaul_rpc",)])
+    assert join_group_roles(c) == ["setuhaul_agent", "setuhaul_rpc"]
+    assert c.sql[1:] == ["GRANT setuhaul_agent TO current_user WITH INHERIT TRUE, SET TRUE",
+                         "GRANT setuhaul_rpc TO current_user WITH INHERIT TRUE, SET TRUE"]
+    assert "NOT rolcanlogin" in _GROUP_ROLES_TO_JOIN and "'SET'" in _GROUP_ROLES_TO_JOIN
+    with pytest.raises(MigrationError):
+        join_group_roles(Conn([("setuhaul_x; DROP",)]))
+
+
 # ---------------------------------------------------------------- end to end on an empty cluster
 @pytest.fixture(scope="module")
 def fresh():
