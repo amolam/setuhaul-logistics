@@ -155,12 +155,30 @@ def _whatsapp_token() -> str:
     return load_whatsapp_token(dict(os.environ))
 
 
+def notification_provider(env: dict | None = None):
+    """The outbound provider, fail closed. `SETUHAUL_NOTIFICATION_MODE` is `test_sink` (default: the internal sink,
+    no network call) or `whatsapp`, which also needs `SETUHAUL_WHATSAPP_ENABLED=true`; anything else is refused.
+    The synthetic pilot runs with the sink: no Meta call, no real phone, no WhatsApp token read."""
+    from ..notify.outbound import TestSinkProvider, WhatsAppCloudProvider
+    env = dict(os.environ) if env is None else env
+    mode = env.get("SETUHAUL_NOTIFICATION_MODE", "test_sink")
+    if mode == "test_sink":
+        fail = [p for p in env.get("SETUHAUL_TEST_SINK_FAIL_PHONES", "").split(",") if p]
+        return TestSinkProvider(fail_phones=fail)
+    if mode == "whatsapp":
+        if env.get("SETUHAUL_WHATSAPP_ENABLED", "false").lower() != "true":
+            raise RuntimeError("CONFIG: SETUHAUL_NOTIFICATION_MODE=whatsapp needs SETUHAUL_WHATSAPP_ENABLED=true")
+        return WhatsAppCloudProvider(env["SETUHAUL_WHATSAPP_PHONE_NUMBER_ID"], _whatsapp_token())
+    raise RuntimeError(f"CONFIG: unknown SETUHAUL_NOTIFICATION_MODE {mode!r}")
+
+
 def outbound_handler(event, context):
-    """Sends due notifications. Outside a driver's 24-hour window a notice goes as a Meta-approved template
-    (SETUHAUL_WA_APPROVED_TEMPLATES); with none approved it fails with an escalation, never silently (E6-01)."""
-    from ..notify.outbound import ApprovedTemplates, OutboundRelay, WhatsAppCloudProvider
+    """Sends due notifications through `notification_provider()` (the test sink in the synthetic pilot). Outside a
+    driver's 24-hour window a WhatsApp notice goes as a Meta-approved template (SETUHAUL_WA_APPROVED_TEMPLATES); with
+    none approved it fails with an escalation, never silently (E6-01)."""
+    from ..notify.outbound import ApprovedTemplates, OutboundRelay
     app = runtime()
-    provider = WhatsAppCloudProvider(os.environ["SETUHAUL_WHATSAPP_PHONE_NUMBER_ID"], _whatsapp_token())
+    provider = notification_provider()
     relay = OutboundRelay(app.state.service.db, provider,
                           approved_templates=ApprovedTemplates.parse(os.environ.get("SETUHAUL_WA_APPROVED_TEMPLATES")),
                           window_margin_min=int(os.environ.get("SETUHAUL_WA_WINDOW_MARGIN_MIN", "30")))

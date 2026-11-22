@@ -163,6 +163,11 @@ jobs:
           export SETUHAUL_DB_OWNER_SECRET_ARN=$(jq -r '.SetuHaulPilot.OwnerSecretArn' outputs.json)
           export SETUHAUL_DB_SECRET_ARNS=$(jq -r '.SetuHaulPilot.LoginSecretArns' outputs.json)
           python -m setuhaul.aws.provision_logins
+      - name: Synthetic baseline data (SYN- identities, +999 numbers; refuses to run if any non-synthetic row exists)
+        run: |
+          export SETUHAUL_DB_CLUSTER_ARN=$(jq -r '.SetuHaulPilot.ClusterArn' outputs.json)
+          export SETUHAUL_DB_OWNER_SECRET_ARN=$(jq -r '.SetuHaulPilot.OwnerSecretArn' outputs.json)
+          python -m setuhaul.aws.synthetic_seed
       - name: Deployment manifest from the deployed assembly, checked against its staged zip
         run: |
           python -m setuhaul.ops.manifest cdk.out outputs.json > manifest.json

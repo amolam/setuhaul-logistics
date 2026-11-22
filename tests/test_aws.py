@@ -377,9 +377,53 @@ def test_the_outbound_lambda_sends_stored_replies_with_only_the_system_role(lamb
             return SendResult("ACCEPTED", f"wamid.out.{len(sent)}")
     monkeypatch.setenv("SETUHAUL_WHATSAPP_PHONE_NUMBER_ID", "123")
     monkeypatch.setenv("WHATSAPP_TOKEN", "wa-token")
+    monkeypatch.setenv("SETUHAUL_NOTIFICATION_MODE", "whatsapp")          # explicit opt-in, as nothing in the pilot is
+    monkeypatch.setenv("SETUHAUL_WHATSAPP_ENABLED", "true")
     monkeypatch.setattr("setuhaul.notify.outbound.WhatsAppCloudProvider", Provider)
     out = lambdas.outbound_handler({}, None)
     assert isinstance(out, dict)
+
+
+def test_the_outbound_lambda_uses_the_test_sink_by_default_and_never_touches_whatsapp(lambda_env, monkeypatch, conn):
+    """Synthetic pilot: notices go to the internal sink. No Meta class is built and the token is never read; the
+    notification is SENT with a testsink id, which is not a WhatsApp delivery."""
+    lambda_env("outbound")
+    monkeypatch.delenv("SETUHAUL_NOTIFICATION_MODE", raising=False)
+
+    def forbidden(*a, **k):
+        raise AssertionError("WhatsApp must not be used in test_sink mode")
+    monkeypatch.setattr("setuhaul.notify.outbound.WhatsAppCloudProvider", forbidden)
+    monkeypatch.setattr(lambdas, "_whatsapp_token", forbidden)
+    t, r = pending(conn)
+    decide(conn, r["appointment_id"], "REJECT")
+    for _ in range(3):
+        lambdas.outbound_handler({}, None)
+    row = conn.execute("""SELECT status, provider_message_id FROM setuhaul.notifications
+                           WHERE shipment_id = %s AND template_id = 'booking_rejected'""", (t["sid"],)).fetchone()
+    assert row[0] == "SENT" and row[1].startswith("testsink.")
+
+
+def test_the_notification_mode_fails_closed():
+    from setuhaul.notify.outbound import TestSinkProvider
+    assert isinstance(lambdas.notification_provider({}), TestSinkProvider)
+    with pytest.raises(RuntimeError, match="SETUHAUL_WHATSAPP_ENABLED=true"):
+        lambdas.notification_provider({"SETUHAUL_NOTIFICATION_MODE": "whatsapp"})
+    with pytest.raises(RuntimeError, match="SETUHAUL_WHATSAPP_ENABLED=true"):
+        lambdas.notification_provider({"SETUHAUL_NOTIFICATION_MODE": "whatsapp", "SETUHAUL_WHATSAPP_ENABLED": "false"})
+    with pytest.raises(RuntimeError, match="unknown SETUHAUL_NOTIFICATION_MODE"):
+        lambdas.notification_provider({"SETUHAUL_NOTIFICATION_MODE": "sms"})
+
+
+def test_the_test_sink_logs_no_text_or_number_and_refuses_listed_numbers(caplog):
+    from setuhaul.notify.outbound import ACCEPTED, PERMANENT, TestSinkProvider
+    sink = TestSinkProvider(fail_phones=["+99900000009999"])
+    with caplog.at_level("INFO"):
+        ok = sink.send("+99900000000001", "secret reply text", "n-1")
+        bad = sink.send_template("+99900000009999", "setuhaul_booking_rejected", "en", [], "n-2")
+    assert ok.outcome == ACCEPTED and ok.provider_message_id.startswith("testsink.")
+    assert (bad.outcome, bad.error) == (PERMANENT, "TEST_SINK_REFUSED")
+    logged = caplog.text
+    assert "TEST_SINK" in logged and "secret reply text" not in logged and "+999" not in logged
 
 
 # ================================================================ secrets at cold start

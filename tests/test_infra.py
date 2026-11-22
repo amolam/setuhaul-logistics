@@ -368,6 +368,17 @@ def test_only_the_outbound_function_can_read_the_whatsapp_token(t):
     assert readers == {"setuhaul-pilot-outbound"}
 
 
+def test_the_pilot_sends_notifications_to_the_test_sink_only(t):
+    """WhatsApp isolation: the outbound function is configured for the internal sink and WhatsApp is off on every
+    function; no function enables WhatsApp."""
+    for name, p in functions(t).items():
+        env = p["Environment"]["Variables"]
+        assert env.get("SETUHAUL_WHATSAPP_ENABLED", "false") == "false", name
+        assert env.get("SETUHAUL_NOTIFICATION_MODE", "test_sink") == "test_sink", name
+    out = functions(t)["setuhaul-pilot-outbound"]["Environment"]["Variables"]
+    assert out["SETUHAUL_NOTIFICATION_MODE"] == "test_sink" and out["SETUHAUL_TEST_SINK_FAIL_PHONES"].startswith("+999")
+
+
 def test_the_pilot_api_has_no_tools_route_and_no_agent_or_feasibility_login(t):
     api = functions(t)["setuhaul-pilot-api"]
     assert api["Environment"]["Variables"]["SETUHAUL_TOOLS_ROUTE"] == "off"

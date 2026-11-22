@@ -185,6 +185,40 @@ class LocalProvider:
         return self.send(to, f"template:{name}:{language}:{'|'.join(params)}", idempotency_key)
 
 
+class TestSinkProvider:
+    """The internal notification sink of a synthetic pilot (`SETUHAUL_NOTIFICATION_MODE=test_sink`, the default).
+
+    Nothing leaves the process: no network call, no phone, no Meta. Each send writes one structured log line
+    (notification id, mode, a hash and the length of the text; never the text or the number) and answers ACCEPTED with
+    a `testsink.` id, so the relay's state machine (SENT, retries, FAILED with an escalation) runs exactly as with a
+    real provider and the database records it. A `testsink.` id is never a WhatsApp delivery and must not be reported
+    as one. Numbers listed in `fail_phones` are refused permanently, so failure handling can be exercised on demand."""
+
+    supports_idempotency = False
+    service_window = False
+
+    def __init__(self, fail_phones=(), log=None):
+        self.fail_phones = frozenset(fail_phones)
+        self.log = log or logging.getLogger("setuhaul.outbound.test_sink")
+
+    def _record(self, to: str, kind: str, text: str, idempotency_key: str) -> SendResult:
+        import hashlib
+        import json
+        refused = to in self.fail_phones
+        self.log.info("TEST_SINK %s", json.dumps({
+            "mode": "test_sink", "kind": kind, "notification_id": idempotency_key, "refused": refused,
+            "text_sha256": hashlib.sha256(text.encode()).hexdigest()[:16], "text_len": len(text)}))
+        if refused:
+            return SendResult(PERMANENT, error="TEST_SINK_REFUSED")
+        return SendResult(ACCEPTED, f"testsink.{uuid.uuid4().hex}")
+
+    def send(self, to: str, text: str, idempotency_key: str) -> SendResult:
+        return self._record(to, "text", text, idempotency_key)
+
+    def send_template(self, to: str, name: str, language: str, params: list, idempotency_key: str) -> SendResult:
+        return self._record(to, "template", f"{name}:{language}:{'|'.join(params)}", idempotency_key)
+
+
 class WhatsAppCloudProvider:
     """Meta WhatsApp Cloud API. It has no idempotency key, so `supports_idempotency` is False. Our notification id
     travels as `biz_opaque_callback_data`, which Meta echoes on status webhooks: an ambiguous send can be matched to

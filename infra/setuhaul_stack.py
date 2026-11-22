@@ -168,7 +168,10 @@ class SetuHaulPilotStack(Stack):
             "SETUHAUL_LLM_DAILY_BUDGET_USD": llm_daily_budget_usd})
         recovery_fn = fn("recovery", "recovery_handler", "recovery", timeout_s=60)
         outbound_fn = fn("outbound", "outbound_handler", "outbound", timeout_s=60,
-                         extra={"SETUHAUL_WHATSAPP_PHONE_NUMBER_ID": whatsapp_phone_number_id,
+                         extra={# synthetic pilot: the internal test sink; WhatsApp stays off (no Meta call)
+                                "SETUHAUL_NOTIFICATION_MODE": "test_sink", "SETUHAUL_WHATSAPP_ENABLED": "false",
+                                "SETUHAUL_TEST_SINK_FAIL_PHONES": "+99900000009999",
+                                "SETUHAUL_WHATSAPP_PHONE_NUMBER_ID": whatsapp_phone_number_id,
                                 "SETUHAUL_WHATSAPP_SECRET_ID": whatsapp_secret.secret_arn,
                                 # names of templates Meta has approved, as "name:language"; none until E6 submission
                                 "SETUHAUL_WA_APPROVED_TEMPLATES": approved_templates})

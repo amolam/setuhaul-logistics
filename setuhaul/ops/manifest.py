@@ -60,6 +60,8 @@ def build(template: dict, outputs: dict, artifact: bytes, environment: str, role
                 "provider_config_sha256": sha256_bytes(canonical({
                     "api": GRAPH_API, "phone_number_id": outbound["Environment"]["Variables"].get(
                         "SETUHAUL_WHATSAPP_PHONE_NUMBER_ID", ""),
+                    "notification_mode": outbound["Environment"]["Variables"].get("SETUHAUL_NOTIFICATION_MODE", ""),
+                    "whatsapp_enabled": outbound["Environment"]["Variables"].get("SETUHAUL_WHATSAPP_ENABLED", ""),
                     # which Meta-approved templates the sender may use outside the 24-hour window (E6-01)
                     "approved_templates": outbound["Environment"]["Variables"].get("SETUHAUL_WA_APPROVED_TEMPLATES",
                                                                                    "[]")})),
