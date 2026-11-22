@@ -52,6 +52,8 @@ def baseline_statements(now: datetime | None = None, hours: int = 96) -> list[st
                          "'OPEN',NULL)")
     return [
         "SET LOCAL search_path = setuhaul",
+        # RLS is forced on the facility tables and Aurora's owner is not a superuser: scope to the seeded facilities
+        f"SELECT set_config('app.facility_scope', '{','.join(f for f, _ in FACILITIES)}', true)",
         f"INSERT INTO carriers VALUES ('{SYN}CAR1','Synthetic Carriers',true) ON CONFLICT DO NOTHING",
         f"INSERT INTO facilities (facility_id,facility_name,open_time,close_time) VALUES {fac} ON CONFLICT DO NOTHING",
         "INSERT INTO facility_config (facility_id,cfg_version,gate_to_dock_min,changeover_min,no_show_grace_min,"
@@ -74,8 +76,9 @@ def seed(session, now: datetime | None = None) -> dict:
     if bad:
         raise RuntimeError(f"SYNTHETIC_DATA: {len(bad)} non-synthetic rows present (e.g. {bad[0][0]}); refusing to seed")
     session.run(baseline_statements(now))
+    scope = f"SELECT set_config('app.facility_scope', '{','.join(f for f, _ in FACILITIES)}', true)"
     counts = session.query("SELECT (SELECT count(*) FROM setuhaul.facilities), (SELECT count(*) FROM setuhaul.docks), "
-                           "(SELECT count(*) FROM setuhaul.appointment_slots)")[0]
+                           "(SELECT count(*) FROM setuhaul.appointment_slots)", (scope,))[0]
     return {"facilities": counts[0], "docks": counts[1], "slots": counts[2]}
 
 

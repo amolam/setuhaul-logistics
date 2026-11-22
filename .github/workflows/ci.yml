@@ -49,8 +49,15 @@ jobs:
           POSTGRES_HOST_AUTH_METHOD: trust
         ports: ["5432:5432"]
         options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+      postgres_fresh:                          # an EMPTY cluster: migrations run as a non-superuser owner, as on Aurora
+        image: postgres:18
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["5433:5432"]
+        options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       SETUHAUL_TEST_DSN: "host=localhost port=5432 user=postgres"
+      SETUHAUL_TEST_FRESH_DSN: "host=localhost port=5433 user=postgres"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262        # v4.4.0
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065    # v5.6.0
@@ -151,7 +158,9 @@ jobs:
           role-to-assume: ${{ vars.SETUHAUL_DEPLOY_ROLE_ARN }}     # set by the owner; ap-southeast-2 only
           aws-region: ap-southeast-2
       - name: Deploy the checked assembly (no synthesis from source; booking switch stays false)
-        run: npx --yes "$CDK_CLI" deploy SetuHaulPilot --app cdk.out --require-approval broadening --outputs-file outputs.json
+        # Unattended: CDK cannot ask for an interactive yes here, so its prompt is off. The gates are the branch
+        # allow-list, the typed confirmation and the owner's authorization before the dispatch.
+        run: npx --yes "$CDK_CLI" deploy SetuHaulPilot --app cdk.out --require-approval never --outputs-file outputs.json
       - name: Migrations over the Data API
         run: |
           export SETUHAUL_DB_CLUSTER_ARN=$(jq -r '.SetuHaulPilot.ClusterArn' outputs.json)

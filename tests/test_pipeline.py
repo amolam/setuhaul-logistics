@@ -113,6 +113,19 @@ def test_the_branch_guard_script_refuses_what_the_condition_refuses(ref, confirm
         assert "DEPLOY REFUSED" in r.stderr
 
 
+def test_the_deploy_step_deploys_the_checked_assembly_unattended():
+    """A first deploy creates IAM roles; with `--require-approval broadening` CDK waits for an interactive yes that a
+    runner cannot give, so the job would stop after Aurora had started. The gates are the branch, the confirmation
+    and the owner's authorization."""
+    line = next(l for l in DEPLOY.splitlines() if "deploy SetuHaulPilot" in l)
+    assert "--app cdk.out" in line and "--require-approval never" in line and "broadening" not in line
+
+
+def test_the_ci_test_job_runs_the_non_superuser_migration_check_on_an_empty_cluster():
+    test_job = _job("test")
+    assert "postgres_fresh:" in test_job and 'SETUHAUL_TEST_FRESH_DSN: "host=localhost port=5433 user=postgres"' in test_job
+
+
 def test_the_documented_oidc_trust_binds_repository_environment_and_branch():
     (stmt,) = POLICY["Statement"]
     assert stmt["Action"] == "sts:AssumeRoleWithWebIdentity"

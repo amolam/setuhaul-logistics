@@ -29,6 +29,13 @@ def provision(session: OwnerSession, logins: dict[str, dict]) -> list[str]:
     """`logins`: role → {"username", "password"}. Returns the usernames provisioned."""
     statements = ["SET LOCAL pgaudit.log = 'none'"]
     names = [r[0] for r in session.query("SELECT rolname FROM pg_roles")]
+    # Aurora's owner is not a superuser, and only a superuser may name SUPERUSER, REPLICATION or BYPASSRLS on an
+    # existing role, even to turn them off. So an existing login is checked here instead (fail closed: a non-superuser
+    # could not remove them) and its ALTER sets only what the owner may set. CREATE ROLE may state them off.
+    bad = session.query("""SELECT rolname FROM pg_roles WHERE rolname LIKE 'setuhaul!_login!_%' ESCAPE '!'
+                             AND (rolsuper OR rolreplication OR rolbypassrls)""")
+    if bad:
+        raise RuntimeError(f"login roles with SUPERUSER, REPLICATION or BYPASSRLS: {[r[0] for r in bad]}")
     done = []
     for role, cred in logins.items():
         if role not in APP_ROLES:
@@ -38,9 +45,11 @@ def provision(session: OwnerSession, logins: dict[str, dict]) -> list[str]:
             raise ValueError(f"login name {user!r} does not follow setuhaul_login_<role>")
         if len(password) < 24:
             raise ValueError(f"the password for {user} is too short")
-        verb = "ALTER" if user in names else "CREATE"
-        statements.append(f"{verb} ROLE {user} WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION "
-                          f"PASSWORD {literal(password)}")
+        if user in names:
+            statements.append(f"ALTER ROLE {user} WITH LOGIN NOCREATEDB NOCREATEROLE PASSWORD {literal(password)}")
+        else:
+            statements.append(f"CREATE ROLE {user} WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION "
+                              f"PASSWORD {literal(password)}")
         for other_role, other in APP_ROLES.items():
             if other_role != role:
                 statements.append(f"REVOKE {other} FROM {user}")
