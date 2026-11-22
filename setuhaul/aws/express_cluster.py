@@ -96,6 +96,23 @@ class ExpressCluster:
             problems.append("an instance is publicly accessible")
         return problems
 
+    def when_available(self, what: str, call, **kw):
+        """RDS refuses a change while the cluster is still `modifying` from the previous one (seen on the first
+        deploy, right after the Data API was turned on): wait until it is available, and retry that refusal."""
+        while True:
+            self._wait(f"the cluster to be available before {what}", lambda: self._settled(lambda c: True), 900)
+            try:
+                return call(**kw)
+            except Exception as e:                                    # noqa: BLE001 - only the state refusal retries
+                code = ((getattr(e, "response", None) or {}).get("Error") or {}).get("Code")
+                if code not in ("InvalidDBClusterStateFault", "InvalidDBInstanceState"):
+                    raise
+                log.info("%s refused while the cluster changes state; retrying", what)
+                self.sleep(15)
+
+    def modify(self, what: str, **kw):
+        return self.when_available(what, self.rds.modify_db_cluster, DBClusterIdentifier=self.id, ApplyImmediately=True, **kw)
+
     # ------------------------------------------------------------------ create
     def create(self) -> dict:
         p = self.p
@@ -119,13 +136,13 @@ class ExpressCluster:
         c = self._wait("the cluster to be available inside the VPC", private_and_available, 1500, 15)
 
         if not c.get("HttpEndpointEnabled"):
-            self.rds.enable_http_endpoint(ResourceArn=c["DBClusterArn"])
+            self.when_available("turning on the Data API", self.rds.enable_http_endpoint, ResourceArn=c["DBClusterArn"])
         self._wait("the Data API", lambda: (self.describe() or {}).get("HttpEndpointEnabled"), 600)
 
         self.apply_parameter_group()
         self.enable_log_export()
         self.bootstrap(c)
-        self.rds.modify_db_cluster(DBClusterIdentifier=self.id, DeletionProtection=True, ApplyImmediately=True)
+        self.modify("deletion protection", DeletionProtection=True)
         self._wait("deletion protection", lambda: self._settled(lambda c: c.get("DeletionProtection")), 600)
         return self.data()
 
@@ -137,13 +154,14 @@ class ExpressCluster:
         want = self.p["ParameterGroupName"]
         c = self.describe()
         if c.get("DBClusterParameterGroup") != want:
-            self.rds.modify_db_cluster(DBClusterIdentifier=self.id, DBClusterParameterGroupName=want, ApplyImmediately=True)
+            self.modify("the parameter group", DBClusterParameterGroupName=want)
         member = lambda c: c["DBClusterMembers"][0].get("DBClusterParameterGroupStatus")
         c = self._wait("the parameter group to be attached",
                        lambda: self._settled(lambda c: c.get("DBClusterParameterGroup") == want
                                              and member(c) in ("pending-reboot", "in-sync")), 900)
         if member(c) == "pending-reboot":
-            self.rds.reboot_db_instance(DBInstanceIdentifier=c["DBClusterMembers"][0]["DBInstanceIdentifier"])
+            self.when_available("the reboot", self.rds.reboot_db_instance,
+                                DBInstanceIdentifier=c["DBClusterMembers"][0]["DBInstanceIdentifier"])
             self.sleep(30)
         self._wait("the parameter group to be in sync after the reboot",
                    lambda: self._settled(lambda c: member(c) == "in-sync"
@@ -163,8 +181,7 @@ class ExpressCluster:
         c = self.describe()
         if "postgresql" in (c.get("EnabledCloudwatchLogsExports") or []):
             return
-        self.rds.modify_db_cluster(DBClusterIdentifier=self.id, ApplyImmediately=True,
-                                   CloudwatchLogsExportConfiguration={"EnableLogTypes": ["postgresql"]})
+        self.modify("the log export", CloudwatchLogsExportConfiguration={"EnableLogTypes": ["postgresql"]})
         self._wait("the postgresql log export",
                    lambda: self._settled(lambda c: "postgresql" in (c.get("EnabledCloudwatchLogsExports") or [])), 900)
 
@@ -191,8 +208,8 @@ class ExpressCluster:
                 "SecondsUntilAutoPause": int(p["SecondsUntilAutoPause"])}
         have = {k: c.get("ServerlessV2ScalingConfiguration", {}).get(k) for k in want}
         if have != want or c.get("BackupRetentionPeriod") != int(p["BackupRetentionDays"]):
-            self.rds.modify_db_cluster(DBClusterIdentifier=self.id, ServerlessV2ScalingConfiguration=want,
-                                       BackupRetentionPeriod=int(p["BackupRetentionDays"]), ApplyImmediately=True)
+            self.modify("the scaling change", ServerlessV2ScalingConfiguration=want,
+                        BackupRetentionPeriod=int(p["BackupRetentionDays"]))
             self._wait("the scaling change", lambda: self._settled(lambda c: True), 900)
         problems = self.private_problems(self.describe())
         if problems:

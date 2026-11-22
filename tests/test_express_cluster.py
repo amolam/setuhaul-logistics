@@ -33,9 +33,10 @@ class FakeRds:
         DBClusterNotFoundFault = NotFound
         DBInstanceNotFoundFault = NotFound
 
-    def __init__(self, stays_public=False, public_instance=False):
+    def __init__(self, stays_public=False, public_instance=False, busy_after_change=0):
         self.calls, self.c, self.ticks = [], None, 0
         self.stays_public, self.public_instance = stays_public, public_instance
+        self.busy_after_change, self.busy = busy_after_change, 0       # describes that still read `modifying`
 
     def create_db_cluster(self, **kw):
         self.calls.append(("create_db_cluster", kw))
@@ -56,16 +57,29 @@ class FakeRds:
         self.ticks += 1
         if self.ticks == 2 and not self.stays_public:                  # the move into the VPC, once
             self.c.update(Status="available", VPCNetworkingEnabled=True, InternetAccessGatewayEnabled=False)
+        if self.busy:
+            self.busy -= 1
+            return {"DBClusters": [dict(self.c, Status="modifying")]}
         return {"DBClusters": [dict(self.c)]}
+
+    def _changing(self):
+        if self.busy:                                                  # what RDS answered on the first deploy
+            self.busy -= 1
+            e = Exception("DB cluster isn't available for modification with status modifying.")
+            e.response = {"Error": {"Code": "InvalidDBClusterStateFault"}}
+            raise e
+        self.busy = self.busy_after_change
 
     def describe_db_instances(self, DBInstanceIdentifier):
         return {"DBInstances": [{"DBInstanceStatus": "available", "PubliclyAccessible": self.public_instance}]}
 
     def enable_http_endpoint(self, ResourceArn):
+        self._changing()
         self.calls.append(("enable_http_endpoint", ResourceArn))
         self.c["HttpEndpointEnabled"] = True
 
     def modify_db_cluster(self, **kw):
+        self._changing()
         self.calls.append(("modify_db_cluster", kw))
         if "DBClusterParameterGroupName" in kw:
             self.c["DBClusterParameterGroup"] = kw["DBClusterParameterGroupName"]
@@ -173,6 +187,34 @@ def test_create_asks_for_express_inside_the_vpc_with_the_internet_gateway_off_an
     assert rds.c["DeletionProtection"] is True and rds.calls[-1][1].get("DeletionProtection") is True   # last step
     assert data == {"ClusterArn": "arn:cluster", "Endpoint": rds.c["Endpoint"], "EngineVersion": "17.9",
                     "ResourceId": "cluster-ABC"}
+
+
+def test_each_change_waits_until_the_cluster_is_available_again():
+    """Regression (deploy run 45011607396): ModifyDBCluster right after EnableHttpEndpoint was refused with
+    InvalidDBClusterStateFault ("status modifying"). Every change now waits for `available` and retries that refusal."""
+    rds = FakeRds(busy_after_change=3)
+    make(rds).create()
+    assert rds.c["DeletionProtection"] is True and rds.c["DBClusterParameterGroup"] == "setuhaul-pilot"
+    assert [c[0] for c in rds.calls].count("modify_db_cluster") == 3      # parameter group, log export, protection
+
+
+def test_a_state_refusal_is_retried_but_other_errors_are_not():
+    rds = FakeRds()
+    x = make(rds)
+    x.create()
+    rds.busy = 2
+    real = rds.describe_db_clusters
+    rds.describe_db_clusters = lambda **kw: {"DBClusters": [dict(rds.c)]}    # reads available, still refuses twice
+    x.modify("a test change", DeletionProtection=True)
+    assert rds.busy == 0
+    rds.describe_db_clusters = real
+
+    def bad(**kw):
+        e = Exception("bad")
+        e.response = {"Error": {"Code": "InvalidParameterCombination"}}
+        raise e
+    with pytest.raises(Exception, match="bad"):
+        x.when_available("a bad change", bad)
 
 
 def test_the_bootstrap_gets_a_password_verifier_never_the_password():
