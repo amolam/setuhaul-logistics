@@ -170,11 +170,13 @@ class BookingService:
                         attestation_id=str(row[6]) if row[6] else None)
         last = c.execute("SELECT max(created_at) FROM shown_options WHERE thread_id=%s", (p.thread_id,)).fetchone()[0]
         if last:
-            for oid, dock, during, appr, exp in c.execute(
-                    """SELECT o.option_id, d.dock_code, o.during, o.needs_approval, o.expires_at
+            # lower()/upper(), not the range itself: the RDS Data API cannot return range types (seen on AWS,
+            # 22 Nov 2026: UnsupportedResultException, so every option list failed and the driver was told "no slot")
+            for oid, dock, start, end, appr, exp in c.execute(
+                    """SELECT o.option_id, d.dock_code, lower(o.during), upper(o.during), o.needs_approval, o.expires_at
                          FROM shown_options o JOIN docks d USING (dock_id)
                         WHERE o.thread_id=%s AND o.created_at=%s ORDER BY o.rank""", (p.thread_id, last)):
-                f.shown[str(oid)] = {"dock_code": dock, "start": during.lower, "end": during.upper,
+                f.shown[str(oid)] = {"dock_code": dock, "start": start, "end": end,
                                      "needs_approval": appr, "expires_at": exp}
         version = row[5]
         if f.state is S.SUBMITTED and f.appointment_id:
@@ -292,10 +294,10 @@ class BookingService:
                                WHERE thread_id=%s AND updated_at > now() - interval '2 hours'""", (p.thread_id,)).fetchone()
             last = c.execute("SELECT max(created_at) FROM shown_options WHERE thread_id=%s", (p.thread_id,)).fetchone()[0]
             if last:
-                flow["options"] = [{"option_id": str(o), "dock_code": dc, "start": human_time(d.lower), "end": human_time(d.upper),
-                                    "start_ts": d.lower.isoformat(), "needs_approval": na}
-                                   for o, dc, d, na in c.execute(
-                                       """SELECT o.option_id, k.dock_code, o.during, o.needs_approval
+                flow["options"] = [{"option_id": str(o), "dock_code": dc, "start": human_time(lo), "end": human_time(hi),
+                                    "start_ts": lo.isoformat(), "needs_approval": na}
+                                   for o, dc, lo, hi, na in c.execute(        # lower()/upper(): see _flow
+                                       """SELECT o.option_id, k.dock_code, lower(o.during), upper(o.during), o.needs_approval
                                             FROM shown_options o JOIN docks k USING (dock_id)
                                            WHERE o.thread_id=%s AND o.created_at=%s AND o.expires_at > now() ORDER BY o.rank""",
                                        (p.thread_id, last))]

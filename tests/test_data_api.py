@@ -59,16 +59,31 @@ def test_placeholders_and_parameters_must_match():
 def test_every_result_type_comes_back_as_psycopg_would_return_it(ddb, dsn):
     now = datetime(2026, 11, 22, 5, 30, 15, 123456, tzinfo=timezone.utc)
     u = uuid.uuid4()
+    # range and interval values can be SENT (literals), but the real Data API cannot RETURN them (test below)
     sql = """SELECT %s::int, %s::bigint, %s::numeric, %s::float8, %s::bool, %s::text, %s::timestamptz, %s::date,
-                    %s::uuid, %s::jsonb, %s::tstzrange, %s::text[], %s::int[], %s::interval, NULL::text, %s::bytea"""
+                    %s::uuid, %s::jsonb, lower(%s::tstzrange), upper(%s::tstzrange), %s::text[], %s::int[],
+                    extract(epoch FROM %s::interval)::int, NULL::text, %s::bytea"""
+    rng = Range(now, now + timedelta(hours=1), "[)")
     params = (7, 2**40, Decimal("12.3400"), 1.5, True, "x", now, date(2026, 11, 22), u, Jsonb({"a": [1, "b"]}),
-              Range(now, now + timedelta(hours=1), "[)"), ["a", "b,c", None], [1, 2], timedelta(minutes=90), b"\x00\xff")
+              rng, rng, ["a", "b,c", None], [1, 2], timedelta(minutes=90), b"\x00\xff")
     with ddb.tx("system") as c:
         got = c.execute(sql, params).fetchone()
     with psycopg.connect(dsn, autocommit=True) as p:
         p.execute("SET TimeZone = 'Asia/Kolkata'")
         want = p.execute(sql, params).fetchone()
     assert got == want
+
+
+def test_range_and_interval_results_are_refused_as_aurora_refuses_them(ddb):
+    """Regression (pilot, 22 Nov 2026): the Data API refused SELECT o.during (tstzrange) with
+    UnsupportedResultException, so every option list failed on AWS while the emulator returned it. The emulator now
+    refuses the same types, so the whole Data API-mode suite guards against them."""
+    now = datetime(2026, 11, 22, 5, 30, tzinfo=timezone.utc)
+    for sql, arg in (("SELECT %s::tstzrange", Range(now, now + timedelta(hours=1), "[)")),
+                     ("SELECT %s::interval", timedelta(minutes=5)), ("SELECT now() - %s::timestamptz", now)):
+        with pytest.raises(psycopg.Error, match="UnsupportedResultException"):
+            with ddb.tx("system") as c:
+                c.execute(sql, (arg,)).fetchone()
 
 
 def test_rows_iterate_and_rowcount_reports_updates(ddb):

@@ -14,6 +14,8 @@ import threading
 
 import psycopg
 
+UNSUPPORTED_RESULT_TYPES = {"interval", "tstzrange", "tsrange", "daterange", "int4range", "int8range", "numrange",
+                            "tstzmultirange", "tsmultirange", "datemultirange"}
 INT_TYPES = {"int2", "int4", "int8", "oid"}
 FLOAT_TYPES = {"float4", "float8"}
 
@@ -94,6 +96,12 @@ class EmulatedRdsData:
             return {"numberOfRecordsUpdated": max(cur.rowcount, 0)}
         res = cur.pgresult
         types = [self._typname(d.type_code) for d in cur.description]
+        # As the real Aurora PostgreSQL Data API (seen on the pilot, 22 Nov 2026): range and interval columns cannot
+        # be returned; the whole statement is refused. Select lower()/upper() or extract(epoch ...) instead.
+        bad = [t for t in types if t in UNSUPPORTED_RESULT_TYPES or t.lstrip("_") in UNSUPPORTED_RESULT_TYPES]
+        if bad:
+            raise ClientError("UnsupportedResultException",
+                              f"The result contains the unsupported data type {bad[0].upper()}.") from None
         records = []
         for r in range(res.ntuples):
             row = []
