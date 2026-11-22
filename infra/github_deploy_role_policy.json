@@ -1,0 +1,66 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "UseCdkBootstrapRoles",
+      "Effect": "Allow",
+      "Action": "sts:AssumeRole",
+      "Resource": "arn:aws:iam::${ACCOUNT_ID}:role/cdk-hnb659fds-*-${ACCOUNT_ID}-ap-southeast-2"
+    },
+    {
+      "Sid": "DataApiOnPilotCluster",
+      "Effect": "Allow",
+      "Action": [
+        "rds-data:BeginTransaction",
+        "rds-data:ExecuteStatement",
+        "rds-data:CommitTransaction",
+        "rds-data:RollbackTransaction"
+      ],
+      "Resource": "arn:aws:rds:ap-southeast-2:${ACCOUNT_ID}:cluster:setuhaul-pilot"
+    },
+    {
+      "Sid": "PilotDatabaseSecrets",
+      "Effect": "Allow",
+      "Action": "secretsmanager:GetSecretValue",
+      "Resource": "arn:aws:secretsmanager:ap-southeast-2:${ACCOUNT_ID}:secret:setuhaul/pilot/db/*"
+    },
+    {
+      "Sid": "DecryptThoseSecrets",
+      "Effect": "Allow",
+      "Action": "kms:Decrypt",
+      "Resource": "arn:aws:kms:ap-southeast-2:${ACCOUNT_ID}:key/*",
+      "Condition": {
+        "StringEquals": {
+          "kms:ViaService": "secretsmanager.ap-southeast-2.amazonaws.com"
+        },
+        "ForAnyValue:StringEquals": {
+          "kms:ResourceAliases": "alias/setuhaul-pilot"
+        }
+      }
+    },
+    {
+      "Sid": "ConsoleSiteList",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::setuhaulpilot-consolesite*"
+    },
+    {
+      "Sid": "ConsoleSiteObjects",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": "arn:aws:s3:::setuhaulpilot-consolesite*/*"
+    },
+    {
+      "Sid": "ConsoleCacheInvalidation",
+      "Effect": "Allow",
+      "Action": [
+        "cloudfront:CreateInvalidation",
+        "cloudfront:GetInvalidation"
+      ],
+      "Resource": "arn:aws:cloudfront::${ACCOUNT_ID}:distribution/*"
+    }
+  ]
+}

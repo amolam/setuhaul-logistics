@@ -67,7 +67,7 @@ class Pilot:
     def rows(self, sql: str) -> list[tuple]:
         return [tuple(r) for r in self.db.query(sql, (SCOPE,))]
 
-    def add_driver(self, phone: str | None = None, eta_min: int = 60) -> dict:
+    def add_driver(self, phone: str | None = None, eta_min: int = 60, facility: str = "FAC-JAI-01") -> dict:
         u = uuid.uuid4().hex[:8].upper()
         d = {"driver_id": f"SYN-DRV-{u}", "vehicle_id": f"SYN-VEH-{u}", "shipment_id": f"SYN-SHP-{u}",
              "phone": phone or synthetic_phone(random.randrange(10**6, 10**10))}
@@ -78,7 +78,7 @@ class Pilot:
                      "INSERT INTO shipments (shipment_id,order_reference,carrier_id,driver_id,vehicle_id,"
                      "destination_facility_id,load_weight_kg,expected_unload_min,planned_departure_ts,original_eta_ts,"
                      f"current_status) SELECT {q(d['shipment_id'])},{q('SYN-ORD-' + u)},'SYN-CAR1',driver_id,"
-                     f"{q(d['vehicle_id'])},'FAC-JAI-01',10000,45,now()+make_interval(mins=>{eta_min})-interval '5 hours',"
+                     f"{q(d['vehicle_id'])},{q(facility)},10000,45,now()+make_interval(mins=>{eta_min})-interval '5 hours',"
                      f"now()+make_interval(mins=>{eta_min}),'IN_TRANSIT' FROM drivers WHERE phone_e164 = {q(d['phone'])}"])
         d["driver_id"] = self.rows(f"SELECT driver_id FROM setuhaul.drivers WHERE phone_e164 = {q(d['phone'])}")[0][0]
         return d

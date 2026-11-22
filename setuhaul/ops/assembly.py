@@ -30,7 +30,7 @@ import zipfile
 from pathlib import Path
 
 STACK = "SetuHaulPilot"
-FUNCTIONS = 10       # api, agent, recovery, outbound, relay, the three approval tasks, and db-express + db-bootstrap
+FUNCTIONS = 11       # api, agent, recovery, outbound, relay, three approval tasks, db-express, db-bootstrap, cognito-pretoken
 
 
 def _sha256(path: Path) -> str:

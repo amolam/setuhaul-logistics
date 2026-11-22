@@ -1,0 +1,43 @@
+:root{--bg:#f4f5f7;--card:#fff;--ink:#1d2330;--muted:#667085;--line:#dfe3ea;--accent:#2457c5;--ok:#1f7a4d;--bad:#b42318;
+--warn:#a15c07;--phone:#e9f5ee;--bubble-out:#dcf8c6;--bubble-in:#fff;--chip:#eef2f8}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#12151b;--card:#1b2029;--ink:#e6e9ef;--muted:#98a2b3;
+--line:#2c3340;--accent:#7aa2ff;--ok:#4ade80;--bad:#f87171;--warn:#fbbf24;--phone:#0f1a14;--bubble-out:#1f3b2a;--bubble-in:#232a35;--chip:#252c38}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,Segoe UI,Roboto,sans-serif}
+header{padding:12px 16px;border-bottom:1px solid var(--line);background:var(--card);display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+header h1{font-size:17px;margin:0}.banner{font-size:12px;color:var(--muted)}
+.pill{font-size:12px;padding:2px 8px;border-radius:99px;background:var(--chip)}.pill.off{color:var(--bad);font-weight:600}
+main{display:grid;grid-template-columns:minmax(300px,380px) 1fr;gap:16px;padding:16px}
+@media (max-width:900px){main{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px;min-width:0}
+h2{font-size:15px;margin:0 0 8px}h3{font-size:13px;margin:12px 0 6px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+select,input,textarea,button{font:inherit;color:inherit}
+select,input,textarea{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;width:100%}
+button{background:var(--accent);color:#fff;border:0;border-radius:6px;padding:6px 10px;cursor:pointer}
+button.ghost{background:var(--chip);color:var(--ink)}button.ok{background:var(--ok)}button.bad{background:var(--bad)}
+button:disabled{opacity:.5;cursor:default}
+.row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.row>*{flex:0 0 auto}.grow{flex:1 1 auto!important}
+.phone{background:var(--phone);border-radius:10px;height:380px;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:6px}
+.b{max-width:85%;padding:6px 9px;border-radius:8px;white-space:pre-wrap;word-wrap:break-word;box-shadow:0 1px 0 rgba(0,0,0,.06)}
+.b.out{align-self:flex-end;background:var(--bubble-out)}.b.sys{align-self:center;max-width:95%;background:transparent;border:1px dashed var(--line);color:var(--muted);font-size:12px;box-shadow:none}.b.in{align-self:flex-start;background:var(--bubble-in)}
+.b small{display:block;color:var(--muted);font-size:11px;margin-top:2px}
+.tabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px}.tabs button{background:var(--chip);color:var(--ink)}
+.tabs button.on{background:var(--accent);color:#fff}
+.tablewrap{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{border-bottom:1px solid var(--line);padding:5px 6px;text-align:left;vertical-align:top}th{color:var(--muted);font-weight:600}
+.mono{font-family:ui-monospace,Consolas,monospace;font-size:12px}.muted{color:var(--muted)}
+.empty{color:var(--muted);padding:8px 0}
+.state{font-size:12px}.state b{font-weight:600}
+#toast{position:fixed;bottom:14px;right:14px;max-width:420px;background:var(--ink);color:var(--bg);padding:8px 12px;border-radius:8px;
+display:none;font-size:13px;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<header>
+  <h1>SetuHaul demo console</h1>
+main.console{grid-template-columns:minmax(280px,360px) 1fr}
+.list{max-height:70vh;overflow-y:auto}.list .item{border-bottom:1px solid var(--line);padding:8px 4px;cursor:pointer}
+.list .item:hover,.list .item.sel{background:var(--chip)}.list .item .top{display:flex;justify-content:space-between;gap:8px}
+.chat{background:var(--phone);border-radius:10px;max-height:46vh;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:6px}
+.kv{display:grid;grid-template-columns:max-content 1fr;gap:2px 10px;font-size:13px}.kv dt{color:var(--muted)}.kv dd{margin:0}
+.signin{max-width:520px;margin:48px auto;text-align:center}.err{color:var(--bad)}
+.pill.ok{color:var(--ok);font-weight:600}

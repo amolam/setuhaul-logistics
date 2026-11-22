@@ -36,3 +36,4 @@ pt*/
 # Build outputs (E0/E5): Lambda artifact and CDK synth
 build/
 cdk.out/
+console/config.json

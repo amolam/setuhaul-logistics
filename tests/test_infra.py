@@ -15,7 +15,7 @@ from aws_cdk.assertions import Match, Template  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "infra"))
-from setuhaul_stack import (AUTO_PAUSE_S, DB_SETUP_FUNCTIONS, LEASE_S, SCHEDULED, SYDNEY_AZS, WORKLOAD_ROLES,  # noqa: E402
+from setuhaul_stack import (AUTO_PAUSE_S, DB_SETUP_FUNCTIONS, LEASE_S, PLATFORM_FUNCTIONS, SCHEDULED, SYDNEY_AZS, WORKLOAD_ROLES,  # noqa: E402
                             SetuHaulPilotStack, schedule_rule_name)
 
 PLAINTEXT_SECRETS = ("SESSION_SECRET", "META_APP_SECRET", "WHATSAPP_TOKEN", "OPENROUTER_API_KEY")
@@ -64,13 +64,13 @@ def test_everything_is_in_sydney(stack):
 
 
 def workload_functions(t):
-    return {n: p for n, p in functions(t).items() if n.removeprefix("setuhaul-pilot-") not in DB_SETUP_FUNCTIONS}
+    return {n: p for n, p in functions(t).items() if n.removeprefix("setuhaul-pilot-") not in PLATFORM_FUNCTIONS}
 
 
 def test_the_booking_switch_is_off_and_the_data_is_synthetic_on_every_function(t):
     fns = functions(t)
     assert len(workload_functions(t)) == 8   # api, agent, recovery, outbound, relay, and the three state-machine tasks
-    assert set(fns) - set(workload_functions(t)) == {f"setuhaul-pilot-{n}" for n in DB_SETUP_FUNCTIONS}
+    assert set(fns) - set(workload_functions(t)) == {f"setuhaul-pilot-{n}" for n in PLATFORM_FUNCTIONS}
     for name, p in fns.items():
         env = p["Environment"]["Variables"]
         assert env["SETUHAUL_BOOKING_ENABLED"] == "false", name
@@ -213,7 +213,7 @@ def test_low_cost_pilot_no_waf_but_throttling_and_staff_need_mfa(t):
     t.has_resource_properties("AWS::Cognito::UserPool", {"MfaConfiguration": "ON",
                                                          "AdminCreateUserConfig": {"AllowAdminCreateUserOnly": True}})
     groups = {r["Properties"]["GroupName"] for r in resources(t, "AWS::Cognito::UserPoolGroup").values()}
-    assert groups == {"operations", "planner", "ops_lead"}
+    assert {g for g in groups if not g.startswith("facility-")} == {"operations", "planner", "ops_lead"}
 
 
 def test_the_agent_reads_messages_one_at_a_time_and_reports_failures(t):
@@ -284,7 +284,7 @@ def test_the_assembly_check_follows_template_to_staged_zip(built):
     _, out, zip_path = built
     summary, problems = verify(out, zip_path=zip_path)
     assert problems == [], problems
-    assert summary["functions"] == 10 and summary["staged_asset"].endswith(".zip")
+    assert summary["functions"] == 11 and summary["staged_asset"].endswith(".zip")
     import hashlib
     assert summary["sha256"] == hashlib.sha256(zip_path.read_bytes()).hexdigest()
     assert summary["sha256"] != summary["asset_object_key"].removesuffix(".zip")   # CDK's id is not the file hash
@@ -340,7 +340,7 @@ def test_e5_07_a_valid_assembly_passes_with_every_function_checked(built):
     _, out, _ = built
     summary, problems = verify(out)
     assert problems == []
-    assert summary["functions_checked"] == _lambda_ids(out) and len(summary["functions_checked"]) == 10
+    assert summary["functions_checked"] == _lambda_ids(out) and len(summary["functions_checked"]) == 11
     # a literal name here (the fixture names an account); the pipeline's account-agnostic synth writes the
     # `${AWS::AccountId}` form. Either way it must equal the asset manifest destination, which verify() checked.
     assert summary["asset_bucket"].startswith("cdk-") and summary["asset_bucket"].endswith("-ap-southeast-2")
@@ -409,7 +409,7 @@ def test_e5_07_an_asset_destination_in_another_bucket_is_refused(built, tmp_path
                 d["bucketName"] = "cdk-other-assets-${AWS::AccountId}-ap-southeast-2"
     am_path.write_text(json.dumps(am), encoding="utf-8")
     problems = verify(dst)[1]
-    assert len([p for p in problems if "its bucket matches no destination" in p]) == 10, problems
+    assert len([p for p in problems if "its bucket matches no destination" in p]) == 11, problems
 
 
 def test_the_assembly_check_fails_when_the_staged_asset_is_missing(built, tmp_path):
@@ -515,3 +515,72 @@ def test_the_whatsapp_template_file_matches_the_reviewed_texts():
     # Hinglish: definitions kept, language code NOT assumed; decided with Meta at a separate gate (review decision)
     assert len(hl) == 7 and all(d["language"] is None and d["submission_gate"] == "HINGLISH_TEMPLATES" for d in hl)
     assert all(d["language"] in ("en", "hi") for d in defs if not d["name"].endswith("_hl"))
+
+
+# ================================================================ hosted staff console (docs/release/11)
+def test_the_console_bucket_is_private_and_served_only_through_cloudfront(t):
+    (b,) = resources(t, "AWS::S3::Bucket").values()
+    assert b["Properties"]["PublicAccessBlockConfiguration"] == {"BlockPublicAcls": True, "BlockPublicPolicy": True,
+                                                                 "IgnorePublicAcls": True, "RestrictPublicBuckets": True}
+    assert "WebsiteConfiguration" not in b["Properties"]
+    (pol,) = resources(t, "AWS::S3::BucketPolicy").values()
+    stmts = pol["Properties"]["PolicyDocument"]["Statement"]
+    allows = [x for x in stmts if x["Effect"] == "Allow"]
+    assert len(allows) == 1 and allows[0]["Principal"] == {"Service": "cloudfront.amazonaws.com"}
+    assert allows[0]["Action"] == "s3:GetObject" and "AWS:SourceArn" in json.dumps(allows[0]["Condition"])
+    assert any(x["Effect"] == "Deny" and "aws:SecureTransport" in json.dumps(x.get("Condition", {})) for x in stmts)
+    (oac,) = resources(t, "AWS::CloudFront::OriginAccessControl").values()
+    assert oac["Properties"]["OriginAccessControlConfig"]["SigningBehavior"] == "always"
+    (d,) = resources(t, "AWS::CloudFront::Distribution").values()
+    cfg = d["Properties"]["DistributionConfig"]
+    for beh in [cfg["DefaultCacheBehavior"], *cfg["CacheBehaviors"]]:
+        assert beh["ViewerProtocolPolicy"] == "redirect-to-https" and beh["AllowedMethods"] == ["GET", "HEAD"]
+    assert cfg["DefaultRootObject"] == "index.html"
+
+
+def test_the_console_page_gets_a_strict_content_security_policy(t):
+    (h,) = resources(t, "AWS::CloudFront::ResponseHeadersPolicy").values()
+    sec = h["Properties"]["ResponseHeadersPolicyConfig"]["SecurityHeadersConfig"]
+    csp = sec["ContentSecurityPolicy"]["ContentSecurityPolicy"]
+    assert "default-src 'none'" in csp and "script-src 'self'" in csp and "frame-ancestors 'none'" in csp
+    assert "unsafe-eval" not in csp and "script-src 'self' 'unsafe-inline'" not in csp
+    assert "setuhaul-pilot-console.auth.ap-southeast-2.amazoncognito.com" in csp
+    assert sec["FrameOptions"]["FrameOption"] == "DENY" and sec["StrictTransportSecurity"]["AccessControlMaxAgeSec"] >= 31536000
+
+
+def test_staff_sign_in_is_code_with_pkce_on_a_public_client_back_to_the_console_only(t):
+    (c,) = resources(t, "AWS::Cognito::UserPoolClient").values()
+    p = c["Properties"]
+    assert p["AllowedOAuthFlows"] == ["code"] and p["AllowedOAuthFlowsUserPoolClient"] is True
+    assert p["GenerateSecret"] is False and p["AllowedOAuthScopes"] == ["openid"]
+    dist = next(iter(resources(t, "AWS::CloudFront::Distribution")))
+    for urls in (p["CallbackURLs"], p["LogoutURLs"]):
+        assert len(urls) == 1 and json.dumps(urls).count(dist) == 1 and "localhost" not in json.dumps(urls)
+    assert (p["AccessTokenValidity"], p["TokenValidityUnits"]["AccessToken"]) == (30, "minutes")
+    assert p["PreventUserExistenceErrors"] == "ENABLED" and p["SupportedIdentityProviders"] == ["COGNITO"]
+    (pool,) = resources(t, "AWS::Cognito::UserPool").values()
+    assert pool["Properties"]["MfaConfiguration"] == "ON"
+    assert pool["Properties"]["AdminCreateUserConfig"]["AllowAdminCreateUserOnly"] is True
+
+
+def test_facility_scope_comes_from_the_v2_trigger_and_admin_groups(t):
+    (pool,) = resources(t, "AWS::Cognito::UserPool").values()
+    trig = pool["Properties"]["LambdaConfig"]["PreTokenGenerationConfig"]
+    assert trig["LambdaVersion"] == "V2_0"
+    fn = resources(t, "AWS::Lambda::Function")[trig["LambdaArn"]["Fn::GetAtt"][0]]["Properties"]
+    assert fn["FunctionName"] == "setuhaul-pilot-cognito-pretoken" and fn["Handler"] == "setuhaul.aws.pretoken.handler"
+    assert fn["Environment"]["Variables"]["FACILITIES"] == "FAC-JAI-01,FAC-GGN-01" and "VpcConfig" not in fn
+    groups = {g["Properties"]["GroupName"] for g in resources(t, "AWS::Cognito::UserPoolGroup").values()}
+    assert groups == {"operations", "planner", "ops_lead", "facility-FAC-JAI-01", "facility-FAC-GGN-01"}
+    assert not [s for s in _policy_resources(t, trig["LambdaArn"]["Fn::GetAtt"][0])
+                if "secretsmanager" in json.dumps(s) or "rds-data" in json.dumps(s)]       # no secret, no database
+
+
+def test_the_api_allows_exactly_the_console_origin(t):
+    env = functions(t)["setuhaul-pilot-api"]["Environment"]["Variables"]
+    dist = next(iter(resources(t, "AWS::CloudFront::Distribution")))
+    origin = env["SETUHAUL_CONSOLE_ORIGIN"]
+    assert json.dumps(origin).count(dist) == 1 and "*" not in json.dumps(origin)
+    assert all("SETUHAUL_CONSOLE_ORIGIN" not in p["Environment"]["Variables"]
+               for n, p in functions(t).items() if n != "setuhaul-pilot-api")
+

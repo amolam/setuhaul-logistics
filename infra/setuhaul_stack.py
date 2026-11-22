@@ -25,7 +25,8 @@ from aws_cdk import (CfnOutput, CustomResource, Duration, RemovalPolicy, Stack, 
                      aws_events as events, aws_events_targets as targets, aws_iam as iam, aws_kms as kms,
                      aws_lambda as lambda_, aws_lambda_event_sources as sources, aws_logs as logs, aws_rds as rds,
                      aws_secretsmanager as sm, aws_sns as sns, aws_sns_subscriptions as subs, aws_sqs as sqs,
-                     aws_stepfunctions as sfn)
+                     aws_stepfunctions as sfn, aws_s3 as s3, aws_cloudfront as cloudfront,
+                     aws_cloudfront_origins as origins)
 from constructs import Construct
 
 def cdk_arn_format():
@@ -40,6 +41,9 @@ LEASE_S = 120                                      # orchestrator processing lea
 SYDNEY_AZS = ("ap-southeast-2a", "ap-southeast-2b", "ap-southeast-2c")
 DB_PARAMETER_FAMILY = "aurora-postgresql17"         # express configuration creates the Region default (17.9)
 DB_SETUP_FUNCTIONS = ("db-express", "db-bootstrap")  # deploy-time only; never handle application traffic
+FACILITY_IDS = ("FAC-JAI-01", "FAC-GGN-01")                    # the synthetic facilities this pilot serves
+PLATFORM_FUNCTIONS = DB_SETUP_FUNCTIONS + ("cognito-pretoken",)   # not application workloads (no database login)
+COGNITO_DOMAIN_PREFIX = "setuhaul-{env}-console"                  # https://<prefix>.auth.<region>.amazoncognito.com
 AUTO_PAUSE_S = 300                                 # Aurora pauses after 5 idle minutes (0 ACU)
 # The one-minute schedules, by function; they are created DISABLED so an idle pilot never touches the database
 # (otherwise Aurora would never reach 0 ACU). `setuhaul.ops.pilot_mode` enables them for a test session.
@@ -104,6 +108,9 @@ class SetuHaulPilotStack(Stack):
                           dead_letter_queue=sqs.DeadLetterQueue(max_receive_count=5, queue=dlq),
                           encryption=sqs.QueueEncryption.KMS, encryption_master_key=key, enforce_ssl=True)
 
+        # ------------------------------------------------------------ hosted staff console (docs/release/11)
+        console_url = self.console_hosting(environment_name)
+
         # ------------------------------------------------------------ identity
         pool = cognito.UserPool(self, "Staff", user_pool_name=f"setuhaul-{environment_name}-staff",
                                 self_sign_up_enabled=False, mfa=cognito.Mfa.REQUIRED,
@@ -113,7 +120,23 @@ class SetuHaulPilotStack(Stack):
         for group in ("operations", "planner", "ops_lead"):
             cognito.CfnUserPoolGroup(self, f"Group{group.title().replace('_', '')}", user_pool_id=pool.user_pool_id,
                                      group_name=group)
-        client = pool.add_client("Console", auth_flows=cognito.AuthFlow(user_srp=True), generate_secret=False)
+        # Staff sign in through Cognito's hosted page (MFA as the pool requires): authorization code with PKCE, a
+        # public client (no secret in the browser), redirects to the console's own URL only, 30-minute tokens.
+        for fac in FACILITY_IDS:                 # facility scope comes from these admin-assigned groups (pretoken.py)
+            cognito.CfnUserPoolGroup(self, f"GroupFacility{fac.replace('-', '')}", user_pool_id=pool.user_pool_id,
+                                     group_name=f"facility-{fac}")
+        self.cognito_domain = pool.add_domain("Domain", cognito_domain=cognito.CognitoDomainOptions(
+            domain_prefix=COGNITO_DOMAIN_PREFIX.format(env=environment_name)),
+            managed_login_version=cognito.ManagedLoginVersion.CLASSIC_HOSTED_UI)
+        client = pool.add_client("Console", auth_flows=cognito.AuthFlow(user_srp=True), generate_secret=False,
+                                 o_auth=cognito.OAuthSettings(
+                                     flows=cognito.OAuthFlows(authorization_code_grant=True),
+                                     scopes=[cognito.OAuthScope.OPENID], callback_urls=[console_url + "/"],
+                                     logout_urls=[console_url + "/"]),
+                                 supported_identity_providers=[cognito.UserPoolClientIdentityProvider.COGNITO],
+                                 prevent_user_existence_errors=True, access_token_validity=Duration.minutes(30),
+                                 id_token_validity=Duration.minutes(30), refresh_token_validity=Duration.hours(8))
+        self.console_client = client
 
         # ------------------------------------------------------------ functions
         if not (lambda_asset.endswith(".zip") and Path(lambda_asset).is_file()):
@@ -121,13 +144,14 @@ class SetuHaulPilotStack(Stack):
             raise ValueError(f"lambda_asset must be the built zip file (scripts/build_lambda.py), got {lambda_asset!r}")
         code = lambda_.Code.from_asset(lambda_asset)
         cluster_arn = self.express_aurora(environment_name, key, code)
+        self.facility_scope_trigger(pool, environment_name, code)
         base_env = {
             "SETUHAUL_ENV": environment_name, "SETUHAUL_ENVIRONMENT": env_label, "SETUHAUL_DATA_CLASS": "synthetic",
             "SETUHAUL_BOOKING_ENABLED": "false", "SETUHAUL_DSN": "rds-data", "SETUHAUL_DB_CLUSTER_ARN": cluster_arn,
             "SETUHAUL_DB_NAME": "setuhaul", "SETUHAUL_QUEUE_URL": queue.queue_url,
             "SETUHAUL_APP_SECRET_ID": app_secret.secret_arn, "SETUHAUL_AWS_REGION": REGION,
             "COGNITO_ISSUER": f"https://cognito-idp.{REGION}.amazonaws.com/{pool.user_pool_id}",
-            "COGNITO_CLIENT_IDS": client.user_pool_client_id, "FACILITIES": "FAC-JAI-01,FAC-GGN-01",
+            "COGNITO_CLIENT_IDS": client.user_pool_client_id, "FACILITIES": ",".join(FACILITY_IDS),
             "SETUHAUL_PROCESSING_LEASE_S": str(LEASE_S),
             "SETUHAUL_DB_RESUME_WAIT_S": "40"}           # wait for a paused Aurora to resume (the api overrides it)
         self.functions: dict[str, lambda_.Function] = {}
@@ -153,7 +177,8 @@ class SetuHaulPilotStack(Stack):
             return f
 
         api_fn = fn("api", "api_handler", "api", timeout_s=29, extra={"SETUHAUL_TOOLS_ROUTE": "off",
-                    "SETUHAUL_DB_RESUME_WAIT_S": "20"})     # API Gateway ends a request at 29 s
+                    "SETUHAUL_DB_RESUME_WAIT_S": "20",       # API Gateway ends a request at 29 s
+                    "SETUHAUL_CONSOLE_ORIGIN": console_url})  # CORS: this one origin, nothing else
         agent_fn = fn("agent", "agent_handler", "agent", timeout_s=LEASE_S + 60, memory=1024, extra={
             "SETUHAUL_MODEL_PROVIDER": "openrouter", "SETUHAUL_OPENROUTER_SECRET_ID": openrouter.secret_arn,
             "SETUHAUL_OR_EXTRACT_MODEL": "anthropic/claude-haiku-4.5", "SETUHAUL_OR_PROVIDER": "amazon-bedrock",
@@ -257,7 +282,11 @@ class SetuHaulPilotStack(Stack):
                      "UserPoolId": pool.user_pool_id, "OpenRouterSecretArn": openrouter.secret_arn,
                      "AppSecretArn": app_secret.secret_arn, "WhatsAppSecretArn": whatsapp_secret.secret_arn,
                      "ScheduleRuleNames": ",".join(r.rule_name for r in self.schedule_rules.values()),
-                     "LoginSecretArns": self.to_json_string({r: s.secret_arn for r, s in self.login_secrets.items()})}.items():
+                     "LoginSecretArns": self.to_json_string({r: s.secret_arn for r, s in self.login_secrets.items()}),
+                     "ConsoleUrl": console_url, "ConsoleBucket": self.console_bucket.bucket_name,
+                     "ConsoleDistributionId": self.console_distribution.distribution_id,
+                     "CognitoDomain": f"{COGNITO_DOMAIN_PREFIX.format(env=environment_name)}.auth.{REGION}.amazoncognito.com",
+                     "ConsoleClientId": client.user_pool_client_id}.items():
             CfnOutput(self, k, value=v)
 
     # ------------------------------------------------------------ database (AURORA gate), docs/release/10_EXPRESS_AURORA.md
@@ -349,3 +378,56 @@ class SetuHaulPilotStack(Stack):
         db.node.add_dependency(boot)
         self.db_resource = db
         return db.get_att_string("ClusterArn")
+
+    # ------------------------------------------------------------ hosted staff console, docs/release/11_STAFF_CONSOLE.md
+    def console_hosting(self, environment_name: str) -> str:
+        """Static files in a private S3 bucket, served only through CloudFront (origin access control, HTTPS only),
+        with a strict content security policy. No server, no public bucket. Returns https://<cloudfront domain>."""
+        bucket = s3.Bucket(self, "ConsoleSite", block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
+                           encryption=s3.BucketEncryption.S3_MANAGED, enforce_ssl=True,
+                           object_ownership=s3.ObjectOwnership.BUCKET_OWNER_ENFORCED,
+                           removal_policy=RemovalPolicy.DESTROY)             # static files only; nothing to keep
+        cognito_host = f"https://{COGNITO_DOMAIN_PREFIX.format(env=environment_name)}.auth.{REGION}.amazoncognito.com"
+        csp = "; ".join([
+            "default-src 'none'", "script-src 'self'", "style-src 'self' 'unsafe-inline'", "img-src 'self' data:",
+            f"connect-src 'self' https://*.execute-api.{REGION}.amazonaws.com {cognito_host}",
+            f"form-action 'self' {cognito_host}", "frame-ancestors 'none'", "base-uri 'none'"])
+        headers = cloudfront.ResponseHeadersPolicy(self, "ConsoleHeaders", security_headers_behavior=
+            cloudfront.ResponseSecurityHeadersBehavior(
+                content_security_policy=cloudfront.ResponseHeadersContentSecurityPolicy(
+                    content_security_policy=csp, override=True),
+                strict_transport_security=cloudfront.ResponseHeadersStrictTransportSecurity(
+                    access_control_max_age=Duration.days(365), include_subdomains=True, override=True),
+                content_type_options=cloudfront.ResponseHeadersContentTypeOptions(override=True),
+                frame_options=cloudfront.ResponseHeadersFrameOptions(
+                    frame_option=cloudfront.HeadersFrameOption.DENY, override=True),
+                referrer_policy=cloudfront.ResponseHeadersReferrerPolicy(
+                    referrer_policy=cloudfront.HeadersReferrerPolicy.NO_REFERRER, override=True)))
+        origin = origins.S3BucketOrigin.with_origin_access_control(bucket)
+        dist = cloudfront.Distribution(
+            self, "Console", comment=f"SetuHaul {environment_name} staff console (synthetic data)",
+            default_root_object="index.html",
+            default_behavior=cloudfront.BehaviorOptions(
+                origin=origin, viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+                cache_policy=cloudfront.CachePolicy.CACHING_DISABLED,       # index.html, config.json: always fresh
+                response_headers_policy=headers, allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD),
+            additional_behaviors={"assets/*": cloudfront.BehaviorOptions(
+                origin=origin, viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+                cache_policy=cloudfront.CachePolicy.CACHING_OPTIMIZED, response_headers_policy=headers,
+                allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD)})
+        self.console_bucket, self.console_distribution = bucket, dist
+        return f"https://{dist.distribution_domain_name}"
+
+    def facility_scope_trigger(self, pool, environment_name: str, code) -> None:
+        """Cognito pre-token generation, event version V2_0 (Essentials tier): adds `facility_scope` to staff access
+        tokens from admin-assigned facility-<ID> groups only (setuhaul/aws/pretoken.py). No database login."""
+        name = "cognito-pretoken"
+        f = lambda_.Function(self, "FnCognitoPretoken", function_name=f"setuhaul-{environment_name}-{name}",
+                             runtime=lambda_.Runtime.PYTHON_3_13, architecture=lambda_.Architecture.X86_64,
+                             handler="setuhaul.aws.pretoken.handler", code=code, memory_size=128,
+                             timeout=Duration.seconds(5),
+                             environment={"SETUHAUL_ENV": environment_name, "SETUHAUL_DATA_CLASS": "synthetic",
+                                          "SETUHAUL_BOOKING_ENABLED": "false", "FACILITIES": ",".join(FACILITY_IDS)},
+                             log_group=logs.LogGroup(self, "LogsCognitoPretoken", retention=logs.RetentionDays.ONE_WEEK,
+                                                     removal_policy=RemovalPolicy.DESTROY))
+        pool.add_trigger(cognito.UserPoolOperation.PRE_TOKEN_GENERATION_CONFIG, f, cognito.LambdaVersion.V2_0)

@@ -181,6 +181,15 @@ jobs:
         run: |
           python -m setuhaul.ops.manifest cdk.out outputs.json > manifest.json
           python -m setuhaul.ops.assembly cdk.out --zip build/lambda.zip --manifest manifest.json
+      - name: Publish the staff console (static files to the private bucket; public config only; secret scan first)
+        run: |
+          python -m setuhaul.ops.console_config outputs.json > console/config.json
+          python -m setuhaul.ops.console_config --check console
+          BUCKET=$(jq -r '.SetuHaulPilot.ConsoleBucket' outputs.json)
+          DIST=$(jq -r '.SetuHaulPilot.ConsoleDistributionId' outputs.json)
+          aws s3 sync console/ "s3://$BUCKET/" --delete --only-show-errors
+          aws cloudfront create-invalidation --distribution-id "$DIST" --paths "/*" --query Invalidation.Id --output text
+          echo "Console: $(jq -r '.SetuHaulPilot.ConsoleUrl' outputs.json)"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: pilot-manifest

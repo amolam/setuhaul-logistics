@@ -146,3 +146,65 @@ def test_the_test_sink_evidence_is_the_stored_record(client, dsn, keys):
         assert (n["delivery"] == "test_sink") == bool(pid and pid.startswith("testsink."))
         assert n["delivery"] != "test_sink" or n["test_sink_reference"] == pid
     assert json.dumps(b).count("payload") == 0
+
+
+# ---------------------------------------------------------------- CORS for the hosted console, and its published files
+ORIGIN = "https://d111111abcdef8.cloudfront.net"
+
+
+@pytest.fixture(scope="module")
+def cors_client(dsn, keys):
+    from fastapi.testclient import TestClient
+    from setuhaul.api.app import Settings, create_app
+    from test_api import CLIENT, ISSUER, META_SECRET, SESSION_SECRET
+    return TestClient(create_app(Settings(dsn=dsn, cognito_issuer=ISSUER, cognito_client_ids={CLIENT},
+                                          session_secret=SESSION_SECRET, meta_app_secret=META_SECRET,
+                                          facilities=(JAI, GGN), jwks=keys["jwks"], console_origin=ORIGIN)))
+
+
+def test_cors_allows_exactly_the_console_origin_and_never_replaces_authentication(cors_client, keys):
+    pre = {"Origin": ORIGIN, "Access-Control-Request-Method": "GET", "Access-Control-Request-Headers": "authorization"}
+    ok = cors_client.options("/console/threads", headers=pre)
+    assert ok.status_code == 200 and ok.headers["access-control-allow-origin"] == ORIGIN
+    assert "access-control-allow-credentials" not in ok.headers
+    other = cors_client.options("/console/threads", headers={**pre, "Origin": "https://evil.example"})
+    assert other.headers.get("access-control-allow-origin") is None
+    bad_method = cors_client.options("/console/threads", headers={**pre, "Access-Control-Request-Method": "DELETE"})
+    assert bad_method.status_code == 400
+    anon = cors_client.get("/console/threads", headers={"Origin": ORIGIN})
+    assert anon.status_code == 401 and anon.headers["access-control-allow-origin"] == ORIGIN   # readable, still refused
+    signed_in = cors_client.get("/console/threads", headers={"Origin": ORIGIN, **H(staff_token(keys))})
+    assert signed_in.status_code == 200
+
+
+def test_the_console_origin_must_be_one_exact_https_origin(dsn, keys):
+    from setuhaul.api.app import Settings, create_app
+    from test_api import CLIENT, ISSUER, META_SECRET, SESSION_SECRET
+    for bad in ("*", "http://d1.cloudfront.net", "https://*.cloudfront.net"):
+        with pytest.raises(ValueError):
+            create_app(Settings(dsn=dsn, cognito_issuer=ISSUER, cognito_client_ids={CLIENT}, session_secret=SESSION_SECRET,
+                                meta_app_secret=META_SECRET, facilities=(JAI,), jwks=keys["jwks"], console_origin=bad))
+
+
+def test_the_published_console_holds_no_secret_and_only_public_config(tmp_path):
+    import shutil
+    from pathlib import Path
+    from setuhaul.ops.console_config import config_from_outputs, problems
+    src = Path(__file__).resolve().parents[1] / "console"
+    assert problems(src) == []                                                # the files as committed
+    site = tmp_path / "site"
+    shutil.copytree(src, site)
+    cfg = config_from_outputs({"SetuHaulPilot": {"ApiUrl": "https://abc.execute-api.ap-southeast-2.amazonaws.com/pilot/",
+                                                 "CognitoDomain": "setuhaul-pilot-console.auth.ap-southeast-2.amazoncognito.com",
+                                                 "ConsoleClientId": "abc123", "OwnerSecretArn": "arn:aws:secretsmanager:x"}})
+    assert set(cfg) == {"apiUrl", "cognitoDomain", "clientId", "region"}
+    (site / "config.json").write_text(json.dumps(cfg), encoding="utf-8")
+    assert problems(site) == []
+    (site / "config.json").write_text(json.dumps({**cfg, "secret": "arn:aws:secretsmanager:ap-southeast-2:1:secret:x"}))
+    assert problems(site)
+    (site / "config.json").write_text(json.dumps(cfg))
+    (site / "assets" / "leak.js").write_text('const META_APP_SECRET = "abc"')
+    assert any("leak.js" in p for p in problems(site))
+    js = (src / "assets" / "app.js").read_text(encoding="utf-8")
+    assert "localStorage" not in js and "/demo/" not in js and "hmac" not in js.lower()
+    assert "code_challenge_method:\"S256\"" in js and "sessionStorage.removeItem(\"pkce\")" in js
