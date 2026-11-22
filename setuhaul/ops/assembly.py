@@ -5,12 +5,15 @@
 It follows the chain the deployment will use, from the files CDK wrote, and hashes the bytes CDK will upload:
 
   cdk.out/manifest.json        the stack artifact and its asset-manifest artifact
-  <stack>.template.json        every AWS::Lambda::Function: its Code.S3Key
-  <stack>.assets.json          that object key -> one file asset, packaging "file" (uploaded as is, not re-zipped)
+  <stack>.template.json        every AWS::Lambda::Function: its Code (S3Bucket, S3Key) pair
+  <stack>.assets.json          that pair -> one file-asset destination with the same bucketName AND objectKey,
+                               packaging "file" (uploaded as is, not re-zipped)
   cdk.out/asset.<id>.zip       the staged file: SHA-256 of its bytes
 
-and requires: the template exists; every Lambda function in the stack uses the one staged asset (so no function runs
-code the check did not hash, such as a CDK-provided helper); that staged file exists and is a zip; its SHA-256 equals
+and requires: the template exists; every Lambda function in the stack, each checked on its own, names a bucket and a
+key that both match one destination of the same staged asset (review E5-07: a function pointing at another bucket
+with the same key is refused), and all functions resolve to that one asset (so no function runs code the check did not
+hash, such as a CDK-provided helper); that staged file exists and is a zip; its SHA-256 equals
 `build/lambda.zip` when given, and every `artifact_sha256` in the deployment manifest when given. The asset id in the
 file name is CDK's fingerprint, not the file's SHA-256, so it is never trusted in place of the bytes.
 
@@ -54,6 +57,16 @@ def _artifact_sha256s(manifest: dict) -> list[str]:
     return found
 
 
+def _bucket(value) -> str | None:
+    """The bucket expression as the asset manifest writes it: a literal name, or a single Fn::Sub of a string (CDK's
+    `cdk-...-assets-${AWS::AccountId}-<region>`). Anything else (Ref, Fn::Join, Fn::Sub with variables, ...) is None."""
+    if isinstance(value, str) and value:
+        return value
+    if isinstance(value, dict) and list(value) == ["Fn::Sub"] and isinstance(value["Fn::Sub"], str) and value["Fn::Sub"]:
+        return value["Fn::Sub"]
+    return None
+
+
 def verify(cdk_out: str | Path, stack: str = STACK, zip_path: str | Path | None = None,
            manifest: dict | None = None, functions: int | None = FUNCTIONS) -> tuple[dict, list[str]]:
     out, problems = Path(cdk_out), []
@@ -85,22 +98,43 @@ def verify(cdk_out: str | Path, stack: str = STACK, zip_path: str | Path | None 
     if any(r.get("Type", "").startswith("Custom::") or r.get("Type") == "AWS::CloudFormation::CustomResource"
            for r in template.get("Resources", {}).values()):
         problems.append("the template has a custom resource (a Lambda whose code this check does not cover)")
-    keys = {json.dumps(c.get("S3Key"), sort_keys=True) for c in fns.values()}
-    if len(keys) != 1:
-        problems.append(f"Lambda functions use {len(keys)} different code objects, expected exactly 1")
+    if not fns:
+        problems.append("the template has no Lambda functions")
         return summary, problems
-    key = json.loads(keys.pop())
-    if not isinstance(key, str):
-        problems.append(f"Lambda code key is not a fixed object key: {key!r}")
-        return summary, problems
-    summary["asset_object_key"] = key
 
-    entries = [(aid, a) for aid, a in assets.get("files", {}).items()
-               if any(d.get("objectKey") == key for d in a.get("destinations", {}).values())]
-    if len(entries) != 1:
-        problems.append(f"{len(entries)} file assets publish {key}, expected 1")
+    # Each function on its own: its (bucket, key) pair must match one destination of one file asset exactly.
+    resolved: dict[str, str] = {}                              # function logical id -> asset id
+    for lid, code in sorted(fns.items()):
+        if not isinstance(code, dict) or set(code) != {"S3Bucket", "S3Key"}:
+            problems.append(f"{lid}: Code must be exactly S3Bucket and S3Key, got {sorted(code) if isinstance(code, dict) else code!r}")
+            continue
+        bucket, key = _bucket(code["S3Bucket"]), code["S3Key"]
+        if bucket is None:
+            problems.append(f"{lid}: S3Bucket is not a fixed bucket: {code['S3Bucket']!r}")
+            continue
+        if not isinstance(key, str) or not key:
+            problems.append(f"{lid}: S3Key is not a fixed object key: {key!r}")
+            continue
+        hits = [aid for aid, a in assets.get("files", {}).items()
+                for d in a.get("destinations", {}).values()
+                if d.get("objectKey") == key and d.get("bucketName") == bucket]
+        if len(hits) != 1:
+            same_key = [aid for aid, a in assets.get("files", {}).items()
+                        if any(d.get("objectKey") == key for d in a.get("destinations", {}).values())]
+            why = "its bucket matches no destination of that key" if same_key else "no asset publishes that key"
+            problems.append(f"{lid}: ({bucket}, {key}) matches {len(hits)} asset destinations, expected 1 ({why})")
+            continue
+        resolved[lid] = hits[0]
+    summary["functions_checked"] = sorted(fns)
+    if problems:
         return summary, problems
-    aid, entry = entries[0]
+    if len(set(resolved.values())) != 1:
+        problems.append(f"Lambda functions use {len(set(resolved.values()))} different code objects, expected exactly 1")
+        return summary, problems
+    aid = next(iter(resolved.values()))
+    entry = assets["files"][aid]
+    code0 = fns[sorted(fns)[0]]
+    summary["asset_object_key"], summary["asset_bucket"] = code0["S3Key"], _bucket(code0["S3Bucket"])
     src = entry.get("source", {})
     if src.get("packaging") != "file":
         problems.append(f"asset {aid} is packaged as {src.get('packaging')!r}: CDK would re-zip it at publish time")

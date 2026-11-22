@@ -182,6 +182,29 @@ def test_a_failed_callback_keeps_the_token_and_is_retried_after_the_backoff(conn
     assert approval(conn, r["appointment_id"])["status"] == "APPROVED"     # the decided row itself never changed
 
 
+@pytest.mark.parametrize("attempts,minutes", [(0, 1), (1, 2), (2, 4), (3, 8), (4, 16), (5, 30), (6, 30), (31, 30),
+                                              (32, 30), (1_000_000, 30)])
+def test_e4_02_the_backoff_is_capped_at_30_minutes_without_integer_overflow(conn, wf, attempts, minutes):
+    """Review E4-02: power(2, attempts)::integer overflowed for attempts >= 31 before least() could cap it, so the
+    claim itself failed and the callback could never be retried. The real claim function is run on a due row."""
+    _, r = pending(conn)
+    wf.record_token(r["approval_id"], f"tok-cap-{attempts}")
+    decide(conn, r["appointment_id"], "CONFIRM")
+    wf.sfn.fail_next = ["ThrottlingException"]
+    assert wf.reconcile() == 0                                        # creates the callback row (attempts = 1)
+    conn.execute("""UPDATE setuhaul.approval_callbacks SET attempts = %s, next_at = clock_timestamp() - interval '1 second'
+                     WHERE approval_id = %s::uuid""", (attempts, str(r["approval_id"])))
+    wf.sfn.fail_next = ["ThrottlingException"]                         # still unconfirmed after this claim
+    assert wf.reconcile() == 0                                        # the claim ran: no "integer out of range"
+    got_attempts, delay_min, done = conn.execute(
+        """SELECT attempts, extract(epoch FROM next_at - updated_at) / 60, completed_at IS NOT NULL
+             FROM setuhaul.approval_callbacks WHERE approval_id = %s::uuid""", (str(r["approval_id"]),)).fetchone()
+    assert got_attempts == attempts + 1 and not done                  # claimed exactly once, still due later
+    assert abs(float(delay_min) - minutes) < 0.01, delay_min           # 1, 2, 4, 8, 16, then capped at 30
+    assert _callback_row(conn, r["appointment_id"])[0] == f"tok-cap-{attempts}"   # token kept for the retry
+    assert wf.reconcile() == 0 and wf.sfn.calls.count(f"tok-cap-{attempts}") == 2  # not due again yet: no resend
+
+
 def test_a_task_that_already_finished_is_recorded_and_not_retried(conn, wf):
     _, r = pending(conn)
     wf.record_token(r["approval_id"], "tok-done")

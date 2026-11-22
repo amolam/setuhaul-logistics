@@ -228,16 +228,96 @@ def test_the_assembly_check_fails_when_the_staged_zip_is_altered(built, tmp_path
     assert any("differs from the staged asset" in p for p in problems)
 
 
-def test_the_assembly_check_fails_when_a_function_points_elsewhere(built, tmp_path):
-    from setuhaul.ops.assembly import verify
-    _, out, _ = built
+def _lambda_ids(out):
+    tpl = json.loads((out / "SetuHaulPilot.template.json").read_text(encoding="utf-8"))
+    return sorted(lid for lid, r in tpl["Resources"].items() if r["Type"] == "AWS::Lambda::Function")
+
+
+def _mutate_code(out, tmp_path, lid, change):
+    """A copy of the assembly in which only function `lid` has its Code changed by `change(code)`."""
     dst = _copy_assembly(out, tmp_path)
     tpl_path = dst / "SetuHaulPilot.template.json"
     tpl = json.loads(tpl_path.read_text(encoding="utf-8"))
-    fn = next(r for r in tpl["Resources"].values() if r["Type"] == "AWS::Lambda::Function")
-    fn["Properties"]["Code"]["S3Key"] = "0" * 64 + ".zip"
+    change(tpl["Resources"][lid]["Properties"]["Code"])
     tpl_path.write_text(json.dumps(tpl), encoding="utf-8")
-    assert any("different code objects" in p for p in verify(dst)[1])
+    return dst
+
+
+def test_e5_07_a_valid_assembly_passes_with_every_function_checked(built):
+    from setuhaul.ops.assembly import verify
+    _, out, _ = built
+    summary, problems = verify(out)
+    assert problems == []
+    assert summary["functions_checked"] == _lambda_ids(out) and len(summary["functions_checked"]) == 8
+    # a literal name here (the fixture names an account); the pipeline's account-agnostic synth writes the
+    # `${AWS::AccountId}` form. Either way it must equal the asset manifest destination, which verify() checked.
+    assert summary["asset_bucket"].startswith("cdk-") and summary["asset_bucket"].endswith("-ap-southeast-2")
+
+
+def test_the_assembly_check_fails_when_a_function_points_elsewhere(built, tmp_path):
+    """E5-07: only one function's S3Key changes; its bucket is still the right one."""
+    from setuhaul.ops.assembly import verify
+    _, out, _ = built
+    lid = _lambda_ids(out)[0]
+    dst = _mutate_code(out, tmp_path, lid, lambda c: c.__setitem__("S3Key", "0" * 64 + ".zip"))
+    problems = verify(dst)[1]
+    assert any(p.startswith(f"{lid}:") and "no asset publishes that key" in p for p in problems), problems
+
+
+def test_e5_07_a_function_in_another_bucket_with_the_same_key_is_refused(built, tmp_path):
+    """Only one function's S3Bucket changes; its S3Key is still the staged asset's key."""
+    from setuhaul.ops.assembly import verify
+    _, out, _ = built
+    lid = _lambda_ids(out)[-1]
+    dst = _mutate_code(out, tmp_path, lid, lambda c: c.__setitem__("S3Bucket", "attacker-bucket"))
+    problems = verify(dst)[1]
+    assert any(p.startswith(f"{lid}:") and "its bucket matches no destination" in p for p in problems), problems
+
+
+def test_e5_07_every_function_is_checked_not_one_representative(built, tmp_path):
+    from setuhaul.ops.assembly import verify
+    _, out, _ = built
+    for i, lid in enumerate(_lambda_ids(out)):
+        dst = _mutate_code(out, tmp_path / str(i), lid,
+                           lambda c: c.__setitem__("S3Bucket", {"Fn::Sub": "cdk-other-assets-${AWS::AccountId}-ap-southeast-2"}))
+        problems = verify(dst)[1]
+        assert [p for p in problems if p.startswith(f"{lid}:")], (lid, problems)
+        assert not [p for p in problems if not p.startswith(f"{lid}:")], (lid, problems)   # the others still pass
+
+
+@pytest.mark.parametrize("change,expected", [
+    (lambda c: c.pop("S3Bucket"), "Code must be exactly S3Bucket and S3Key"),
+    (lambda c: c.__setitem__("ZipFile", "print(1)"), "Code must be exactly S3Bucket and S3Key"),
+    (lambda c: c.__setitem__("S3Bucket", {"Fn::Join": ["", ["a", "b"]]}), "S3Bucket is not a fixed bucket"),
+    (lambda c: c.__setitem__("S3Bucket", {"Ref": "SomeBucket"}), "S3Bucket is not a fixed bucket"),
+    (lambda c: c.__setitem__("S3Bucket", {"Fn::Sub": ["x-${A}", {"A": "b"}]}), "S3Bucket is not a fixed bucket"),
+    (lambda c: c.__setitem__("S3Bucket", ""), "S3Bucket is not a fixed bucket"),
+    (lambda c: c.__setitem__("S3Key", {"Fn::Sub": "x.zip"}), "S3Key is not a fixed object key"),
+    (lambda c: c.__setitem__("S3Key", ""), "S3Key is not a fixed object key"),
+])
+def test_e5_07_a_missing_or_malformed_code_reference_is_refused(built, tmp_path, change, expected):
+    from setuhaul.ops.assembly import verify
+    _, out, _ = built
+    lid = _lambda_ids(out)[3]
+    problems = verify(_mutate_code(out, tmp_path, lid, change))[1]
+    assert any(p.startswith(f"{lid}:") and expected in p for p in problems), problems
+
+
+def test_e5_07_an_asset_destination_in_another_bucket_is_refused(built, tmp_path):
+    """The template is untouched, but the asset manifest would publish the key to a different bucket."""
+    from setuhaul.ops.assembly import verify
+    _, out, _ = built
+    dst = _copy_assembly(out, tmp_path)
+    am_path = dst / "SetuHaulPilot.assets.json"
+    am = json.loads(am_path.read_text(encoding="utf-8"))
+    key = verify(out)[0]["asset_object_key"]
+    for a in am["files"].values():
+        for d in a["destinations"].values():
+            if d["objectKey"] == key:
+                d["bucketName"] = "cdk-other-assets-${AWS::AccountId}-ap-southeast-2"
+    am_path.write_text(json.dumps(am), encoding="utf-8")
+    problems = verify(dst)[1]
+    assert len([p for p in problems if "its bucket matches no destination" in p]) == 8, problems
 
 
 def test_the_assembly_check_fails_when_the_staged_asset_is_missing(built, tmp_path):

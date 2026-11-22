@@ -74,6 +74,30 @@ These are code changes; each will come with tests and a review before deployment
 No workload may assume another's role, use `setuhaul_rpc`, the owner or a superuser (DEPLOYMENT_GATES.md, workload
 identity acceptance 1–5).
 
+### Deploy role: GitHub OIDC trust (review E5-08; **external gate, not implemented in AWS**)
+
+The pipeline may deploy only from `refs/heads/release/fde-sydney-pilot`, the one pilot release branch. The workflow
+enforces it twice: the deploy job's condition (`github.ref == 'refs/heads/release/fde-sydney-pilot'`, together with
+`workflow_dispatch` and the typed confirmation `pilot`) and a first step that refuses any other ref before checkout or
+sign-in (`tests/test_pipeline.py`). The AWS role must enforce the same identity on its side, because a workflow file
+can be changed on any branch:
+
+1. **GitHub (owner, repository setting):** customise the OIDC subject claim with
+   `include_claim_keys: ["repo", "context", "ref"]`. The deploy job's token subject is then exactly
+   `repo:amolam/setuhaul-logistics:environment:pilot:ref:refs/heads/release/fde-sydney-pilot`.
+2. **AWS (owner):** the deploy role trusts `token.actions.githubusercontent.com` with **StringEquals** on
+   `token.actions.githubusercontent.com:aud` = `sts.amazonaws.com` and `token.actions.githubusercontent.com:sub` =
+   that exact string, with no `StringLike` and no wildcard. Template: `infra/github_oidc_deploy_trust_policy.json`
+   (`<ACCOUNT_ID>` to fill). The role's permissions are limited to `ap-southeast-2`.
+3. **Do not rely on the environment subject alone.** Without the customisation, a job with `environment: pilot` gets
+   the subject `repo:amolam/setuhaul-logistics:environment:pilot`, which names no branch: a role trusting it would
+   accept any branch that reaches the environment. On a free private repository the environment cannot restrict
+   deployment branches either, so the environment proves nothing about the branch.
+
+Status: the trust policy is documented and checked statically in this repository; neither the subject customisation
+nor the AWS role exists yet. Until the owner creates both and verifies them (a token from another branch must be
+refused by `AssumeRoleWithWebIdentity`), AWS-side enforcement remains an **external gate**.
+
 ## 5. Configuration per environment
 
 | | dev / eval / ci | staging | pilot |

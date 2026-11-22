@@ -135,3 +135,12 @@ and response. Phase 2 findings were closed at Phase 2 sign-off (`../docs/2-desig
   rollback documented as redeploying the previous assembly, E0-01 4xx alarm renamed. Outstanding: E5-06 (Ubuntu
   reproducibility, runs in CI), E3-01 to E3-04 (AURORA gate), the OIDC deploy role, Meta submission and the Hinglish
   gate. Record: `docs/release/07_AWS_IMPLEMENTATION.md`; tests: `docs/release/01_TEST_REPORT.md`.
+- **Phase E second review round (22 Nov 2026), on top of 5a9a16d:** E4-02 (High) callback backoff cast to integer
+  before the cap, overflowing from 31 attempts: **resolved** (exponent capped first in 0024;
+  `test_e4_02_the_backoff_is_capped_at_30_minutes_without_integer_overflow`). E5-07 (Medium) the assembly check
+  ignored `S3Bucket`: **resolved** (each function's bucket and key must match one destination of the staged asset;
+  `test_e5_07_*` and `test_the_assembly_check_fails_when_a_function_points_elsewhere`). E5-08 (High) a manual
+  dispatch could deploy from any branch: **resolved in the repository** (allow-list `refs/heads/release/fde-sydney-pilot`
+  in the job condition and a first-step guard, typed confirmation kept; `tests/test_pipeline.py`); the matching OIDC
+  trust (subject with `ref`, exact `StringEquals`, `infra/github_oidc_deploy_trust_policy.json`) is documented, and
+  its enforcement in GitHub and AWS stays an **external gate**. Record: `docs/release/07_AWS_IMPLEMENTATION.md`.

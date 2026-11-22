@@ -56,11 +56,13 @@ BEGIN
               AND (cb.next_at IS NULL OR cb.next_at <= clock_timestamp())
             ORDER BY ar.decided_at LIMIT p_limit LOOP
     -- The lease. A concurrent claimer re-checks the row under its lock and finds it not due, so it skips it.
+    -- Backoff 1, 2, 4, 8, 16, then 30 minutes. The exponent is capped BEFORE the integer cast (review E4-02): with
+    -- power(2, attempts)::integer, attempts >= 31 overflowed integer before least() could cap it.
     INSERT INTO approval_callbacks AS c (approval_id, attempts, next_at)
     VALUES (r.aid, 1, clock_timestamp() + interval '1 minute')
     ON CONFLICT ON CONSTRAINT approval_callbacks_pkey DO UPDATE
        SET attempts = c.attempts + 1,
-           next_at = clock_timestamp() + make_interval(mins => least(30, power(2, c.attempts)::integer)),
+           next_at = clock_timestamp() + make_interval(mins => least(30, power(2, least(c.attempts, 5))::integer)),
            updated_at = clock_timestamp()
      WHERE c.completed_at IS NULL AND (c.next_at IS NULL OR c.next_at <= clock_timestamp())
     RETURNING c.attempts INTO n;

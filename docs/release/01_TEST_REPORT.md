@@ -1,5 +1,25 @@
 # Phase C: test report
 
+## Phase E second review round: E4-02, E5-07, E5-08 (22 Nov 2026, on top of `5a9a16d`)
+
+Run once each, one after the other, after the last code change of this commit (only this report was edited after).
+
+| Run | Command | Exit | Result | Time |
+|---|---|---|---|---|
+| C. Focused regression tests | `SETUHAUL_TEST_DSN="host=localhost port=55432 user=postgres" python -m pytest tests/test_pipeline.py tests/test_infra.py tests/test_aws.py -q -p no:cacheprovider -rs -k "e4_02 or e5_07 or points_elsewhere or pipeline or deploy or branch or oidc or confirmation or environment_only"` | 0 | **46 passed**, 48 deselected | 30 s |
+| A. Full suite, normal mode | `SETUHAUL_TEST_DSN="host=localhost port=55432 user=postgres" python -m pytest tests -q -p no:cacheprovider -rs` | 0 | **1004 passed, 1 skipped**, 0 failed, 0 deselected, no warnings reported | 09:41:50 → 10:12:56 IST (31 min 0 s) |
+| B. Data API mode | `SETUHAUL_TEST_DSN="host=localhost port=55432 user=postgres" SETUHAUL_TEST_DATA_API=1 python -m pytest tests/test_api.py tests/test_db_requests.py tests/test_approvals.py tests/test_orchestrator.py tests/test_outbound.py tests/test_inbound_delivery.py tests/test_concurrency.py tests/test_data_api.py tests/test_aws.py -q -p no:cacheprovider -rs` | 0 | **378 passed**, 0 failed, 0 skipped | 10:13:15 → 10:29:29 IST (16 min 10 s) |
+
+- The one skip in A is `test_data_api.py::test_the_suite_really_goes_through_the_data_api_backend` (Data API mode only;
+  it passed in B). The nine files in B are the list from the previous Phase E record.
+- Tests collected: 961 at `5a9a16d`, 1005 now (+44): 10 E4-02 cases in `test_aws.py`, 12 E5-07 tests in
+  `test_infra.py`, 22 E5-08 checks in the new `tests/test_pipeline.py`. B grows by the 10 E4-02 cases (368 → 378).
+- E4-02 regression shown both ways: with the committed (old) 0024, the attempts = 31, 32 and 1,000,000 cases fail
+  with `integer out of range`; with the fix all ten pass.
+- Run A took longer than the previous full run (17 min); no test failed or was retried.
+- Not run: CI on GitHub (Ubuntu), anything in AWS. The OIDC subject customisation and deploy role are not verified
+  (external gate).
+
 ## Phase E review fixes (22 Nov 2026, branch `phase-e/aws-implementation-fixes`, from `250b794`)
 
 Both runs below were made once, one after the other, after the last code change of the fix commit. Documentation was
