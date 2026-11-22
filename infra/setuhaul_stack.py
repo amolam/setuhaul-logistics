@@ -324,15 +324,15 @@ class SetuHaulPilotStack(Stack):
             rds_arn("cluster-pg", cluster_id), rds_arn("cluster-pg", "default.*"), rds_arn("pg", "default.*")]))
         express.add_to_role_policy(iam.PolicyStatement(actions=[
             "rds:Describe*", "ec2:DescribeSubnets", "ec2:DescribeSecurityGroups", "ec2:DescribeVpcs",
-            "ec2:DescribeAvailabilityZones"], resources=["*"]))
+            "ec2:DescribeAvailabilityZones", "logs:DescribeLogGroups"], resources=["*"]))   # list-only; no resource ARNs
         express.add_to_role_policy(iam.PolicyStatement(actions=["iam:CreateServiceLinkedRole"], resources=["*"],
                                                        conditions={"StringEquals": {"iam:AWSServiceName": "rds.amazonaws.com"}}))
         express.add_to_role_policy(iam.PolicyStatement(actions=["lambda:InvokeFunction"], resources=[
             boot.function_arn, self.format_arn(service="lambda", resource="function", resource_name=express_name,
                                                arn_format=cdk_arn_format())]))
         self.owner_secret.grant_read(express)
-        express.add_to_role_policy(iam.PolicyStatement(actions=["logs:CreateLogGroup", "logs:PutRetentionPolicy",
-                                                                "logs:DescribeLogGroups"], resources=[
+        express.add_to_role_policy(iam.PolicyStatement(actions=["logs:CreateLogGroup", "logs:PutRetentionPolicy"],
+                                                       resources=[
             self.format_arn(service="logs", resource="log-group", resource_name=f"{db_log_group}:*",
                             arn_format=cdk_arn_format()),
             self.format_arn(service="logs", resource="log-group", resource_name=db_log_group, arn_format=cdk_arn_format())]))

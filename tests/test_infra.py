@@ -124,6 +124,21 @@ def test_only_the_bootstrap_function_can_reach_the_database_port(t):
     assert in_vpc == ["setuhaul-pilot-db-bootstrap"]
 
 
+def test_the_express_resource_can_list_log_groups_but_change_only_the_database_one(t):
+    """Regression (deploy run 45014745324): logs:DescribeLogGroups is account-level (resource "*"); creating and
+    setting retention stay scoped to /aws/rds/cluster/setuhaul-pilot/postgresql."""
+    fn = next(lid for lid, r in resources(t, "AWS::Lambda::Function").items()
+              if r["Properties"]["FunctionName"] == "setuhaul-pilot-db-express")
+    stmts = _policy_resources(t, fn)
+    acts = lambda s: s["Action"] if isinstance(s["Action"], list) else [s["Action"]]
+    (lst,) = [s for s in stmts if "logs:DescribeLogGroups" in acts(s)]
+    assert lst["Resource"] == "*"
+    (chg,) = [s for s in stmts if "logs:PutRetentionPolicy" in acts(s)]
+    assert set(acts(chg)) == {"logs:CreateLogGroup", "logs:PutRetentionPolicy"}
+    assert "postgresql" in json.dumps(chg["Resource"]) and chg["Resource"] != "*"
+    assert not [s for s in stmts if "logs:DeleteLogGroup" in acts(s) or "logs:*" in acts(s)]
+
+
 def test_the_owner_login_is_not_the_master_and_only_the_express_resource_reads_it(t):
     owner = next(lid for lid, r in resources(t, "AWS::SecretsManager::Secret").items()
                  if r["Properties"].get("Name") == "setuhaul/pilot/db/owner")
