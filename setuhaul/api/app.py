@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from typing import Callable, Literal
 
 import psycopg
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Path, Query, Request
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 from pydantic import AwareDatetime, BaseModel, Field, model_validator
@@ -284,6 +284,16 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
     @app.get("/console/escalations")
     def escalations(p: Principal = Depends(staff)):
         return {"escalations": svc.list_escalations(p)}
+
+    @app.get("/console/threads")
+    def threads(limit: int = Query(25, ge=1, le=50), before: datetime | None = None, p: Principal = Depends(staff)):
+        """Read only: conversations in this person's facilities, newest activity first (paged by `before`)."""
+        return svc.list_threads(p, limit, before)
+
+    @app.get("/console/threads/{thread_id}")
+    def thread(thread_id: str = Path(min_length=1, max_length=80), p: Principal = Depends(staff)):
+        """Read only: one conversation as stored (masked messages, facts, ETA, options, notifications)."""
+        return svc.thread_detail(p, thread_id)
 
     @app.post("/console/threads/{thread_id}/takeover")
     def takeover(thread_id: str, body: Takeover, p: Principal = Depends(staff)):

@@ -76,7 +76,10 @@ def translate(e: Exception) -> Exception:
     m = _SQLSTATE.search(msg)
     sqlstate = m.group(1) if m else None
     body = _SQLSTATE.sub("", msg).strip()
-    primary = body.split("\n", 1)[0].removeprefix("ERROR:").strip() if err.get("Code") == "BadRequestException" else None
+    # Aurora reports SQL errors as DatabaseErrorException (seen on the pilot, 22 Nov 2026); the emulator, as older
+    # Data API versions did, as BadRequestException. Both carry the server's message, which the service maps.
+    primary = (body.split("\n", 1)[0].removeprefix("ERROR:").strip()
+               if err.get("Code") in ("BadRequestException", "DatabaseErrorException") else None)
     return _error_class(sqlstate)(f"{err.get('Code', type(e).__name__)}: {body[:500]}", sqlstate, primary)
 
 

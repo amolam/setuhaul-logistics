@@ -166,3 +166,24 @@ def test_errors_arrive_as_the_same_psycopg_class(ddb, sql, cls):
         with ddb.tx("agent") as c:
             c.execute(sql)
     assert isinstance(e.value, DataApiDatabaseError) and e.value.sqlstate == cls.sqlstate
+
+
+def test_aurora_database_errors_keep_their_message_and_sqlstate():
+    """Regression (pilot, 22 Nov 2026): Aurora answers SQL errors with DatabaseErrorException, not
+    BadRequestException; the server's message (HOLD_CONFLICT, FORBIDDEN, BAD_RESERVATION ...) must survive so the
+    service maps it exactly as with a direct connection."""
+    import psycopg
+    from setuhaul.aws.data_api import translate
+
+    class E(Exception):
+        def __init__(self, code, msg):
+            super().__init__(msg)
+            self.response = {"Error": {"Code": code, "Message": msg}}
+    for code in ("DatabaseErrorException", "BadRequestException"):
+        t = translate(E(code, "ERROR: HOLD_CONFLICT: slot taken\n  Where: PL/pgSQL function place_hold; SQLState: P0001"))
+        assert t.sqlstate == "P0001" and t.diag.message_primary == "HOLD_CONFLICT: slot taken"
+        assert isinstance(t, psycopg.errors.RaiseException)
+    t = translate(E("DatabaseErrorException", "ERROR: permission denied for table x; SQLState: 42501"))
+    assert isinstance(t, psycopg.errors.InsufficientPrivilege) and t.diag.message_primary == "permission denied for table x"
+    assert translate(E("ForbiddenException", "not authorized")).diag.message_primary is None
+
