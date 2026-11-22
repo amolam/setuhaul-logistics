@@ -10,7 +10,9 @@ The output directory is explicit. Without it, a CDK app run outside the CDK CLI 
 
 Context (cdk.json or -c): lambda_asset (default build/lambda.zip; must be a zip file, so CDK stages it byte for byte),
 whatsapp_phone_number_id, alarm_email, llm_daily_budget_usd (default 0.25), whatsapp_approved_templates (JSON list of
-"name:language" that Meta has approved; default none).
+"name:language" that Meta has approved; default none), booking_approval (Option D: absent = booking OFF; the
+owner's written approval reference OWNER-APPROVAL-YYYYMMDD-<ref> turns the switch on for the workload functions, which
+still refuse to start until all six Step 6 gates have current evidence; the CI workflow never passes it).
 """
 from __future__ import annotations
 
@@ -33,5 +35,6 @@ SetuHaulPilotStack(
     whatsapp_phone_number_id=ctx("whatsapp_phone_number_id") or "",
     alarm_email=ctx("alarm_email") or "",
     llm_daily_budget_usd=ctx("llm_daily_budget_usd") or "0.25",
-    approved_templates=ctx("whatsapp_approved_templates") or "[]")
+    approved_templates=ctx("whatsapp_approved_templates") or "[]",
+    booking_approval=ctx("booking_approval") or "")
 app.synth()

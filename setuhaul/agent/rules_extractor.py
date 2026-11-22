@@ -93,6 +93,12 @@ def _minutes(n: str, unit: str) -> int:
     return int(round(v * (60 if unit.lower().startswith(("h", "g")) else 1)))
 
 
+def _evening_guess(hour: str) -> str | None:
+    """"after 5" / "before 6" from a driver means the evening. A zero-padded hour ("05:26", "06:00") is written as
+    24-hour time and keeps its morning meaning (scenario run, 23 Nov 2026: "anything after 05:26" was read as 17:26)."""
+    return "pm" if int(hour) < 7 and not hour.startswith("0") else None
+
+
 def extract(text: str, shown_option_ids: list[str] | None = None, awaiting_confirmation: bool = False,
             asked: str | None = None) -> Extraction:
     """`asked` is the question the agent asked last turn (stored in turn facts). After an arrival-time question, a
@@ -174,12 +180,12 @@ def extract(text: str, shown_option_ids: list[str] | None = None, awaiting_confi
         out["declared_delay_min"] = mins
         out["delay_kind"] = "REPAIR_DURATION" if out["exception_type"] == "BREAKDOWN" and "repair" in low else "DELAY_DURATION"
     if (m := _AFTER.search(t)) and not any(_NON_ARRIVAL.search(s) for s in _clause(m)):   # not "ke baad 12 baje call"
-        out["earliest_start_local"] = _hhmm(m.group(1), m.group(2), m.group(3) or ("pm" if int(m.group(1)) < 7 else None))
+        out["earliest_start_local"] = _hhmm(m.group(1), m.group(2), m.group(3) or _evening_guess(m.group(1)))
     if m := _BEFORE.search(t):
-        out["latest_finish_local"] = _hhmm(m.group(1), m.group(2), m.group(3) or ("pm" if int(m.group(1)) < 7 else None))
+        out["latest_finish_local"] = _hhmm(m.group(1), m.group(2), m.group(3) or _evening_guess(m.group(1)))
     elif m := _BEFORE_HI.search(t):                                  # "raat 10 baje se pehle gate se nikalna hai"
         out["latest_finish_local"] = _daypart_hhmm(m.group(1), m.group(2), m.group(3),
-                                                   m.group(4) or (None if m.group(1) else ("pm" if int(m.group(2)) < 7 else None)))
+                                                   m.group(4) or (None if m.group(1) else _evening_guess(m.group(2))))
     if out.get("latest_finish_local"):
         # only an explicit gate-out counts; "leave the warehouse by 1:30" is ambiguous (Phase 1 MSG004) → ask
         out["latest_finish_kind"] = "GATE_OUT" if re.search(r"gate.?out|exit the gate|gate se nikal", low) else "UNKNOWN"

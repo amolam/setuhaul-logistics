@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable, Literal
@@ -133,6 +134,22 @@ class Takeover(BaseModel):
 class Handback(BaseModel):
     model_config = {"extra": "forbid"}
     summary: str = Field(min_length=10, max_length=1000)
+
+
+ScheduleRule = Literal["FACILITY_SCORE", "FCFS", "EARLIEST_ETA"]
+
+
+class ScheduleStore(BaseModel):
+    model_config = {"extra": "forbid"}
+    rule: ScheduleRule = "FACILITY_SCORE"
+    ttl_s: int = Field(default=600, ge=60, le=1800)
+
+
+class Move(BaseModel):
+    model_config = {"extra": "forbid"}
+    proposal_id: uuid.UUID
+    idempotency_key: str = Field(min_length=16, max_length=128)
+    note: str | None = Field(default=None, max_length=500)
 
 
 log = logging.getLogger("setuhaul.api")
@@ -295,6 +312,24 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
     @app.post("/console/docks/{dock_id}/blocks")
     def block(dock_id: str, b: Block, p: Principal = Depends(staff)):
         return {"occupancy_id": svc.block_dock(p, dock_id, b.event_id, b.start, b.end, b.type, b.reason)}
+
+    @app.get("/console/facilities/{facility_id}/schedule-proposal")
+    def schedule_proposal(facility_id: str = Path(min_length=1, max_length=40), rule: ScheduleRule = "FACILITY_SCORE",
+                          p: Principal = Depends(staff)):
+        """Read only: the facility scheduling tool's PROPOSAL as of now (not stored, not a booking)."""
+        return svc.schedule_proposal(p, facility_id, rule)
+
+    @app.post("/console/facilities/{facility_id}/schedule-proposals")
+    def store_schedule_proposal(body: ScheduleStore, facility_id: str = Path(min_length=1, max_length=40),
+                                p: Principal = Depends(staff)):
+        """Compute and store a proposal (evidence with an expiry) so its moves can be applied one at a time."""
+        return svc.store_schedule_proposal(p, facility_id, body.rule, body.ttl_s)
+
+    @app.post("/console/appointments/{appointment_id}/move")
+    def move_appointment(body: Move, appointment_id: str = Path(min_length=1, max_length=80),
+                         p: Principal = Depends(staff)):
+        """Apply one move of a stored proposal. Booking switch, role, facility and every booking rule are re-checked."""
+        return svc.move_appointment(p, appointment_id, body.proposal_id, body.idempotency_key, body.note)
 
     @app.get("/console/escalations")
     def escalations(p: Principal = Depends(staff)):

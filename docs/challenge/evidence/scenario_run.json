@@ -1,0 +1,218 @@
+{
+ "recorded_at": "2026-11-23T00:52:07+05:30",
+ "reader": "production rules reader (no model call)",
+ "booking": "local test harness; the deployed switch stays OFF",
+ "turns": [
+  {
+   "t_ms": 1281,
+   "item": 1,
+   "driver": "A",
+   "driver_says": "Stuck in traffic near Neemrana, running late",
+   "agent_replies": "What time do you expect to reach the warehouse gate?",
+   "path": [
+    "ask:declared_eta_local"
+   ]
+  },
+  {
+   "t_ms": 3142,
+   "item": 1,
+   "driver": "A",
+   "driver_says": "around 03:22",
+   "agent_replies": "Available slots:\n1. Dock D1, 4:00 AM on 23 Nov\n2. Dock D2, 4:00 AM on 23 Nov\n3. Dock D3, 4:00 AM on 23 Nov\nReply with the number you want.",
+   "path": [
+    "options",
+    "phrase:template"
+   ]
+  },
+  {
+   "t_ms": 4887,
+   "item": 2,
+   "driver": "A",
+   "driver_says": "anything after 05:52?",
+   "agent_replies": "Available slots:\n1. Dock D1, 6:00 AM on 23 Nov\n2. Dock D2, 6:00 AM on 23 Nov\n3. Dock D3, 6:00 AM on 23 Nov\nReply with the number you want.",
+   "path": [
+    "options",
+    "phrase:template"
+   ],
+   "evidence": {
+    "first_list": "Available slots:\n1. Dock D1, 4:00 AM on 23 Nov\n2. Dock D2, 4:00 AM on 23 Nov\n3. Dock D3, 4:00 AM on 23 Nov\nReply with the number you want.",
+    "later_list": "Available slots:\n1. Dock D1, 6:00 AM on 23 Nov\n2. Dock D2, 6:00 AM on 23 Nov\n3. Dock D3, 6:00 AM on 23 Nov\nReply with the number you want.",
+    "asked_after": "05:52"
+   }
+  },
+  {
+   "t_ms": 6726,
+   "item": 3,
+   "driver": "B",
+   "driver_says": "Tyre puncture, reaching gate at 03:22, any slot?",
+   "agent_replies": "Available slots:\n1. Dock D1, 4:00 AM on 23 Nov\n2. Dock D2, 4:00 AM on 23 Nov\n3. Dock D3, 4:00 AM on 23 Nov\nReply with the number you want.",
+   "path": [
+    "options",
+    "phrase:template"
+   ]
+  },
+  {
+   "t_ms": 8663,
+   "item": 3,
+   "driver": "C",
+   "driver_says": "Late due to rain, reaching at 03:22, need a slot",
+   "agent_replies": "Available slots:\n1. Dock D1, 4:00 AM on 23 Nov\n2. Dock D2, 4:00 AM on 23 Nov\n3. Dock D3, 4:00 AM on 23 Nov\nReply with the number you want.",
+   "path": [
+    "options",
+    "phrase:template"
+   ]
+  },
+  {
+   "t_ms": 9933,
+   "item": 4,
+   "driver": "B",
+   "driver_says": "1",
+   "agent_replies": "You selected dock D1 at 4:00 AM on 23 Nov. Shall I request it? Reply YES to confirm.",
+   "path": [
+    "select"
+   ]
+  },
+  {
+   "t_ms": 12006,
+   "item": 4,
+   "driver": "B",
+   "driver_says": "YES",
+   "agent_replies": "Request sent for dock D1 at 4:00 AM on 23 Nov. It is NOT confirmed yet; the warehouse will reply and I will tell you.",
+   "path": [
+    "confirmation",
+    "book"
+   ]
+  },
+  {
+   "t_ms": 13245,
+   "item": 4,
+   "driver": "C",
+   "driver_says": "1",
+   "agent_replies": "You selected dock D1 at 4:00 AM on 23 Nov. Shall I request it? Reply YES to confirm.",
+   "path": [
+    "select"
+   ]
+  },
+  {
+   "t_ms": 15159,
+   "item": 5,
+   "driver": "C",
+   "driver_says": "YES",
+   "agent_replies": "That slot was just taken.\nAvailable slots:\n1. Dock D2, 4:00 AM on 23 Nov\n2. Dock D3, 4:00 AM on 23 Nov\n3. Dock D1, 5:00 AM on 23 Nov\nReply with the number you want.",
+   "path": [
+    "confirmation",
+    "book"
+   ],
+   "evidence": {
+    "contested_slot": "Dock D1, 4:00 AM on 23 Nov",
+    "active_appointments_on_that_slot": [
+     [
+      "SHP-3bc96c59-0",
+      "PENDING_CONFIRMATION"
+     ]
+    ]
+   }
+  },
+  {
+   "t_ms": 20408,
+   "item": 4,
+   "driver": "planner",
+   "driver_says": "CONFIRM in the staff console",
+   "evidence": {
+    "appointment": "APT-e30aada42c574938b1b7988800fdf44b",
+    "status": "CONFIRMED",
+    "b_phone_shows": [
+     "Available slots:\n1. Dock D1, 4:00 AM on 23 Nov\n2. Dock D2, 4:00 AM on 23 Nov\n3. Dock D3, 4:00 AM on 23 Nov\nReply with the number you want.",
+     "You selected dock D1 at 4:00 AM on 23 Nov. Shall I request it? Reply YES to confirm.",
+     "Request sent for dock D1 at 4:00 AM on 23 Nov. It is NOT confirmed yet; the warehouse will reply and I will tell you.",
+     "Your dock booking is confirmed by the warehouse."
+    ]
+   }
+  },
+  {
+   "t_ms": 20650,
+   "item": 7,
+   "driver": "planner",
+   "driver_says": "GET schedule proposal (FACILITY_SCORE)",
+   "evidence": {
+    "status": "PROPOSAL",
+    "not_a_booking": true,
+    "metrics": {
+     "trucks": 3,
+     "planned": 3,
+     "weighted_wait": 0,
+     "total_wait": 0,
+     "max_wait": 0,
+     "missed_promises": 0,
+     "changed_promises": 0,
+     "kept_promises": 1,
+     "moves": 0,
+     "moves_in_a_cycle": 0,
+     "unscheduled": 0,
+     "score": 0,
+     "fixed_tasks": 0
+    },
+    "sequence": [
+     {
+      "seq": 1,
+      "shipment_id": "SHP-3bc96c59-0",
+      "action": "KEEP",
+      "dock_code": "D1",
+      "start": "2026-11-23T03:47:00+05:30",
+      "reason": "pass 3: keeps its promise D1 04:00 (ready 03:47, docks at 03:47)"
+     },
+     {
+      "seq": 2,
+      "shipment_id": "SHP-a7910e0e-0",
+      "action": "PLAN",
+      "dock_code": "D2",
+      "start": "2026-11-23T03:47:00+05:30",
+      "reason": "pass 2: no booking yet; ready 03:47; earliest suitable dock time D2 03:47"
+     },
+     {
+      "seq": 3,
+      "shipment_id": "SHP-f1bc32cf-0",
+      "action": "PLAN",
+      "dock_code": "D3",
+      "start": "2026-11-23T03:47:00+05:30",
+      "reason": "pass 2: no booking yet; ready 03:47; earliest suitable dock time D3 03:47"
+     }
+    ],
+    "unscheduled": [],
+    "appointments_changed": 0
+   }
+  },
+  {
+   "t_ms": 22591,
+   "item": 6,
+   "driver": "H",
+   "driver_says": "Running late, reaching at 03:22, any slot?",
+   "agent_replies": "A coordinator has your details and will reply within 10 minutes.",
+   "path": [
+    "options",
+    "escalated:NO_FEASIBLE_SLOT"
+   ],
+   "evidence": {
+    "escalation": {
+     "reason_code": "NO_FEASIBLE_SLOT",
+     "mode": "DECIDE",
+     "status": "OPEN",
+     "handoff": {
+      "mode": "DECIDE",
+      "queue": "FAC-JAI-01",
+      "reason": "NO_FEASIBLE_SLOT",
+      "built_by": "database",
+      "priority": "NORMAL",
+      "driver_id": "DRV-d1da3175",
+      "thread_id": "THR-771e83e4358b",
+      "ack_sla_min": 10,
+      "shipment_id": "SHP-d1da3175-0",
+      "thread_status": "OPEN",
+      "driver_last_message": "(asked for a slot)",
+      "what_driver_was_told": "A coordinator has your details and will reply within 10 minutes."
+     }
+    }
+   }
+  }
+ ]
+}

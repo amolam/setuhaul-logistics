@@ -10,9 +10,9 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 IST = timezone(timedelta(hours=5, minutes=30))
 SCHEMA_VERSION = "record_driver_report/v1"
@@ -31,43 +31,50 @@ RECORD_DRIVER_REPORT = {
                      "language"],
         "properties": {
             "intent": {"type": "string", "enum": ["REPORT_DELAY", "ASK_OPTIONS", "BOOK", "CHECK_STATUS", "EARLY_ARRIVAL", "CANCEL", "OTHER"]},
-            "shipment_ref_mentioned": {"type": ["string", "null"], "description": "Order or shipment reference exactly as the driver wrote it"},
+            "shipment_ref_mentioned": {"type": ["string", "null"], "maxLength": 64, "description": "Order or shipment reference exactly as the driver wrote it"},
             "delay_kind": {"type": "string", "enum": ["ARRIVAL_TIME", "DELAY_DURATION", "REPAIR_DURATION", "RANGE", "UNKNOWN"]},
-            "declared_eta_local": {"type": ["string", "null"], "description": "HH:MM 24h IST, only if the driver stated a time"},
-            "declared_eta_range_local": {"type": ["array", "null"], "items": {"type": "string"}, "description": "[HH:MM, HH:MM] if a range was given"},
+            "declared_eta_local": {"type": ["string", "null"], "maxLength": 16, "description": "HH:MM 24h IST, only if the driver stated a time"},
+            "declared_eta_range_local": {"type": ["array", "null"], "maxItems": 2, "items": {"type": "string", "maxLength": 16}, "description": "[HH:MM, HH:MM] if a range was given"},
             "declared_delay_min": {"type": ["integer", "null"]},
-            "earliest_start_local": {"type": ["string", "null"]},
-            "latest_finish_local": {"type": ["string", "null"]},
+            "earliest_start_local": {"type": ["string", "null"], "maxLength": 16},
+            "latest_finish_local": {"type": ["string", "null"], "maxLength": 16},
             "latest_finish_kind": {"type": ["string", "null"], "enum": ["GATE_OUT", "UNLOAD_END", "UNLOAD_START", "UNKNOWN", None]},
             "exception_type": {"type": "string", "enum": ["DELAY", "BREAKDOWN", "TRAFFIC", "WEATHER", "EARLY_ARRIVAL", "DOCK_UNAVAILABLE", "UNKNOWN"]},
             "vehicle_fixed": {"type": ["boolean", "null"]},
             "safety_concern": {"type": "boolean", "description": "true for any accident, injury, fire, threat or medical issue"},
-            "selected_option_id": {"type": ["string", "null"], "description": "Only an option_id previously shown in this conversation"},
+            "selected_option_id": {"type": ["string", "null"], "maxLength": 80, "description": "Only an option_id previously shown in this conversation"},
             "explicit_confirmation": {"type": "boolean", "description": "true only for an unambiguous yes to one specific shown option"},
-            "language": {"type": "string"},
+            "language": {"type": "string", "maxLength": 16},
         },
     },
 }
+
+
+# R3 (release follow-up): every free-text field is bounded. An over-long value fails validation like any off-contract
+# answer, so the turn falls back to the rules reader (orchestrator: invalid_schema) instead of carrying it anywhere.
+REF_MAX, TIME_MAX, OPTION_MAX, LANG_MAX = 64, 16, 80, 16
+Ref = Annotated[str, Field(max_length=REF_MAX)]
+Time = Annotated[str, Field(max_length=TIME_MAX)]
 
 
 class Extraction(BaseModel):
     """The model's output, parsed. Unknown keys are rejected (schema drift is an error, not something to ignore)."""
     model_config = ConfigDict(extra="forbid")
     intent: Literal["REPORT_DELAY", "ASK_OPTIONS", "BOOK", "CHECK_STATUS", "EARLY_ARRIVAL", "CANCEL", "OTHER"]
-    shipment_ref_mentioned: str | None = None
+    shipment_ref_mentioned: Ref | None = None
     delay_kind: Literal["ARRIVAL_TIME", "DELAY_DURATION", "REPAIR_DURATION", "RANGE", "UNKNOWN"] = "UNKNOWN"
-    declared_eta_local: str | None = None
-    declared_eta_range_local: list[str] | None = None
+    declared_eta_local: Time | None = None
+    declared_eta_range_local: Annotated[list[Time], Field(max_length=2)] | None = None
     declared_delay_min: int | None = None
-    earliest_start_local: str | None = None
-    latest_finish_local: str | None = None
+    earliest_start_local: Time | None = None
+    latest_finish_local: Time | None = None
     latest_finish_kind: Literal["GATE_OUT", "UNLOAD_END", "UNLOAD_START", "UNKNOWN"] | None = None
     exception_type: Literal["DELAY", "BREAKDOWN", "TRAFFIC", "WEATHER", "EARLY_ARRIVAL", "DOCK_UNAVAILABLE", "UNKNOWN"] = "UNKNOWN"
     vehicle_fixed: bool | None = None
     safety_concern: bool = False
-    selected_option_id: str | None = None
+    selected_option_id: Annotated[str, Field(max_length=OPTION_MAX)] | None = None
     explicit_confirmation: bool = False
-    language: str = "en"
+    language: Annotated[str, Field(max_length=LANG_MAX)] = "en"
 
     @field_validator("declared_eta_range_local", mode="before")
     @classmethod

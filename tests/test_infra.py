@@ -67,7 +67,31 @@ def workload_functions(t):
     return {n: p for n, p in functions(t).items() if n.removeprefix("setuhaul-pilot-") not in PLATFORM_FUNCTIONS}
 
 
+def test_option_d_switch_needs_the_owners_approval_reference_and_never_reaches_setup_functions(tmp_path):
+    """Option D: absent context = OFF (the pilot, and every CI synth); a malformed reference is refused; the approval
+    reference turns it on only for the workload functions, which still need all six gates at start-up."""
+    def synth(approval):
+        app = cdk.App(outdir=str(tmp_path / f"out{len(approval)}"))
+        s = SetuHaulPilotStack(app, "SetuHaulPilot", lambda_asset=str(_zip(tmp_path / f"l{len(approval)}.zip")),
+                               booking_approval=approval, env=cdk.Environment(account="000000000000", region="ap-southeast-2"))
+        return Template.from_stack(s)
+    for bad in ("yes", "true", "OWNER-APPROVAL-2026-x", "on"):
+        with pytest.raises(ValueError, match="OWNER-APPROVAL"):
+            synth(bad)
+    on = synth("OWNER-APPROVAL-20261123-test1")
+    for name, p in functions(on).items():
+        flag = p["Environment"]["Variables"]["SETUHAUL_BOOKING_ENABLED"]
+        assert flag == ("false" if name.removeprefix("setuhaul-pilot-") in PLATFORM_FUNCTIONS else "true"), name
+    assert on.find_outputs("BookingMode")["BookingMode"]["Value"] == "ON (OWNER-APPROVAL-20261123-test1)"
+
+
+def test_ci_never_passes_the_booking_approval():
+    ci = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    assert "booking_approval" not in ci and "BOOKING_ENABLED=true" not in ci
+
+
 def test_the_booking_switch_is_off_and_the_data_is_synthetic_on_every_function(t):
+    assert t.find_outputs("BookingMode")["BookingMode"]["Value"] == "OFF"
     fns = functions(t)
     assert len(workload_functions(t)) == 8   # api, agent, recovery, outbound, relay, and the three state-machine tasks
     assert set(fns) - set(workload_functions(t)) == {f"setuhaul-pilot-{n}" for n in PLATFORM_FUNCTIONS}

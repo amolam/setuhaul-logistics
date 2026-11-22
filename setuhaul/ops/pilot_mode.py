@@ -47,13 +47,39 @@ SELECT
 
 class PilotMode:
     def __init__(self, events, lam, db, rule_names: dict[str, str], function_names: dict[str, str], sfn=None,
-                 state_machine_arn: str | None = None, cloudwatch=None, cluster_id: str | None = None):
+                 state_machine_arn: str | None = None, cloudwatch=None, cluster_id: str | None = None, rds=None):
         self.events, self.lam, self.db, self.sfn = events, lam, db, sfn
         self.rules, self.functions, self.machine = rule_names, function_names, state_machine_arn
-        self.cw, self.cluster_id = cloudwatch, cluster_id
+        self.cw, self.cluster_id, self.rds = cloudwatch, cluster_id, rds
+
+    def pause_events(self, minutes: int = 1440, now=None) -> dict:
+        """Acceptance 2, authoritative: RDS records every auto-pause and resume as a db-cluster event ("Successfully
+        paused the DB instance ...", "Successfully resumed ..."). The ACU metric stopped publishing for the express
+        cluster on 22 Nov 2026, so the events, not the metric, say whether the database is paused."""
+        from datetime import datetime, timedelta, timezone
+        end = now or datetime.now(timezone.utc)
+        evs, marker = [], None
+        while True:
+            r = self.rds.describe_events(SourceType="db-cluster", SourceIdentifier=self.cluster_id,
+                                         StartTime=end - timedelta(minutes=minutes), EndTime=end,
+                                         **({"Marker": marker} if marker else {}))
+            evs += r.get("Events", [])
+            marker = r.get("Marker")
+            if not marker:
+                break
+        done = [(e["Date"], "PAUSED" if "Successfully paused" in e["Message"] else "RESUMED")
+                for e in sorted(evs, key=lambda e: e["Date"])
+                if "Successfully paused" in e["Message"] or "Successfully resumed" in e["Message"]]
+        pending = [e for e in evs if "Initiated pause" in e["Message"] or "Initiated resume" in e["Message"]]
+        last = done[-1] if done else None
+        return {"cluster": self.cluster_id, "source": "RDS cluster events", "minutes": minutes,
+                "pauses": sum(1 for _, k in done if k == "PAUSED"), "resumes": sum(1 for _, k in done if k == "RESUMED"),
+                "state": last[1] if last else "UNKNOWN (no pause or resume in the window)",
+                "since": last[0] if last else None, "initiated_events": len(pending)}
 
     def pause_check(self, minutes: int = 30, now=None) -> dict:
-        """Acceptance 2: the cluster's ServerlessDatabaseCapacity (ACU) per minute; paused = a minute at 0."""
+        """The cluster's ServerlessDatabaseCapacity (ACU) per minute; paused = a minute at 0. Kept as a secondary
+        signal: prefer pause_events() (the metric can stop publishing while the cluster is paused)."""
         from datetime import datetime, timedelta, timezone
         end = now or datetime.now(timezone.utc)
         r = self.cw.get_metric_statistics(Namespace="AWS/RDS", MetricName="ServerlessDatabaseCapacity",
@@ -131,7 +157,8 @@ def from_stack(region: str = REGION) -> PilotMode:
                    boto3.client("rds-data", region_name=region), resume_wait_s=120)
     return PilotMode(boto3.client("events", region_name=region), boto3.client("lambda", region_name=region), db, rules,
                      {w: f"setuhaul-{env}-{w}" for w in WORKERS}, boto3.client("stepfunctions", region_name=region),
-                     out.get("ApprovalAliasArn"), boto3.client("cloudwatch", region_name=region), f"setuhaul-{env}")
+                     out.get("ApprovalAliasArn"), boto3.client("cloudwatch", region_name=region), f"setuhaul-{env}",
+                     boto3.client("rds", region_name=region))
 
 
 def main(argv=None) -> int:
@@ -141,7 +168,8 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
     pm = from_stack()
     result = (pm.status() if a.command == "status" else pm.wake() if a.command == "wake"
-              else pm.pause_check() if a.command == "pause-check" else pm.sleep(not a.no_drain))
+              else {"events": pm.pause_events(), "acu_metric": pm.pause_check()} if a.command == "pause-check"
+              else pm.sleep(not a.no_drain))
     print(json.dumps(result, indent=2, default=str))
     return 0
 

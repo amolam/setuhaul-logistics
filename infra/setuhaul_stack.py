@@ -17,6 +17,8 @@ The booking switch is set to "false" on every function and nothing in this stack
 """
 from __future__ import annotations
 
+import re
+
 import json
 from pathlib import Path
 
@@ -36,6 +38,7 @@ def cdk_arn_format():
 ROOT = Path(__file__).resolve().parents[1]
 ASL = ROOT / "setuhaul" / "workflow" / "approval_workflow.asl.json"
 REGION = "ap-southeast-2"
+BOOKING_APPROVAL = re.compile(r"OWNER-APPROVAL-20\d{6}-[A-Za-z0-9-]{3,40}")
 LEASE_S = 120                                      # orchestrator processing lease; queue visibility >= 2x
 SYDNEY_AZS = ("ap-southeast-2a", "ap-southeast-2b", "ap-southeast-2c")
 DB_PARAMETER_FAMILY = "aurora-postgresql17"         # express configuration creates the Region default (17.9)
@@ -65,8 +68,15 @@ WORKLOAD_ROLES = {
 class SetuHaulPilotStack(Stack):
     def __init__(self, scope: Construct, cid: str, *, lambda_asset: str, environment_name: str = "pilot",
                  whatsapp_phone_number_id: str = "", alarm_email: str = "", llm_daily_budget_usd: str = "0.25",
-                 approved_templates: str = "[]", **kw) -> None:
+                 approved_templates: str = "[]", booking_approval: str = "", **kw) -> None:
         super().__init__(scope, cid, **kw)
+        # Option D switch. Off unless the owner's written approval reference is passed as context (booking_approval);
+        # on, the workload functions still refuse to start until all six Step 6 gates have current evidence for this
+        # deployment (setuhaul/api/inbound.py check_booking_preconditions). Setup and Cognito functions never book.
+        booking_approval = (booking_approval or "").strip()
+        if booking_approval and not BOOKING_APPROVAL.fullmatch(booking_approval):
+            raise ValueError("booking_approval must look like OWNER-APPROVAL-YYYYMMDD-<ref> (the owner's written approval)")
+        self.booking_enabled = bool(booking_approval)
         env_label = f"{environment_name}-{REGION}"
         for k, v in {"Project": "SetuHaul", "Environment": environment_name, "DataClass": "synthetic"}.items():
             Tags.of(self).add(k, v)
@@ -154,7 +164,7 @@ class SetuHaulPilotStack(Stack):
         self.facility_scope_trigger(pool, environment_name, code)
         base_env = {
             "SETUHAUL_ENV": environment_name, "SETUHAUL_ENVIRONMENT": env_label, "SETUHAUL_DATA_CLASS": "synthetic",
-            "SETUHAUL_BOOKING_ENABLED": "false", "SETUHAUL_DSN": "rds-data", "SETUHAUL_DB_CLUSTER_ARN": cluster_arn,
+            "SETUHAUL_BOOKING_ENABLED": "true" if self.booking_enabled else "false", "SETUHAUL_DSN": "rds-data", "SETUHAUL_DB_CLUSTER_ARN": cluster_arn,
             "SETUHAUL_DB_NAME": "setuhaul", "SETUHAUL_QUEUE_URL": queue.queue_url,
             "SETUHAUL_APP_SECRET_ID": app_secret.secret_arn, "SETUHAUL_AWS_REGION": REGION,
             "COGNITO_ISSUER": f"https://cognito-idp.{REGION}.amazonaws.com/{pool.user_pool_id}",
@@ -289,7 +299,8 @@ class SetuHaulPilotStack(Stack):
                      "ScheduleRuleNames": ",".join(r.rule_name for r in self.schedule_rules.values()),
                      "LoginSecretArns": self.to_json_string({r: s.secret_arn for r, s in self.login_secrets.items()}),
                      "ConsoleUrl": console_url, "CognitoDomain": cognito_domain,
-                     "ConsoleClientId": client.user_pool_client_id}.items():
+                     "ConsoleClientId": client.user_pool_client_id,
+                     "BookingMode": f"ON ({booking_approval})" if self.booking_enabled else "OFF"}.items():
             CfnOutput(self, k, value=v)
 
     # ------------------------------------------------------------ database (AURORA gate), docs/release/10_EXPRESS_AURORA.md

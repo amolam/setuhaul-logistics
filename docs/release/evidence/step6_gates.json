@@ -1,0 +1,346 @@
+{
+ "collected_utc": "2026-11-22T18:47:31+00:00",
+ "stack": "SetuHaulPilot",
+ "region": "ap-southeast-2",
+ "booking_enabled": false,
+ "deployment_evidence_rows_written": 0,
+ "gates": {
+  "WORKLOAD_IDENTITY": {
+   "evidence": {
+    "login_to_group_roles": {
+     "setuhaul_login_agent": [
+      "setuhaul_agent"
+     ],
+     "setuhaul_login_console": [
+      "setuhaul_console"
+     ],
+     "setuhaul_login_deploy_evidence": [
+      "setuhaul_deploy_evidence"
+     ],
+     "setuhaul_login_feasibility": [
+      "setuhaul_feasibility"
+     ],
+     "setuhaul_login_ingest": [
+      "setuhaul_ingest"
+     ],
+     "setuhaul_login_system": [
+      "setuhaul_system"
+     ]
+    },
+    "function_to_db_roles": {
+     "FnAgent044E2455": {
+      "db_roles": [
+       "agent",
+       "feasibility",
+       "ingest"
+      ],
+      "db_secrets_iam_can_read": [
+       "agent",
+       "feasibility",
+       "ingest"
+      ]
+     },
+     "FnApi6FF11E4C": {
+      "db_roles": [
+       "console",
+       "ingest"
+      ],
+      "db_secrets_iam_can_read": [
+       "console",
+       "ingest"
+      ]
+     },
+     "FnApprovalExpire5AB1F2F5": {
+      "db_roles": [
+       "system"
+      ],
+      "db_secrets_iam_can_read": [
+       "system"
+      ]
+     },
+     "FnApprovalNotify49C924DA": {
+      "db_roles": [
+       "system"
+      ],
+      "db_secrets_iam_can_read": [
+       "system"
+      ]
+     },
+     "FnApprovalRelay084C88F7": {
+      "db_roles": [
+       "system"
+      ],
+      "db_secrets_iam_can_read": [
+       "system"
+      ]
+     },
+     "FnApprovalTokenC09D2CAC": {
+      "db_roles": [
+       "system"
+      ],
+      "db_secrets_iam_can_read": [
+       "system"
+      ]
+     },
+     "FnOutbound336A3FF8": {
+      "db_roles": [
+       "system"
+      ],
+      "db_secrets_iam_can_read": [
+       "system"
+      ]
+     },
+     "FnRecoveryEFC6FDE7": {
+      "db_roles": [
+       "ingest",
+       "system"
+      ],
+      "db_secrets_iam_can_read": [
+       "ingest",
+       "system"
+      ]
+     }
+    },
+    "reach": [
+     {
+      "login": "setuhaul_login_agent",
+      "can_use_console": false,
+      "can_use_rpc": false,
+      "superuser": false,
+      "bypassrls": false,
+      "can_use_db_owner": false
+     },
+     {
+      "login": "setuhaul_login_console",
+      "can_use_console": true,
+      "can_use_rpc": false,
+      "superuser": false,
+      "bypassrls": false,
+      "can_use_db_owner": false
+     },
+     {
+      "login": "setuhaul_login_deploy_evidence",
+      "can_use_console": false,
+      "can_use_rpc": false,
+      "superuser": false,
+      "bypassrls": false,
+      "can_use_db_owner": false
+     },
+     {
+      "login": "setuhaul_login_feasibility",
+      "can_use_console": false,
+      "can_use_rpc": false,
+      "superuser": false,
+      "bypassrls": false,
+      "can_use_db_owner": false
+     },
+     {
+      "login": "setuhaul_login_ingest",
+      "can_use_console": false,
+      "can_use_rpc": false,
+      "superuser": false,
+      "bypassrls": false,
+      "can_use_db_owner": false
+     },
+     {
+      "login": "setuhaul_login_system",
+      "can_use_console": false,
+      "can_use_rpc": false,
+      "superuser": false,
+      "bypassrls": false,
+      "can_use_db_owner": false
+     }
+    ],
+    "staff_context_probe": {
+     "current_user": "setuhaul_console",
+     "scope_after_staff_context": "FAC-JAI-01",
+     "second_begin": "BAD_STAFF_CONTEXT: already set in this transaction",
+     "rolled_back": true
+    },
+    "iam_policies_sha256": "dcaba688d9e1a6a7b2f278f6b0ce1a3873a1e2ee1866945f7fc1c057ecc6ec97"
+   },
+   "checks": {
+    "1 console login maps only to setuhaul_console": true,
+    "2 other logins cannot use the console role": true,
+    "3 no login can use setuhaul_rpc, the owner, superuser or BYPASSRLS": true,
+    "each login maps to exactly one application role": true,
+    "4 staff context survives across statements of a real Data API transaction": true,
+    "no function's IAM role can read more DB secrets than its configured roles": true
+   },
+   "not_shown": [
+    "5 'an ordinary operations user cannot create an ops_lead context' needs a second Cognito user in the operations group (the owner creates it; Claude never handles passwords or MFA); proven locally (tests/test_api.py staff group tests, setuhaul/aws/pretoken.py tests)",
+    "live drift detection (AWS Config) is not deployed on the Free-plan pilot; the IAM policy hash is recorded here instead"
+   ],
+   "status": "PARTIAL"
+  },
+  "AURORA": {
+   "evidence": {
+    "engine": "aurora-postgresql 17.9",
+    "server_version": "17.9",
+    "migrations_live": 24,
+    "migrations_in_repo": 24,
+    "hash_mismatches": [],
+    "repo_only_migrations": [],
+    "evidence_triggers": {
+     "deployment_evidence_append_only": "O",
+     "deployment_evidence_fresh": "O"
+    },
+    "tables_with_forced_rls": 22,
+    "tables": 37
+   },
+   "checks": {
+    "engine is Aurora PostgreSQL 18.3+ (T33)": false,
+    "every deployed migration's hash matches the repository": true,
+    "both evidence triggers enabled": true,
+    "Data API connectivity behind Db.tx()": true
+   },
+   "not_shown": [
+    "T33 asks for 18.3+; the Free-plan express configuration offers 17.9 (owner decision: exception or plan change)",
+    "the RLS and role-allowlist test files have not been run against Aurora itself (they need a writable test database on the cluster); the deploy-time role checks and the live S1/A1-A6/D1 run went through RLS"
+   ],
+   "status": "FAIL"
+  },
+  "AWS_QUEUE": {
+   "evidence": {
+    "queue": {
+     "FifoQueue": "true",
+     "ContentBasedDeduplication": "false",
+     "DeduplicationScope": "queue",
+     "FifoThroughputLimit": "perQueue",
+     "VisibilityTimeout": "300",
+     "MessageRetentionPeriod": "345600",
+     "KmsMasterKeyId": "arn:aws:kms:ap-southeast-2:************:key/c036d2d6-ef1e-456c-874f-c60d400daf03",
+     "ApproximateNumberOfMessages": "0",
+     "ApproximateNumberOfMessagesNotVisible": "0"
+    },
+    "redrive_policy": {
+     "deadLetterTargetArn": "arn:aws:sqs:ap-southeast-2:************:setuhaul-inbound-dlq.fifo",
+     "maxReceiveCount": 5
+    },
+    "dlq": {
+     "FifoQueue": "true",
+     "MessageRetentionPeriod": "1209600",
+     "ApproximateNumberOfMessages": "0"
+    },
+    "sqs_actions_by_function": {
+     "FnAgent044E2455": [
+      "sqs:ChangeMessageVisibility",
+      "sqs:DeleteMessage",
+      "sqs:GetQueueAttributes",
+      "sqs:GetQueueUrl",
+      "sqs:ReceiveMessage"
+     ],
+     "FnApi6FF11E4C": [
+      "sqs:GetQueueAttributes",
+      "sqs:GetQueueUrl",
+      "sqs:SendMessage"
+     ],
+     "FnRecoveryEFC6FDE7": [
+      "sqs:GetQueueAttributes",
+      "sqs:GetQueueUrl",
+      "sqs:SendMessage"
+     ]
+    },
+    "last_48h": {
+     "messages_sent": 27,
+     "messages_deleted": 27,
+     "dlq_messages_sent": 0
+    }
+   },
+   "checks": {
+    "FIFO queue": true,
+    "content-independent deduplication (ContentBasedDeduplication off; the app sets the id)": true,
+    "FIFO dead-letter queue": true,
+    "redrive count 1-10": true,
+    "DLQ retention >= queue retention": true,
+    "visibility >= 2 x 120 s lease": true,
+    "no wildcard SQS action on the queue": true,
+    "senders are only the API and recovery functions": true,
+    "receivers are only the agent function": true,
+    "messages flowed through the real queue (last 48 h)": true,
+    "DLQ empty": true
+   },
+   "not_shown": [
+    "a redrive drill (move a message DLQ -> queue) has not been run: it writes to the live queue, so it needs the owner's approval; the procedure is in docs/operations/RUNBOOK_0011.md"
+   ],
+   "status": "PARTIAL"
+  },
+  "RECOVERY_WORKER": {
+   "evidence": {
+    "schedules": [
+     {
+      "name": "setuhaul-pilot-approval-relay-every-minute",
+      "expression": "rate(1 minute)",
+      "state": "DISABLED",
+      "target": "setuhaul-pilot-approval-relay"
+     },
+     {
+      "name": "setuhaul-pilot-outbound-every-minute",
+      "expression": "rate(1 minute)",
+      "state": "DISABLED",
+      "target": "setuhaul-pilot-outbound"
+     },
+     {
+      "name": "setuhaul-pilot-recovery-every-minute",
+      "expression": "rate(1 minute)",
+      "state": "DISABLED",
+      "target": "setuhaul-pilot-recovery"
+     }
+    ],
+    "recovery_function": {
+     "name": "setuhaul-pilot-recovery",
+     "db_roles": [
+      "ingest",
+      "system"
+     ],
+     "code_sha256": "vQ3Pb7XFohQA+0VelBuFiLqQNNHo+bHYvkfMwj9eWTw="
+    },
+    "recovery_invocations_last_3_days": 201,
+    "last_invocation_utc": "2026-11-22T18:22:25.509000+00:00"
+   },
+   "checks": {
+    "recovery schedule exists, every minute": true,
+    "recovery worker has run on the real schedule": true
+   },
+   "not_shown": [
+    "schedules are DISABLED while the pilot sleeps (cost control); evidence is from the last wake period",
+    "lease renewal and generation fencing were not forced live (it needs a deliberately stuck message on the real queue); they are proven locally (tests/test_inbound_delivery.py)",
+    "the DLQ handling procedure has not been drilled live (see AWS_QUEUE)"
+   ],
+   "status": "PARTIAL"
+  },
+  "BOOKING_WORKFLOW": {
+   "evidence": {
+    "state_machine": "setuhaul-pilot-approval",
+    "type": "STANDARD",
+    "alias_routes_to_version": "1",
+    "logging": "OFF",
+    "tracing": true,
+    "live_definition_sha256": "d5d970c03393afa647027e6f43c5c37dbfcb46cea9731b4b3b9b67181c45f908",
+    "repo_definition_sha256": "d5d970c03393afa647027e6f43c5c37dbfcb46cea9731b4b3b9b67181c45f908",
+    "executions": 0
+   },
+   "checks": {
+    "live alias 'live' routes 100% to one published version": true,
+    "published definition equals the repository ASL": true,
+    "no execution ever started (booking off)": true,
+    "booking switch false on every function": true
+   },
+   "not_shown": [
+    "request / approve / reject / expiry against the real state machine need the booking switch ON (Option D), which needs the owner's separate approval; proven locally (tests/test_approval_workflow*.py, LocalApprovalWorkflow + ASL)"
+   ],
+   "status": "BLOCKED"
+  },
+  "OUTBOUND_DELIVERY": {
+   "evidence": {
+    "sender": "internal test sink (SETUHAUL_OUTBOUND=test-sink); WhatsApp never enabled",
+    "see": "docs/release/evidence/option_a.json (A3/A4: delivered to the sink; reserved number refused)"
+   },
+   "checks": {},
+   "status": "BLOCKED",
+   "not_shown": [
+    "needs a Meta WhatsApp Cloud API test number, Meta-approved templates (en, hi; Hinglish is its own gate) and a real permitted test delivery; real WhatsApp stays disabled until the owner provides them"
+   ]
+  }
+ }
+}

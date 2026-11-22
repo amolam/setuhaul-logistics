@@ -1,4 +1,22 @@
-# Phase F: AWS step 6 acceptance, gate by gate (21 Nov 2026)
+# Phase F: AWS step 6 acceptance, gate by gate
+
+> **Current status (22 Nov 2026, 18:47 UTC): measured live on the deployed synthetic pilot.**
+> Full evidence: `13_STEP6_GATE_EVIDENCE.md` and `evidence/step6_gates.json`.
+>
+> | Gate | Status |
+> |---|---|
+> | AWS_QUEUE | **PARTIAL.** The redrive drill is not done; it needs the owner's approval. |
+> | RECOVERY_WORKER | **PARTIAL.** Lease and fencing were not forced live. |
+> | WORKLOAD_IDENTITY | **PARTIAL.** Acceptance check 5 needs a second Cognito user. |
+> | AURORA | **FAIL, version only:** it runs 17.9 and T33 requires 18.3+. A pilot exception, T33-P, is proposed and still needs the owner's decision. |
+> | BOOKING_WORKFLOW | **BLOCKED.** A live run of the workflow needs the owner's approval. |
+> | OUTBOUND_DELIVERY | **BLOCKED.** It needs a Meta test number and approved templates. |
+>
+> **No gate has passed, and no `deployment_evidence` row has been written.** The booking switch stays OFF.
+>
+> The text below is the original plan of 21 Nov, kept as written.
+
+## Original plan (21 Nov 2026)
 
 The six gates are those in `docs/operations/DEPLOYMENT_GATES.md`, unchanged. **No gate has passed**: nothing is
 deployed in AWS yet (`04_SYDNEY_PILOT_DEPLOYMENT_PLAN.md`). Local tests prove the code behind each gate; they are not
