@@ -148,63 +148,88 @@ def test_the_test_sink_evidence_is_the_stored_record(client, dsn, keys):
     assert json.dumps(b).count("payload") == 0
 
 
-# ---------------------------------------------------------------- CORS for the hosted console, and its published files
-ORIGIN = "https://d111111abcdef8.cloudfront.net"
+# ---------------------------------------------------------------- the console page, served by the API under /app/
+DOMAIN = "setuhaul-pilot-console.auth.ap-southeast-2.amazoncognito.com"
 
 
 @pytest.fixture(scope="module")
-def cors_client(dsn, keys):
+def site(dsn, keys):
     from fastapi.testclient import TestClient
     from setuhaul.api.app import Settings, create_app
     from test_api import CLIENT, ISSUER, META_SECRET, SESSION_SECRET
     return TestClient(create_app(Settings(dsn=dsn, cognito_issuer=ISSUER, cognito_client_ids={CLIENT},
                                           session_secret=SESSION_SECRET, meta_app_secret=META_SECRET,
-                                          facilities=(JAI, GGN), jwks=keys["jwks"], console_origin=ORIGIN)))
+                                          facilities=(JAI, GGN), jwks=keys["jwks"], cognito_domain=DOMAIN,
+                                          console_client_id=CLIENT)), follow_redirects=False)
 
 
-def test_cors_allows_exactly_the_console_origin_and_never_replaces_authentication(cors_client, keys):
-    pre = {"Origin": ORIGIN, "Access-Control-Request-Method": "GET", "Access-Control-Request-Headers": "authorization"}
-    ok = cors_client.options("/console/threads", headers=pre)
-    assert ok.status_code == 200 and ok.headers["access-control-allow-origin"] == ORIGIN
-    assert "access-control-allow-credentials" not in ok.headers
-    other = cors_client.options("/console/threads", headers={**pre, "Origin": "https://evil.example"})
-    assert other.headers.get("access-control-allow-origin") is None
-    bad_method = cors_client.options("/console/threads", headers={**pre, "Access-Control-Request-Method": "DELETE"})
-    assert bad_method.status_code == 400
-    anon = cors_client.get("/console/threads", headers={"Origin": ORIGIN})
-    assert anon.status_code == 401 and anon.headers["access-control-allow-origin"] == ORIGIN   # readable, still refused
-    signed_in = cors_client.get("/console/threads", headers={"Origin": ORIGIN, **H(staff_token(keys))})
-    assert signed_in.status_code == 200
+def test_the_page_and_its_assets_are_served_with_a_strict_policy(site):
+    import re
+    r = site.get("/app/")
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/html")
+    csp = r.headers["content-security-policy"]
+    assert "default-src 'none'" in csp and "script-src 'self'" in csp and "frame-ancestors 'none'" in csp
+    assert "unsafe-eval" not in csp and "script-src 'self' 'unsafe-inline'" not in csp and f"https://{DOMAIN}" in csp
+    assert r.headers["x-content-type-options"] == "nosniff" and r.headers["referrer-policy"] == "no-referrer"
+    assert r.headers["cache-control"] == "no-cache" and "<script>" not in r.text and "onclick" not in r.text
+    assets = re.findall(r'(?:src|href)="(assets/[^"]+)"', r.text)
+    assert len(assets) == 2
+    for path in assets:
+        a = site.get("/app/" + path)
+        assert a.status_code == 200 and "immutable" in a.headers["cache-control"], path
+        assert a.headers["content-type"].split(";")[0] in ("text/javascript", "text/css")
+        assert a.headers["x-content-type-options"] == "nosniff"
+    assert site.get("/app/assets/app.js?v=old").headers["cache-control"] == "no-cache"
+    assert site.get("/app").status_code == 308 and site.get("/app").headers["location"] == "app/"
 
 
-def test_the_console_origin_must_be_one_exact_https_origin(dsn, keys):
-    from setuhaul.api.app import Settings, create_app
-    from test_api import CLIENT, ISSUER, META_SECRET, SESSION_SECRET
-    for bad in ("*", "http://d1.cloudfront.net", "https://*.cloudfront.net"):
-        with pytest.raises(ValueError):
-            create_app(Settings(dsn=dsn, cognito_issuer=ISSUER, cognito_client_ids={CLIENT}, session_secret=SESSION_SECRET,
-                                meta_app_secret=META_SECRET, facilities=(JAI,), jwks=keys["jwks"], console_origin=bad))
+def test_only_the_allow_list_is_served(site):
+    for path in ("/app/assets/../console_site.py", "/app/assets/..%2F..%2Fapp.py", "/app/assets/%2e%2e%2fapp.py",
+                 "/app/assets/index.html", "/app/index.html", "/app/assets/", "/app/console_static/index.html",
+                 "/app/assets/app.js.map", "/app/.env", "/app/assets/%00app.js"):
+        r = site.get(path)
+        assert r.status_code in (404, 405), (path, r.status_code)
+        assert "def " not in r.text and "import " not in r.text, path
 
 
-def test_the_published_console_holds_no_secret_and_only_public_config(tmp_path):
-    import shutil
+def test_the_config_holds_public_values_only(site):
+    from test_api import CLIENT
+    c = site.get("/app/config.json")
+    assert c.status_code == 200 and c.json() == {"cognitoDomain": DOMAIN, "clientId": CLIENT, "apiBase": "../"}
+
+
+def test_no_console_page_without_cognito_and_no_cors_anywhere(client, site):
+    assert client.get("/app/").status_code == 404 and client.get("/app/config.json").status_code == 404
+    pre = {"Origin": "https://evil.example", "Access-Control-Request-Method": "GET"}
+    for c in (client, site):
+        assert "access-control-allow-origin" not in c.options("/console/threads", headers=pre).headers
+        assert "access-control-allow-origin" not in c.get("/console/threads", headers={"Origin": "https://evil.example"}).headers
+
+
+def test_staff_data_is_never_cached(site, keys):
+    r = site.get("/console/threads", headers=H(staff_token(keys)))
+    assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
+    assert site.get("/console/threads").headers["cache-control"] == "no-store"        # the 401 too
+
+
+def test_the_console_files_hold_no_secret_and_no_demo_shortcut():
     from pathlib import Path
-    from setuhaul.ops.console_config import config_from_outputs, problems
-    src = Path(__file__).resolve().parents[1] / "console"
-    assert problems(src) == []                                                # the files as committed
-    site = tmp_path / "site"
-    shutil.copytree(src, site)
-    cfg = config_from_outputs({"SetuHaulPilot": {"ApiUrl": "https://abc.execute-api.ap-southeast-2.amazonaws.com/pilot/",
-                                                 "CognitoDomain": "setuhaul-pilot-console.auth.ap-southeast-2.amazoncognito.com",
-                                                 "ConsoleClientId": "abc123", "OwnerSecretArn": "arn:aws:secretsmanager:x"}})
-    assert set(cfg) == {"apiUrl", "cognitoDomain", "clientId", "region"}
-    (site / "config.json").write_text(json.dumps(cfg), encoding="utf-8")
-    assert problems(site) == []
-    (site / "config.json").write_text(json.dumps({**cfg, "secret": "arn:aws:secretsmanager:ap-southeast-2:1:secret:x"}))
-    assert problems(site)
-    (site / "config.json").write_text(json.dumps(cfg))
-    (site / "assets" / "leak.js").write_text('const META_APP_SECRET = "abc"')
-    assert any("leak.js" in p for p in problems(site))
+    from setuhaul.ops.console_config import problems
+    src = Path(__file__).resolve().parents[1] / "setuhaul" / "api" / "console_static"
+    assert problems(src) == []
     js = (src / "assets" / "app.js").read_text(encoding="utf-8")
     assert "localStorage" not in js and "/demo/" not in js and "hmac" not in js.lower()
-    assert "code_challenge_method:\"S256\"" in js and "sessionStorage.removeItem(\"pkce\")" in js
+    assert 'code_challenge_method:"S256"' in js and 'sessionStorage.removeItem("pkce")' in js
+    assert "location.origin + location.pathname" in js and 'fetch("config.json"' in js
+
+
+def test_the_secret_scan_catches_leaks(tmp_path):
+    import shutil
+    from pathlib import Path
+    from setuhaul.ops.console_config import problems
+    site_dir = tmp_path / "site"
+    shutil.copytree(Path(__file__).resolve().parents[1] / "setuhaul" / "api" / "console_static", site_dir)
+    (site_dir / "assets" / "leak.js").write_text('const META_APP_SECRET = "abc"')
+    (site_dir / "notes.txt").write_text("x")
+    p = problems(site_dir)
+    assert any("leak.js" in x for x in p) and any("notes.txt" in x for x in p)

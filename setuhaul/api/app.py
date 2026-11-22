@@ -49,9 +49,10 @@ class Settings:
     # so the route is off in staging and pilot whatever the environment says (review IAM-02): the API function then
     # needs no agent or feasibility database login.
     tools_route: bool = True
-    # The hosted staff console's origin (https://<cloudfront domain>): the one origin a browser may call this API
-    # from. Unset: no CORS at all. CORS only lets that page read responses; every route still checks its token.
-    console_origin: str | None = None
+    # The hosted staff console, served by this API under /app/ (same origin, so no CORS): its Cognito hosted domain
+    # and the public client id. Unset: no console page.
+    cognito_domain: str | None = None
+    console_client_id: str | None = None
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -63,7 +64,8 @@ class Settings:
                    queue_url=os.environ.get("SETUHAUL_QUEUE_URL") or None,
                    processing_lease_s=int(os.environ.get("SETUHAUL_PROCESSING_LEASE_S", "120")),
                    environment=os.environ.get("SETUHAUL_ENVIRONMENT") or None,
-                   console_origin=os.environ.get("SETUHAUL_CONSOLE_ORIGIN") or None,
+                   cognito_domain=os.environ.get("COGNITO_DOMAIN") or None,
+                   console_client_id=os.environ.get("COGNITO_CONSOLE_CLIENT_ID") or None,
                    deployment_id=os.environ.get("SETUHAUL_DEPLOYMENT_ID") or None,
                    deployment_manifest=os.environ.get("SETUHAUL_DEPLOYMENT_MANIFEST") or None,
                    tools_route=(os.environ.get("SETUHAUL_TOOLS_ROUTE", "on").lower() not in ("off", "false", "0")
@@ -138,13 +140,15 @@ log = logging.getLogger("setuhaul.api")
 
 def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, queue=None) -> FastAPI:
     app = FastAPI(title="SetuHaul exception service", version="0.2.0", docs_url=None, redoc_url=None)
-    if settings.console_origin:
-        if not settings.console_origin.startswith("https://") or "*" in settings.console_origin:
-            raise ValueError("SETUHAUL_CONSOLE_ORIGIN must be one exact https origin")
-        from fastapi.middleware.cors import CORSMiddleware
-        app.add_middleware(CORSMiddleware, allow_origins=[settings.console_origin.rstrip("/")],
-                           allow_methods=["GET", "POST"], allow_headers=["authorization", "content-type"],
-                           allow_credentials=False, max_age=600)
+    from .console_site import mount_console
+    mount_console(app, settings.cognito_domain, settings.console_client_id)
+
+    @app.middleware("http")
+    async def _no_store_for_staff_data(request: Request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith("/console/"):      # staff data: never kept by a browser or proxy cache
+            response.headers["Cache-Control"] = "no-store"
+        return response
     from ..aws.data_api import make_db                     # SETUHAUL_DSN=rds-data: the Data API backend (E3)
     db = make_db(settings.dsn)
     svc = BookingService(db, clock or (lambda: datetime.now(timezone.utc)), settings.facilities,

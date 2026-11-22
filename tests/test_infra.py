@@ -518,34 +518,17 @@ def test_the_whatsapp_template_file_matches_the_reviewed_texts():
 
 
 # ================================================================ hosted staff console (docs/release/11)
-def test_the_console_bucket_is_private_and_served_only_through_cloudfront(t):
-    (b,) = resources(t, "AWS::S3::Bucket").values()
-    assert b["Properties"]["PublicAccessBlockConfiguration"] == {"BlockPublicAcls": True, "BlockPublicPolicy": True,
-                                                                 "IgnorePublicAcls": True, "RestrictPublicBuckets": True}
-    assert "WebsiteConfiguration" not in b["Properties"]
-    (pol,) = resources(t, "AWS::S3::BucketPolicy").values()
-    stmts = pol["Properties"]["PolicyDocument"]["Statement"]
-    allows = [x for x in stmts if x["Effect"] == "Allow"]
-    assert len(allows) == 1 and allows[0]["Principal"] == {"Service": "cloudfront.amazonaws.com"}
-    assert allows[0]["Action"] == "s3:GetObject" and "AWS:SourceArn" in json.dumps(allows[0]["Condition"])
-    assert any(x["Effect"] == "Deny" and "aws:SecureTransport" in json.dumps(x.get("Condition", {})) for x in stmts)
-    (oac,) = resources(t, "AWS::CloudFront::OriginAccessControl").values()
-    assert oac["Properties"]["OriginAccessControlConfig"]["SigningBehavior"] == "always"
-    (d,) = resources(t, "AWS::CloudFront::Distribution").values()
-    cfg = d["Properties"]["DistributionConfig"]
-    for beh in [cfg["DefaultCacheBehavior"], *cfg["CacheBehaviors"]]:
-        assert beh["ViewerProtocolPolicy"] == "redirect-to-https" and beh["AllowedMethods"] == ["GET", "HEAD"]
-    assert cfg["DefaultRootObject"] == "index.html"
-
-
-def test_the_console_page_gets_a_strict_content_security_policy(t):
-    (h,) = resources(t, "AWS::CloudFront::ResponseHeadersPolicy").values()
-    sec = h["Properties"]["ResponseHeadersPolicyConfig"]["SecurityHeadersConfig"]
-    csp = sec["ContentSecurityPolicy"]["ContentSecurityPolicy"]
-    assert "default-src 'none'" in csp and "script-src 'self'" in csp and "frame-ancestors 'none'" in csp
-    assert "unsafe-eval" not in csp and "script-src 'self' 'unsafe-inline'" not in csp
-    assert "setuhaul-pilot-console.auth.ap-southeast-2.amazoncognito.com" in csp
-    assert sec["FrameOptions"]["FrameOption"] == "DENY" and sec["StrictTransportSecurity"]["AccessControlMaxAgeSec"] >= 31536000
+def test_the_console_is_served_by_the_api_no_bucket_no_cdn(t):
+    """CloudFront needs AWS account verification on this account, so the page is served by the API itself (same
+    origin as the data, HTTPS by API Gateway): no S3 bucket, no CloudFront, no CORS setting anywhere."""
+    for kind in ("AWS::S3::Bucket", "AWS::CloudFront::Distribution", "AWS::CloudFront::OriginAccessControl"):
+        assert not resources(t, kind), kind
+    assert len(resources(t, "AWS::ApiGateway::RestApi")) == 1
+    assert len(resources(t, "AWS::ApiGateway::Method")) == 2                    # root ANY and {proxy+} ANY only
+    assert all("SETUHAUL_CONSOLE_ORIGIN" not in p["Environment"]["Variables"] for p in functions(t).values())
+    env = functions(t)["setuhaul-pilot-api"]["Environment"]["Variables"]
+    assert env["COGNITO_DOMAIN"] == "setuhaul-pilot-console.auth.ap-southeast-2.amazoncognito.com"
+    assert env["COGNITO_CONSOLE_CLIENT_ID"] == env["COGNITO_CLIENT_IDS"]
 
 
 def test_staff_sign_in_is_code_with_pkce_on_a_public_client_back_to_the_console_only(t):
@@ -553,14 +536,16 @@ def test_staff_sign_in_is_code_with_pkce_on_a_public_client_back_to_the_console_
     p = c["Properties"]
     assert p["AllowedOAuthFlows"] == ["code"] and p["AllowedOAuthFlowsUserPoolClient"] is True
     assert p["GenerateSecret"] is False and p["AllowedOAuthScopes"] == ["openid"]
-    dist = next(iter(resources(t, "AWS::CloudFront::Distribution")))
-    for urls in (p["CallbackURLs"], p["LogoutURLs"]):
-        assert len(urls) == 1 and json.dumps(urls).count(dist) == 1 and "localhost" not in json.dumps(urls)
+    api = next(iter(resources(t, "AWS::ApiGateway::RestApi")))
+    want = {"Fn::Join": ["", ["https://", {"Ref": api}, ".execute-api.ap-southeast-2.amazonaws.com/pilot/app/"]]}
+    assert p["CallbackURLs"] == [want] and p["LogoutURLs"] == [want]
     assert (p["AccessTokenValidity"], p["TokenValidityUnits"]["AccessToken"]) == (30, "minutes")
     assert p["PreventUserExistenceErrors"] == "ENABLED" and p["SupportedIdentityProviders"] == ["COGNITO"]
     (pool,) = resources(t, "AWS::Cognito::UserPool").values()
     assert pool["Properties"]["MfaConfiguration"] == "ON"
     assert pool["Properties"]["AdminCreateUserConfig"]["AllowAdminCreateUserOnly"] is True
+    (dom,) = resources(t, "AWS::Cognito::UserPoolDomain").values()
+    assert dom["Properties"]["Domain"] == "setuhaul-pilot-console"
 
 
 def test_facility_scope_comes_from_the_v2_trigger_and_admin_groups(t):
@@ -574,13 +559,3 @@ def test_facility_scope_comes_from_the_v2_trigger_and_admin_groups(t):
     assert groups == {"operations", "planner", "ops_lead", "facility-FAC-JAI-01", "facility-FAC-GGN-01"}
     assert not [s for s in _policy_resources(t, trig["LambdaArn"]["Fn::GetAtt"][0])
                 if "secretsmanager" in json.dumps(s) or "rds-data" in json.dumps(s)]       # no secret, no database
-
-
-def test_the_api_allows_exactly_the_console_origin(t):
-    env = functions(t)["setuhaul-pilot-api"]["Environment"]["Variables"]
-    dist = next(iter(resources(t, "AWS::CloudFront::Distribution")))
-    origin = env["SETUHAUL_CONSOLE_ORIGIN"]
-    assert json.dumps(origin).count(dist) == 1 and "*" not in json.dumps(origin)
-    assert all("SETUHAUL_CONSOLE_ORIGIN" not in p["Environment"]["Variables"]
-               for n, p in functions(t).items() if n != "setuhaul-pilot-api")
-

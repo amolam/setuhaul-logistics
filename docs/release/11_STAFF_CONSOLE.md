@@ -1,20 +1,22 @@
 # 11 — Hosted staff console (AWS pilot, synthetic data)
 
-**URL:** the stack output `ConsoleUrl` (`https://<id>.cloudfront.net/`).
+**URL:** stack output `ConsoleUrl`, which is `https://w8ptr7w960.execute-api.ap-southeast-2.amazonaws.com/pilot/app/`.
 
 **Option A controls stay on:** synthetic data only, booking execution OFF, WhatsApp only to the internal test sink, and production refused.
+
+**Why API Gateway and not CloudFront:** the first console deploy (run 45029899923) was refused by CloudFront: *"Your account must be verified before you can add new CloudFront resources."* So the page is served by the existing API, on the same HTTPS origin as its data. That avoids any CORS, bucket or CDN. CloudFront and S3 can be revisited once AWS has verified the account.
 
 ## How it works
 
 | Piece | What it is |
 |---|---|
-| Page | `console/` (HTML, JS, CSS; no inline script). It sits in a private S3 bucket that is served only by CloudFront through origin access control, over HTTPS only. A strict CSP is set (`script-src 'self'`, `frame-ancestors 'none'`). |
-| Sign-in | Cognito hosted page with authorization code and PKCE (S256), on a public client with no secret. Callback and logout go to the console URL only. MFA (TOTP) is required by the pool, and tokens last 30 minutes. The access token is kept in memory only. |
-| Authorization | The API checks every `/console` call itself: Cognito signature, issuer, `token_use=access`, `client_id`, and a staff group (`planner`, `operations` or `ops_lead`). Each action then checks its own permission. |
-| Facility scope | The `facility_scope` claim is added by the Cognito pre-token trigger (`V2_0`, Essentials tier, `setuhaul/aws/pretoken.py`). It comes only from admin-assigned groups `facility-FAC-JAI-01` and `facility-FAC-GGN-01`. Nothing the browser sends can change it. Row-level security in the database enforces it. |
-| CORS | The API allows exactly the console origin: GET and POST, the headers `authorization` and `content-type`, and no credentials mode. CORS is not authorization; a request with no token gets 401 whatever its origin. |
-| Read views | `GET /console/threads` and `/console/threads/{id}` are read only. They return masked phone numbers and messages and never payloads or recipients. A thread outside your facilities is answered with the same 404 as an unknown thread. |
-| Publishing | The deploy job builds `config.json` from the stack outputs (API URL, Cognito domain, client id, Region; nothing else). It refuses any secret-looking content (`setuhaul.ops.console_config --check`), then runs `s3 sync` and a CloudFront invalidation. |
+| Page | Lives in `setuhaul/api/console_static/` (HTML, JS, CSS; no inline script) inside the verified Lambda zip. `setuhaul/api/console_site.py` serves a fixed allow-list: `/app/`, `/app/config.json`, `/app/assets/app.js`, `/app/assets/app.css`. Nothing else on disk is reachable. Asset URLs are content-hashed and cached as immutable; the HTML and config are `no-cache`; `/console/*` data is `no-store`. |
+| Headers | CSP `default-src 'none'; script-src 'self'; connect-src 'self' <cognito>; frame-ancestors 'none'; base-uri 'none'`, plus `nosniff`, `no-referrer`, `X-Frame-Options: DENY` and HSTS. HTTPS comes from API Gateway. Styles allow inline attributes; scripts never do, and there is no eval. |
+| Sign-in | Cognito hosted login (prefix domain `setuhaul-pilot-console`) with authorization code and PKCE (S256), on a public client with no secret. Callback and logout are exactly the console URL. MFA (TOTP) is required by the pool, and tokens last 30 minutes. The access token is kept in memory only; reloading the page means signing in again, which is quick while the Cognito session lasts. |
+| Authorization | Unchanged and per route in the API: Cognito JWKS signature, issuer, `token_use=access`, `client_id` allow-list, expiry, and a staff group (`planner`, `operations` or `ops_lead`), then the action's own permission. |
+| Facility scope | The `facility_scope` claim comes from the Cognito pre-token trigger (`V2_0`, Essentials tier, `setuhaul/aws/pretoken.py`), only from admin-assigned groups `facility-FAC-JAI-01` and `facility-FAC-GGN-01`. Row-level security in the database enforces it. The browser cannot set it. |
+| Read views | `GET /console/threads` and `/console/threads/{id}` are read only. They return masked phone numbers and messages and never payloads or recipients, at most 50 a page and 200 messages. Outside your facilities you get the same 404 as an unknown id. |
+| Checks | CI runs `python -m setuhaul.ops.console_config --check setuhaul/api/console_static`, which refuses secret-looking content and unexpected file types. `scripts/verify_aws_deploy.py` checks the live client, domain, trigger and page headers. |
 
 ## Staff user (you run these; no password or MFA code passes through anyone else)
 
@@ -38,7 +40,7 @@ python scripts/send_driver_message.py "stuck in traffic, approximately 2 hours l
 python scripts/send_driver_message.py --phone +999XXXXXXXXXX "YES"
 ```
 
-The first command creates a SYN- driver and shipment. The second continues that driver's conversation. Then open **Conversations** in the console and select the driver (shown masked) to see:
+The first command creates a SYN- driver and shipment. The second continues that driver's conversation. Then open **Conversations** and select the driver (shown masked) to see:
 - the messages;
 - what the reader recorded (facts and ETA);
 - the options shown;
@@ -48,4 +50,4 @@ The first command creates a SYN- driver and shipment. The second continues that 
 
 - **No requests to decide:** with booking execution OFF, a driver's choice creates no request, so **Requests** stays empty in Option A.
 - **One extraction field:** the conversation view shows the facts the reader carried and the ETA it recorded. There is no per-message extraction log; the extracted text itself is deliberately not stored.
-- **Default domains:** CloudFront and Cognito use their default domains (no custom domain or certificate).
+- **Default domains:** the URL is the API Gateway default domain, and sign-in uses the Cognito prefix domain (no custom domain).

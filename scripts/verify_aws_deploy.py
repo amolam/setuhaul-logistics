@@ -147,27 +147,29 @@ def main() -> int:
     checks["migrations 0001-0024 recorded"] = [v.split("_")[0] if "_" in v else v for v in versions] == [f.split("_")[0] for f in files] or versions == files
     checks["no appointments (booking off)"] = seed[0][3] == 0
 
-    # hosted staff console (docs/release/11_STAFF_CONSOLE.md)
-    if out.get("ConsoleBucket"):
-        s3c = c("s3")
-        pab = s3c.get_public_access_block(Bucket=out["ConsoleBucket"])["PublicAccessBlockConfiguration"]
-        policy = json.loads(s3c.get_bucket_policy(Bucket=out["ConsoleBucket"])["Policy"])
-        allows = [x for x in policy["Statement"] if x["Effect"] == "Allow"]
+    # hosted staff console, served by the API under /app/ (docs/release/11_STAFF_CONSOLE.md)
+    if out.get("ConsoleClientId"):
+        import urllib.request
         cli = c("cognito-idp").describe_user_pool_client(UserPoolId=out["UserPoolId"], ClientId=out["ConsoleClientId"])["UserPoolClient"]
         trig = pool.get("LambdaConfig", {}).get("PreTokenGenerationConfig", {})
-        api_env = lam.get_function_configuration(FunctionName=f"setuhaul-{ENV}-api")["Environment"]["Variables"]
-        ev["console"] = {"url": out["ConsoleUrl"], "public_access_block": pab,
-                         "bucket_allow_principals": [x.get("Principal") for x in allows],
-                         "oauth_flows": cli.get("AllowedOAuthFlows"), "callbacks": cli.get("CallbackURLs"),
-                         "client_secret": "ClientSecret" in cli, "access_token_minutes": cli.get("AccessTokenValidity"),
-                         "trigger_version": trig.get("LambdaVersion"), "cors_origin": api_env.get("SETUHAUL_CONSOLE_ORIGIN")}
-        checks["console bucket private, CloudFront only"] = all(pab.values()) and [
-            x.get("Principal") for x in allows] == [{"Service": "cloudfront.amazonaws.com"}]
+        dom = c("cognito-idp").describe_user_pool_domain(Domain=out["CognitoDomain"].split(".")[0])["DomainDescription"]
+        page = urllib.request.urlopen(out["ConsoleUrl"], timeout=30)
+        hdr = {k.lower(): v for k, v in page.headers.items()}
+        ev["console"] = {"url": out["ConsoleUrl"], "oauth_flows": cli.get("AllowedOAuthFlows"),
+                         "callbacks": cli.get("CallbackURLs"), "client_secret": "ClientSecret" in cli,
+                         "access_token_minutes": cli.get("AccessTokenValidity"), "trigger_version": trig.get("LambdaVersion"),
+                         "cognito_domain_status": dom.get("Status"), "page_status": page.status,
+                         "csp": hdr.get("content-security-policy")}
         checks["Cognito: code grant, no client secret, callback = console only"] = (
             cli.get("AllowedOAuthFlows") == ["code"] and "ClientSecret" not in cli
-            and cli.get("CallbackURLs") == [out["ConsoleUrl"] + "/"])
+            and cli.get("CallbackURLs") == [out["ConsoleUrl"]] and cli.get("LogoutURLs") == [out["ConsoleUrl"]])
+        checks["Cognito hosted domain active"] = dom.get("Status") == "ACTIVE"
         checks["facility-scope trigger V2_0"] = trig.get("LambdaVersion") == "V2_0"
-        checks["API CORS origin = the console URL exactly"] = api_env.get("SETUHAUL_CONSOLE_ORIGIN") == out["ConsoleUrl"]
+        checks["console page served with a strict CSP"] = (page.status == 200 and "script-src 'self'" in hdr.get(
+            "content-security-policy", "") and "unsafe-eval" not in hdr.get("content-security-policy", ""))
+        checks["no S3 bucket or CloudFront for the console"] = not [
+            r for r in c("cloudformation").list_stack_resources(StackName=STACK)["StackResourceSummaries"]
+            if r["ResourceType"] in ("AWS::S3::Bucket", "AWS::CloudFront::Distribution")]
 
     report = {"stack_outputs": {k: v for k, v in out.items() if not k.endswith("Arns")}, "evidence": ev, "checks": checks,
               "all_pass": all(checks.values())}

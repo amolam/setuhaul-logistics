@@ -25,8 +25,7 @@ from aws_cdk import (CfnOutput, CustomResource, Duration, RemovalPolicy, Stack, 
                      aws_events as events, aws_events_targets as targets, aws_iam as iam, aws_kms as kms,
                      aws_lambda as lambda_, aws_lambda_event_sources as sources, aws_logs as logs, aws_rds as rds,
                      aws_secretsmanager as sm, aws_sns as sns, aws_sns_subscriptions as subs, aws_sqs as sqs,
-                     aws_stepfunctions as sfn, aws_s3 as s3, aws_cloudfront as cloudfront,
-                     aws_cloudfront_origins as origins)
+                     aws_stepfunctions as sfn)
 from constructs import Construct
 
 def cdk_arn_format():
@@ -108,8 +107,16 @@ class SetuHaulPilotStack(Stack):
                           dead_letter_queue=sqs.DeadLetterQueue(max_receive_count=5, queue=dlq),
                           encryption=sqs.QueueEncryption.KMS, encryption_master_key=key, enforce_ssl=True)
 
-        # ------------------------------------------------------------ hosted staff console (docs/release/11)
-        console_url = self.console_hosting(environment_name)
+        # ------------------------------------------------------------ API (created first: the console's URL is on it)
+        # One REST API serves the staff console's page under /app/ and its data under /console/: one HTTPS origin, so
+        # no CORS (docs/release/11_STAFF_CONSOLE.md). Throttling 20 rps / burst 40 caps abusive volume only; it does
+        # not inspect requests the way the removed WAF rule groups did (09_LOW_COST_PILOT_PLAN.md).
+        # cloud_watch_role=False: the region's API Gateway account setting already has a logging role.
+        api = apigw.RestApi(self, "Api", cloud_watch_role=False, endpoint_types=[apigw.EndpointType.REGIONAL],
+                            deploy_options=apigw.StageOptions(stage_name="pilot", throttling_rate_limit=20,
+                                                              throttling_burst_limit=40, tracing_enabled=True))
+        console_url = f"https://{api.rest_api_id}.execute-api.{REGION}.amazonaws.com/pilot/app/"
+        cognito_domain = f"{COGNITO_DOMAIN_PREFIX.format(env=environment_name)}.auth.{REGION}.amazoncognito.com"
 
         # ------------------------------------------------------------ identity
         pool = cognito.UserPool(self, "Staff", user_pool_name=f"setuhaul-{environment_name}-staff",
@@ -131,8 +138,8 @@ class SetuHaulPilotStack(Stack):
         client = pool.add_client("Console", auth_flows=cognito.AuthFlow(user_srp=True), generate_secret=False,
                                  o_auth=cognito.OAuthSettings(
                                      flows=cognito.OAuthFlows(authorization_code_grant=True),
-                                     scopes=[cognito.OAuthScope.OPENID], callback_urls=[console_url + "/"],
-                                     logout_urls=[console_url + "/"]),
+                                     scopes=[cognito.OAuthScope.OPENID], callback_urls=[console_url],
+                                     logout_urls=[console_url]),
                                  supported_identity_providers=[cognito.UserPoolClientIdentityProvider.COGNITO],
                                  prevent_user_existence_errors=True, access_token_validity=Duration.minutes(30),
                                  id_token_validity=Duration.minutes(30), refresh_token_validity=Duration.hours(8))
@@ -178,7 +185,8 @@ class SetuHaulPilotStack(Stack):
 
         api_fn = fn("api", "api_handler", "api", timeout_s=29, extra={"SETUHAUL_TOOLS_ROUTE": "off",
                     "SETUHAUL_DB_RESUME_WAIT_S": "20",       # API Gateway ends a request at 29 s
-                    "SETUHAUL_CONSOLE_ORIGIN": console_url})  # CORS: this one origin, nothing else
+                    "COGNITO_DOMAIN": cognito_domain,         # the console page's sign-in (public values only)
+                    "COGNITO_CONSOLE_CLIENT_ID": client.user_pool_client_id})
         agent_fn = fn("agent", "agent_handler", "agent", timeout_s=LEASE_S + 60, memory=1024, extra={
             "SETUHAUL_MODEL_PROVIDER": "openrouter", "SETUHAUL_OPENROUTER_SECRET_ID": openrouter.secret_arn,
             "SETUHAUL_OR_EXTRACT_MODEL": "anthropic/claude-haiku-4.5", "SETUHAUL_OR_PROVIDER": "amazon-bedrock",
@@ -241,14 +249,11 @@ class SetuHaulPilotStack(Stack):
                 schedule=events.Schedule.rate(Duration.minutes(1)), targets=[targets.LambdaFunction(f)],
                 enabled=False)
 
-        # ------------------------------------------------------------ edge: REST API (no WAF in this synthetic pilot)
-        # Kept: stage throttling, HMAC-signed webhooks, Cognito with MFA for staff, input validation. Throttling limits
-        # volume only; it does not inspect requests the way the removed WAF rule groups did (09_LOW_COST_PILOT_PLAN.md).
-        # cloud_watch_role=False: the region's API Gateway account setting already has a logging role.
-        api = apigw.LambdaRestApi(self, "Api", handler=api_fn, proxy=True, cloud_watch_role=False,
-                                  endpoint_types=[apigw.EndpointType.REGIONAL],
-                                  deploy_options=apigw.StageOptions(stage_name="pilot", throttling_rate_limit=20,
-                                                                    throttling_burst_limit=40, tracing_enabled=True))
+        # ------------------------------------------------------------ edge: the REST API's routes (no WAF in this pilot)
+        # Kept: stage throttling, HMAC-signed webhooks, Cognito with MFA for staff, input validation.
+        integration = apigw.LambdaIntegration(api_fn)       # as LambdaRestApi(proxy=True): root and {proxy+}, ANY
+        api.root.add_method("ANY", integration)
+        api.root.add_proxy(default_integration=integration, any_method=True)
 
         # ------------------------------------------------------------ alarms (operations guide §2)
         topic = sns.Topic(self, "Alarms", master_key=key)
@@ -283,9 +288,7 @@ class SetuHaulPilotStack(Stack):
                      "AppSecretArn": app_secret.secret_arn, "WhatsAppSecretArn": whatsapp_secret.secret_arn,
                      "ScheduleRuleNames": ",".join(r.rule_name for r in self.schedule_rules.values()),
                      "LoginSecretArns": self.to_json_string({r: s.secret_arn for r, s in self.login_secrets.items()}),
-                     "ConsoleUrl": console_url, "ConsoleBucket": self.console_bucket.bucket_name,
-                     "ConsoleDistributionId": self.console_distribution.distribution_id,
-                     "CognitoDomain": f"{COGNITO_DOMAIN_PREFIX.format(env=environment_name)}.auth.{REGION}.amazoncognito.com",
+                     "ConsoleUrl": console_url, "CognitoDomain": cognito_domain,
                      "ConsoleClientId": client.user_pool_client_id}.items():
             CfnOutput(self, k, value=v)
 
@@ -378,45 +381,6 @@ class SetuHaulPilotStack(Stack):
         db.node.add_dependency(boot)
         self.db_resource = db
         return db.get_att_string("ClusterArn")
-
-    # ------------------------------------------------------------ hosted staff console, docs/release/11_STAFF_CONSOLE.md
-    def console_hosting(self, environment_name: str) -> str:
-        """Static files in a private S3 bucket, served only through CloudFront (origin access control, HTTPS only),
-        with a strict content security policy. No server, no public bucket. Returns https://<cloudfront domain>."""
-        bucket = s3.Bucket(self, "ConsoleSite", block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
-                           encryption=s3.BucketEncryption.S3_MANAGED, enforce_ssl=True,
-                           object_ownership=s3.ObjectOwnership.BUCKET_OWNER_ENFORCED,
-                           removal_policy=RemovalPolicy.DESTROY)             # static files only; nothing to keep
-        cognito_host = f"https://{COGNITO_DOMAIN_PREFIX.format(env=environment_name)}.auth.{REGION}.amazoncognito.com"
-        csp = "; ".join([
-            "default-src 'none'", "script-src 'self'", "style-src 'self' 'unsafe-inline'", "img-src 'self' data:",
-            f"connect-src 'self' https://*.execute-api.{REGION}.amazonaws.com {cognito_host}",
-            f"form-action 'self' {cognito_host}", "frame-ancestors 'none'", "base-uri 'none'"])
-        headers = cloudfront.ResponseHeadersPolicy(self, "ConsoleHeaders", security_headers_behavior=
-            cloudfront.ResponseSecurityHeadersBehavior(
-                content_security_policy=cloudfront.ResponseHeadersContentSecurityPolicy(
-                    content_security_policy=csp, override=True),
-                strict_transport_security=cloudfront.ResponseHeadersStrictTransportSecurity(
-                    access_control_max_age=Duration.days(365), include_subdomains=True, override=True),
-                content_type_options=cloudfront.ResponseHeadersContentTypeOptions(override=True),
-                frame_options=cloudfront.ResponseHeadersFrameOptions(
-                    frame_option=cloudfront.HeadersFrameOption.DENY, override=True),
-                referrer_policy=cloudfront.ResponseHeadersReferrerPolicy(
-                    referrer_policy=cloudfront.HeadersReferrerPolicy.NO_REFERRER, override=True)))
-        origin = origins.S3BucketOrigin.with_origin_access_control(bucket)
-        dist = cloudfront.Distribution(
-            self, "Console", comment=f"SetuHaul {environment_name} staff console (synthetic data)",
-            default_root_object="index.html",
-            default_behavior=cloudfront.BehaviorOptions(
-                origin=origin, viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
-                cache_policy=cloudfront.CachePolicy.CACHING_DISABLED,       # index.html, config.json: always fresh
-                response_headers_policy=headers, allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD),
-            additional_behaviors={"assets/*": cloudfront.BehaviorOptions(
-                origin=origin, viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
-                cache_policy=cloudfront.CachePolicy.CACHING_OPTIMIZED, response_headers_policy=headers,
-                allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD)})
-        self.console_bucket, self.console_distribution = bucket, dist
-        return f"https://{dist.distribution_domain_name}"
 
     def facility_scope_trigger(self, pool, environment_name: str, code) -> None:
         """Cognito pre-token generation, event version V2_0 (Essentials tier): adds `facility_scope` to staff access
