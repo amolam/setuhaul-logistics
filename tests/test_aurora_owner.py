@@ -19,6 +19,7 @@ from setuhaul.aws.migrate_data_api import MigrationError, adapt_for_non_superuse
 
 FRESH = os.environ.get("SETUHAUL_TEST_FRESH_DSN")
 OWNER = "aurora_like_owner"
+MASTER = "aurora_like_master"          # an express cluster's master: CREATEROLE, rds_superuser WITH ADMIN, not SUPERUSER
 
 
 class FakeConn:
@@ -79,8 +80,19 @@ def fresh():
         if n:
             pytest.skip("the cluster already has setuhaul roles owned by other databases; it must be empty")
         c.execute(f"DROP ROLE IF EXISTS {OWNER}")
-        c.execute(f"CREATE ROLE {OWNER} LOGIN CREATEROLE CREATEDB")         # Aurora's owner: not a superuser
-        c.execute(f"CREATE DATABASE setuhaul OWNER {OWNER}")
+        c.execute(f"DROP ROLE IF EXISTS {MASTER}")
+        if not c.execute("SELECT 1 FROM pg_roles WHERE rolname = 'rds_superuser'").fetchone():
+            c.execute("CREATE ROLE rds_superuser NOLOGIN")
+        c.execute(f"CREATE ROLE {MASTER} LOGIN CREATEROLE CREATEDB")
+        c.execute(f"GRANT rds_superuser TO {MASTER} WITH ADMIN OPTION")
+    # The deploy's bootstrap (express_bootstrap.run) creates the owner and the database, signed in as that master.
+    from setuhaul.aws.express_bootstrap import run
+    from setuhaul.aws.express_cluster import scram_verifier
+    master_dsn = re.sub(r"user=\S+", f"user={MASTER}", FRESH)
+    with psycopg.connect(f"{master_dsn} dbname=postgres", autocommit=True) as m:
+        out = run(m, "setuhaul", OWNER, scram_verifier("synthetic-owner-password"))
+        assert out["owner_created"] and out["database_created"]
+        assert run(m, "setuhaul", OWNER, scram_verifier("synthetic-owner-password"))["owner_created"] is False
     return re.sub(r"user=\S+", f"user={OWNER}", FRESH)
 
 

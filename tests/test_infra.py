@@ -15,7 +15,8 @@ from aws_cdk.assertions import Match, Template  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "infra"))
-from setuhaul_stack import AUTO_PAUSE_S, LEASE_S, SCHEDULED, WORKLOAD_ROLES, SetuHaulPilotStack, schedule_rule_name  # noqa: E402
+from setuhaul_stack import (AUTO_PAUSE_S, DB_SETUP_FUNCTIONS, LEASE_S, SCHEDULED, SYDNEY_AZS, WORKLOAD_ROLES,  # noqa: E402
+                            SetuHaulPilotStack, schedule_rule_name)
 
 PLAINTEXT_SECRETS = ("SESSION_SECRET", "META_APP_SECRET", "WHATSAPP_TOKEN", "OPENROUTER_API_KEY")
 
@@ -62,9 +63,14 @@ def test_everything_is_in_sydney(stack):
     assert stack.region == "ap-southeast-2"
 
 
+def workload_functions(t):
+    return {n: p for n, p in functions(t).items() if n.removeprefix("setuhaul-pilot-") not in DB_SETUP_FUNCTIONS}
+
+
 def test_the_booking_switch_is_off_and_the_data_is_synthetic_on_every_function(t):
     fns = functions(t)
-    assert len(fns) == 8          # api, agent, recovery, outbound, approval relay, and the three state-machine tasks
+    assert len(workload_functions(t)) == 8   # api, agent, recovery, outbound, relay, and the three state-machine tasks
+    assert set(fns) - set(workload_functions(t)) == {f"setuhaul-pilot-{n}" for n in DB_SETUP_FUNCTIONS}
     for name, p in fns.items():
         env = p["Environment"]["Variables"]
         assert env["SETUHAUL_BOOKING_ENABLED"] == "false", name
@@ -72,17 +78,61 @@ def test_the_booking_switch_is_off_and_the_data_is_synthetic_on_every_function(t
         assert not set(PLAINTEXT_SECRETS) & set(env), f"{name} has a plain-text secret in its environment"
 
 
-def test_aurora_postgresql_18_serverless_with_the_data_api_isolated_and_audited(t):
-    t.has_resource_properties("AWS::RDS::DBCluster", {
-        "Engine": "aurora-postgresql", "EngineVersion": Match.string_like_regexp(r"^18\."),
-        "EnableHttpEndpoint": True, "StorageEncrypted": True, "DeletionProtection": True,
-        "ServerlessV2ScalingConfiguration": {"MinCapacity": 0, "MaxCapacity": 2, "SecondsUntilAutoPause": AUTO_PAUSE_S},
-        "BackupRetentionPeriod": 1})
-    t.has_resource_properties("AWS::RDS::DBClusterParameterGroup", {"Parameters": Match.object_like(
-        {"shared_preload_libraries": "pgaudit", "pgaudit.log": "ddl,role", "pgaudit.log_parameter": "0",
-         "standard_conforming_strings": "1"})})
+def test_aurora_express_private_in_the_vpc_with_the_data_api_and_audited(t):
+    """The Free plan creates Aurora only with express configuration; CloudFormation cannot make it private, so the
+    custom resource does (setuhaul/aws/express_cluster.py, tested in tests/test_express_cluster.py)."""
+    assert not resources(t, "AWS::RDS::DBCluster") and not resources(t, "AWS::RDS::DBInstance")
+    (db,) = resources(t, "Custom::SetuHaulExpressAurora").values()
+    p = db["Properties"]
+    assert p["ClusterIdentifier"] == "setuhaul-pilot" and p["DatabaseName"] == "setuhaul"
+    assert (p["MinCapacity"], p["MaxCapacity"], p["SecondsUntilAutoPause"], p["BackupRetentionDays"]) == (
+        "0", "2", str(AUTO_PAUSE_S), "1")
+    assert p["ServiceToken"]["Fn::GetAtt"][0] == next(lid for lid, r in resources(t, "AWS::Lambda::Function").items()
+                                                     if r["Properties"]["FunctionName"] == "setuhaul-pilot-db-express")
+    (pg,) = resources(t, "AWS::RDS::DBClusterParameterGroup").values()
+    assert pg["Properties"]["Family"] == "aurora-postgresql17"            # express creates the Region default, 17.9
+    assert pg["Properties"]["Parameters"] == {"shared_preload_libraries": "pg_stat_statements,pgaudit",
+                                              "pgaudit.log": "ddl,role", "pgaudit.log_parameter": "0",
+                                              "rds.force_ssl": "1", "standard_conforming_strings": "1"}
+    (sg,) = resources(t, "AWS::RDS::DBSubnetGroup").values()
+    assert len(sg["Properties"]["SubnetIds"]) == len(SYDNEY_AZS) == 3     # a subnet in every AZ (express needs it)
     assert resources(t, "AWS::EC2::NatGateway") == {}                     # no NAT: Lambdas use the Data API
     assert resources(t, "AWS::EC2::InternetGateway") == {}
+    assert resources(t, "AWS::EC2::EIP") == {} and resources(t, "AWS::EC2::VPCEndpoint") == {}
+    assert all(s["Properties"].get("MapPublicIpOnLaunch") in (None, False) for s in resources(t, "AWS::EC2::Subnet").values())
+
+
+def test_only_the_bootstrap_function_can_reach_the_database_port(t):
+    """Port 5432 is open to the bootstrap function's security group only: no CIDR, no 0.0.0.0/0; the bootstrap
+    function's group sends 5432 to the database group only. Application Lambdas stay outside the VPC."""
+    sgs = resources(t, "AWS::EC2::SecurityGroup")
+    db_lid = next(lid for lid, r in sgs.items() if r["Properties"]["GroupDescription"].startswith("Aurora"))
+    boot_lid = next(lid for lid, r in sgs.items() if r["Properties"]["GroupDescription"].startswith("bootstrap"))
+    for lid, r in sgs.items():
+        for rule in r["Properties"].get("SecurityGroupIngress", []):
+            assert "CidrIp" not in rule and "CidrIpv6" not in rule, lid
+        for rule in r["Properties"].get("SecurityGroupEgress", []):
+            assert rule.get("CidrIp") in (None, "255.255.255.255/32"), (lid, rule)   # CDK's 'no egress' placeholder
+    (ing,) = resources(t, "AWS::EC2::SecurityGroupIngress").values()
+    assert ing["Properties"]["GroupId"]["Fn::GetAtt"][0] == db_lid
+    assert ing["Properties"]["SourceSecurityGroupId"]["Fn::GetAtt"][0] == boot_lid
+    assert (ing["Properties"]["FromPort"], ing["Properties"]["ToPort"]) == (5432, 5432)
+    (eg,) = resources(t, "AWS::EC2::SecurityGroupEgress").values()
+    assert eg["Properties"]["GroupId"]["Fn::GetAtt"][0] == boot_lid
+    assert eg["Properties"]["DestinationSecurityGroupId"]["Fn::GetAtt"][0] == db_lid
+    in_vpc = [p["FunctionName"] for p in functions(t).values() if p.get("VpcConfig")]
+    assert in_vpc == ["setuhaul-pilot-db-bootstrap"]
+
+
+def test_the_owner_login_is_not_the_master_and_only_the_express_resource_reads_it(t):
+    owner = next(lid for lid, r in resources(t, "AWS::SecretsManager::Secret").items()
+                 if r["Properties"].get("Name") == "setuhaul/pilot/db/owner")
+    template = json.loads(resources(t, "AWS::SecretsManager::Secret")[owner]["Properties"]["GenerateSecretString"][
+        "SecretStringTemplate"])
+    assert template["username"] == "setuhaul_owner"
+    readers = {r["Properties"]["FunctionName"] for lid, r in resources(t, "AWS::Lambda::Function").items()
+               if owner in _readable_secrets(t, lid)}
+    assert readers == {"setuhaul-pilot-db-express"}
 
 
 def test_the_queue_contract_matches_the_aws_queue_gate(t):
@@ -173,12 +223,12 @@ def test_aurora_can_pause_nothing_wakes_it_while_idle_and_logs_are_short(t):
     assert {r["Properties"]["Name"] for r in rules.values()} == {schedule_rule_name("pilot", n) for n in SCHEDULED}
     assert all(r["Properties"]["State"] == "DISABLED" for r in rules.values())
     assert not resources(t, "AWS::RDS::DBProxy")
-    (inst,) = resources(t, "AWS::RDS::DBInstance").values()
-    assert not inst["Properties"].get("EnablePerformanceInsights") and not inst["Properties"].get("MonitoringInterval")
-    assert len(resources(t, "AWS::RDS::DBInstance")) == 1
+    # one serverless writer, created by express configuration (no Performance Insights, no enhanced monitoring);
+    # the probe of 22 Nov 2026 measured 0 ACU five minutes after the last Data API connection closed
+    assert not resources(t, "AWS::RDS::DBInstance") and len(resources(t, "Custom::SetuHaulExpressAurora")) == 1
     groups = resources(t, "AWS::Logs::LogGroup").values()
     assert groups and all(g["Properties"]["RetentionInDays"] == 7 for g in groups)
-    env = {n: p["Environment"]["Variables"] for n, p in functions(t).items()}
+    env = {n: p["Environment"]["Variables"] for n, p in workload_functions(t).items()}
     assert env["setuhaul-pilot-api"]["SETUHAUL_DB_RESUME_WAIT_S"] == "20"           # inside API Gateway's 29 s
     assert all(e["SETUHAUL_DB_RESUME_WAIT_S"] == "40" for n, e in env.items() if n != "setuhaul-pilot-api")
 
@@ -219,19 +269,23 @@ def test_the_assembly_check_follows_template_to_staged_zip(built):
     _, out, zip_path = built
     summary, problems = verify(out, zip_path=zip_path)
     assert problems == [], problems
-    assert summary["functions"] == 8 and summary["staged_asset"].endswith(".zip")
+    assert summary["functions"] == 10 and summary["staged_asset"].endswith(".zip")
     import hashlib
     assert summary["sha256"] == hashlib.sha256(zip_path.read_bytes()).hexdigest()
     assert summary["sha256"] != summary["asset_object_key"].removesuffix(".zip")   # CDK's id is not the file hash
 
 
 def test_every_lambda_runs_the_verified_zip_and_no_cdk_helper_function_exists(t):
-    """Review E5-03: Aurora's log retention no longer adds a CDK-provided Lambda whose code nobody hashed."""
+    """Review E5-03: Aurora's log retention no longer adds a CDK-provided Lambda whose code nobody hashed. The one
+    custom resource (express Aurora) is served by a function of this template, running the verified zip."""
     codes = {json.dumps(r["Properties"]["Code"], sort_keys=True) for r in resources(t, "AWS::Lambda::Function").values()}
     assert len(codes) == 1
-    assert not [k for k, r in t.to_json()["Resources"].items() if r["Type"].startswith("Custom::")]
-    t.has_resource_properties("AWS::Logs::LogGroup", {"LogGroupName": "/aws/rds/cluster/setuhaul-pilot/postgresql",
-                                                      "RetentionInDays": 7})
+    customs = {k: r for k, r in t.to_json()["Resources"].items() if r["Type"].startswith("Custom::")}
+    assert list(customs) == ["Db"] and customs["Db"]["Type"] == "Custom::SetuHaulExpressAurora"
+    assert customs["Db"]["Properties"]["ServiceToken"]["Fn::GetAtt"][0] in resources(t, "AWS::Lambda::Function")
+    (db,) = resources(t, "Custom::SetuHaulExpressAurora").values()      # it keeps the database log group (7 days)
+    assert (db["Properties"]["LogGroupName"], db["Properties"]["LogRetentionDays"]) == (
+        "/aws/rds/cluster/setuhaul-pilot/postgresql", "7")
 
 
 def _copy_assembly(out, tmp_path):
@@ -271,7 +325,7 @@ def test_e5_07_a_valid_assembly_passes_with_every_function_checked(built):
     _, out, _ = built
     summary, problems = verify(out)
     assert problems == []
-    assert summary["functions_checked"] == _lambda_ids(out) and len(summary["functions_checked"]) == 8
+    assert summary["functions_checked"] == _lambda_ids(out) and len(summary["functions_checked"]) == 10
     # a literal name here (the fixture names an account); the pipeline's account-agnostic synth writes the
     # `${AWS::AccountId}` form. Either way it must equal the asset manifest destination, which verify() checked.
     assert summary["asset_bucket"].startswith("cdk-") and summary["asset_bucket"].endswith("-ap-southeast-2")
@@ -340,7 +394,7 @@ def test_e5_07_an_asset_destination_in_another_bucket_is_refused(built, tmp_path
                 d["bucketName"] = "cdk-other-assets-${AWS::AccountId}-ap-southeast-2"
     am_path.write_text(json.dumps(am), encoding="utf-8")
     problems = verify(dst)[1]
-    assert len([p for p in problems if "its bucket matches no destination" in p]) == 8, problems
+    assert len([p for p in problems if "its bucket matches no destination" in p]) == 10, problems
 
 
 def test_the_assembly_check_fails_when_the_staged_asset_is_missing(built, tmp_path):

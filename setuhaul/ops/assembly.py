@@ -13,7 +13,8 @@ It follows the chain the deployment will use, from the files CDK wrote, and hash
 and requires: the template exists; every Lambda function in the stack, each checked on its own, names a bucket and a
 key that both match one destination of the same staged asset (review E5-07: a function pointing at another bucket
 with the same key is refused), and all functions resolve to that one asset (so no function runs code the check did not
-hash, such as a CDK-provided helper); that staged file exists and is a zip; its SHA-256 equals
+hash, such as a CDK-provided helper); the only custom resource allowed is one whose ServiceToken is one of those
+checked functions (the express Aurora resource, docs/release/10_EXPRESS_AURORA.md); that staged file exists and is a zip; its SHA-256 equals
 `build/lambda.zip` when given, and every `artifact_sha256` in the deployment manifest when given. The asset id in the
 file name is CDK's fingerprint, not the file's SHA-256, so it is never trusted in place of the bytes.
 
@@ -29,7 +30,7 @@ import zipfile
 from pathlib import Path
 
 STACK = "SetuHaulPilot"
-FUNCTIONS = 8                                  # api, agent, recovery, outbound, relay and the three approval tasks
+FUNCTIONS = 10       # api, agent, recovery, outbound, relay, the three approval tasks, and db-express + db-bootstrap
 
 
 def _sha256(path: Path) -> str:
@@ -95,9 +96,13 @@ def verify(cdk_out: str | Path, stack: str = STACK, zip_path: str | Path | None 
     summary["functions"] = len(fns)
     if functions is not None and len(fns) != functions:
         problems.append(f"{len(fns)} Lambda functions in the template, expected {functions}")
-    if any(r.get("Type", "").startswith("Custom::") or r.get("Type") == "AWS::CloudFormation::CustomResource"
-           for r in template.get("Resources", {}).values()):
-        problems.append("the template has a custom resource (a Lambda whose code this check does not cover)")
+    for lid, r in template.get("Resources", {}).items():
+        if r.get("Type", "").startswith("Custom::") or r.get("Type") == "AWS::CloudFormation::CustomResource":
+            token = r.get("Properties", {}).get("ServiceToken")
+            target = token.get("Fn::GetAtt") if isinstance(token, dict) else None
+            if not (isinstance(target, list) and len(target) == 2 and target[1] == "Arn" and target[0] in fns):
+                problems.append(f"custom resource {lid} is not served by a checked function of this template "
+                                "(a Lambda whose code this check does not cover)")
     if not fns:
         problems.append("the template has no Lambda functions")
         return summary, problems

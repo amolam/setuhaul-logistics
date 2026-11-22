@@ -8,8 +8,9 @@ Shape (docs/release/04_SYDNEY_PILOT_DEPLOYMENT_PLAN.md §2; low-cost choices in 
   REST API (throttling; no WAF in this synthetic pilot) → api Lambda → SQS FIFO (+ FIFO DLQ) → agent Lambda
   EventBridge (1 min, DISABLED by default; `python -m setuhaul.ops.pilot_mode wake`) → recovery, outbound,
   approval-relay Lambdas; Aurora Serverless v2 0–2 ACU with auto-pause after 5 idle minutes;  Step Functions approval state machine (published
-  version + alias) → notify / record-token / expire Lambdas;  Aurora PostgreSQL 18 Serverless v2 with the Data API in an
-  isolated VPC (no NAT; Lambdas stay outside the VPC);  one Secrets Manager login per database role;  Cognito (MFA);
+  version + alias) → notify / record-token / expire Lambdas;  Aurora PostgreSQL 17 with express configuration (Free plan) and the
+  Data API, private in an isolated VPC (no NAT, no internet access gateway; only the db-bootstrap function is in the
+  VPC, application Lambdas stay outside);  one Secrets Manager login per database role;  Cognito (MFA);
   KMS; CloudWatch alarms.
 
 The booking switch is set to "false" on every function and nothing in this stack can turn it on.
@@ -19,7 +20,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from aws_cdk import (CfnOutput, Duration, RemovalPolicy, Stack, Tags, aws_apigateway as apigw,
+from aws_cdk import (CfnOutput, CustomResource, Duration, RemovalPolicy, Stack, Tags, aws_apigateway as apigw,
                      aws_cloudwatch as cw, aws_cloudwatch_actions as cw_actions, aws_cognito as cognito, aws_ec2 as ec2,
                      aws_events as events, aws_events_targets as targets, aws_iam as iam, aws_kms as kms,
                      aws_lambda as lambda_, aws_lambda_event_sources as sources, aws_logs as logs, aws_rds as rds,
@@ -36,6 +37,9 @@ ROOT = Path(__file__).resolve().parents[1]
 ASL = ROOT / "setuhaul" / "workflow" / "approval_workflow.asl.json"
 REGION = "ap-southeast-2"
 LEASE_S = 120                                      # orchestrator processing lease; queue visibility >= 2x
+SYDNEY_AZS = ("ap-southeast-2a", "ap-southeast-2b", "ap-southeast-2c")
+DB_PARAMETER_FAMILY = "aurora-postgresql17"         # express configuration creates the Region default (17.9)
+DB_SETUP_FUNCTIONS = ("db-express", "db-bootstrap")  # deploy-time only; never handle application traffic
 AUTO_PAUSE_S = 300                                 # Aurora pauses after 5 idle minutes (0 ACU)
 # The one-minute schedules, by function; they are created DISABLED so an idle pilot never touches the database
 # (otherwise Aurora would never reach 0 ACU). `setuhaul.ops.pilot_mode` enables them for a test session.
@@ -68,32 +72,7 @@ class SetuHaulPilotStack(Stack):
                       removal_policy=RemovalPolicy.RETAIN)
 
         # ------------------------------------------------------------ database (AURORA gate)
-        vpc = ec2.Vpc(self, "Vpc", max_azs=2, nat_gateways=0, subnet_configuration=[
-            ec2.SubnetConfiguration(name="db", subnet_type=ec2.SubnetType.PRIVATE_ISOLATED, cidr_mask=24)])
-        engine = rds.DatabaseClusterEngine.aurora_postgres(version=rds.AuroraPostgresEngineVersion.VER_18_3)
-        params = rds.ParameterGroup(self, "DbParams", engine=engine, parameters={
-            "shared_preload_libraries": "pgaudit",
-            "pgaudit.log": "ddl,role",                   # who changed schema or roles; never statement data
-            "pgaudit.log_parameter": "0",
-            "rds.force_ssl": "1",
-            "standard_conforming_strings": "1"})        # the Data API backend's literal escaping relies on it
-        self.cluster = cluster = rds.DatabaseCluster(
-            self, "Db", engine=engine, vpc=vpc, vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED),
-            writer=rds.ClusterInstance.serverless_v2("writer"), serverless_v2_min_capacity=0,
-            serverless_v2_max_capacity=2, serverless_v2_auto_pause_duration=Duration.seconds(AUTO_PAUSE_S),
-            enable_data_api=True, default_database_name="setuhaul",
-            credentials=rds.Credentials.from_generated_secret("setuhaul_owner", encryption_key=key,
-                                                              secret_name=f"setuhaul/{environment_name}/db/owner"),
-            storage_encrypted=True, storage_encryption_key=key, parameter_group=params,
-            backup=rds.BackupProps(retention=Duration.days(1)), deletion_protection=True,    # 1 day: the minimum
-            removal_policy=RemovalPolicy.SNAPSHOT, cloudwatch_logs_exports=["postgresql"],
-            cluster_identifier=f"setuhaul-{environment_name}")
-        # The database log group is created here with its retention, instead of `cloudwatch_logs_retention`, which adds
-        # a CDK-provided Lambda (LogRetention) whose code is not the verified artifact (review E5-03). It must exist
-        # before the cluster starts exporting, or RDS creates it first and this resource fails.
-        db_logs = logs.LogGroup(self, "DbLogs", log_group_name=f"/aws/rds/cluster/setuhaul-{environment_name}/postgresql",
-                                retention=logs.RetentionDays.ONE_WEEK, removal_policy=RemovalPolicy.RETAIN)
-        cluster.node.add_dependency(db_logs)
+        # (the database is created further down, once the verified Lambda code is known: express_aurora)
 
         # one login per application role, plus the pipeline's evidence writer (WORKLOAD_IDENTITY gate)
         self.login_secrets = {}
@@ -141,9 +120,10 @@ class SetuHaulPilotStack(Stack):
             # A folder would be zipped by CDK itself, and its bytes would not be the artifact the manifest records.
             raise ValueError(f"lambda_asset must be the built zip file (scripts/build_lambda.py), got {lambda_asset!r}")
         code = lambda_.Code.from_asset(lambda_asset)
+        cluster_arn = self.express_aurora(environment_name, key, code)
         base_env = {
             "SETUHAUL_ENV": environment_name, "SETUHAUL_ENVIRONMENT": env_label, "SETUHAUL_DATA_CLASS": "synthetic",
-            "SETUHAUL_BOOKING_ENABLED": "false", "SETUHAUL_DSN": "rds-data", "SETUHAUL_DB_CLUSTER_ARN": cluster.cluster_arn,
+            "SETUHAUL_BOOKING_ENABLED": "false", "SETUHAUL_DSN": "rds-data", "SETUHAUL_DB_CLUSTER_ARN": cluster_arn,
             "SETUHAUL_DB_NAME": "setuhaul", "SETUHAUL_QUEUE_URL": queue.queue_url,
             "SETUHAUL_APP_SECRET_ID": app_secret.secret_arn, "SETUHAUL_AWS_REGION": REGION,
             "COGNITO_ISSUER": f"https://cognito-idp.{REGION}.amazonaws.com/{pool.user_pool_id}",
@@ -165,7 +145,7 @@ class SetuHaulPilotStack(Stack):
                                                          removal_policy=RemovalPolicy.DESTROY))
             f.add_to_role_policy(iam.PolicyStatement(
                 actions=["rds-data:BeginTransaction", "rds-data:ExecuteStatement", "rds-data:CommitTransaction",
-                         "rds-data:RollbackTransaction"], resources=[cluster.cluster_arn]))
+                         "rds-data:RollbackTransaction"], resources=[cluster_arn]))
             for r in WORKLOAD_ROLES[workload]:
                 self.login_secrets[r].grant_read(f)
             app_secret.grant_read(f)
@@ -271,8 +251,8 @@ class SetuHaulPilotStack(Stack):
         for name, f in self.functions.items():
             alarm(f"Errors{f.node.id}", f.metric_errors(period=Duration.minutes(5)), 0)
 
-        for k, v in {"ApiUrl": api.url, "QueueUrl": queue.queue_url, "ClusterArn": cluster.cluster_arn,
-                     "OwnerSecretArn": cluster.secret.secret_arn, "ApprovalAliasArn": alias.attr_arn,
+        for k, v in {"ApiUrl": api.url, "QueueUrl": queue.queue_url, "ClusterArn": cluster_arn,
+                     "OwnerSecretArn": self.owner_secret.secret_arn, "ApprovalAliasArn": alias.attr_arn,
                      "ApprovalVersionArn": version.attr_arn,
                      "UserPoolId": pool.user_pool_id, "OpenRouterSecretArn": openrouter.secret_arn,
                      "AppSecretArn": app_secret.secret_arn, "WhatsAppSecretArn": whatsapp_secret.secret_arn,
@@ -280,3 +260,92 @@ class SetuHaulPilotStack(Stack):
                      "LoginSecretArns": self.to_json_string({r: s.secret_arn for r, s in self.login_secrets.items()})}.items():
             CfnOutput(self, k, value=v)
 
+    # ------------------------------------------------------------ database (AURORA gate), docs/release/10_EXPRESS_AURORA.md
+    def express_aurora(self, environment_name: str, key, code) -> str:
+        """Aurora PostgreSQL with express configuration (the only Aurora the AWS Free plan creates), private in an
+        isolated VPC: VPC networking on, internet access gateway off, no NAT, no public instance. CloudFormation cannot
+        ask for that, so a custom resource (setuhaul/aws/express_cluster.py, from the verified zip) makes the RDS call
+        and fails closed unless the live cluster reads back private. Storage uses the AWS/RDS service-owned key
+        (express configuration cannot use a customer key; accepted by the owner for this synthetic pilot)."""
+        cluster_id = f"setuhaul-{environment_name}"
+        # every Availability Zone in the Region: an express cluster's subnet group must cover all of them
+        vpc = ec2.Vpc(self, "Vpc", availability_zones=list(SYDNEY_AZS), nat_gateways=0, subnet_configuration=[
+            ec2.SubnetConfiguration(name="db", subnet_type=ec2.SubnetType.PRIVATE_ISOLATED, cidr_mask=24)])
+        isolated = vpc.select_subnets(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED)
+        db_sg = ec2.SecurityGroup(self, "DbSg", vpc=vpc, allow_all_outbound=False,
+                                  description="Aurora: 5432 from the bootstrap function only")
+        boot_sg = ec2.SecurityGroup(self, "DbBootstrapSg", vpc=vpc, allow_all_outbound=False,
+                                    description="bootstrap function: 5432 to Aurora only")
+        db_sg.add_ingress_rule(boot_sg, ec2.Port.tcp(5432), "bootstrap function")
+        boot_sg.add_egress_rule(db_sg, ec2.Port.tcp(5432), "Aurora")
+        subnets = rds.CfnDBSubnetGroup(self, "DbSubnets", db_subnet_group_name=cluster_id,
+                                       db_subnet_group_description="SetuHaul Aurora, isolated subnets in every AZ",
+                                       subnet_ids=isolated.subnet_ids)
+        params = rds.CfnDBClusterParameterGroup(self, "DbParams", db_cluster_parameter_group_name=cluster_id,
+                                                family=DB_PARAMETER_FAMILY, description="SetuHaul Aurora", parameters={
+            "shared_preload_libraries": "pg_stat_statements,pgaudit",
+            "pgaudit.log": "ddl,role",                   # who changed schema or roles; never statement data
+            "pgaudit.log_parameter": "0",
+            "rds.force_ssl": "1",
+            "standard_conforming_strings": "1"})        # the Data API backend's literal escaping relies on it
+        # The database log group is kept by the express resource, before the cluster exports to it: created if
+        # missing, 7-day retention set, never deleted (one retained from an earlier deploy is adopted, not replaced);
+        # no CDK-provided LogRetention Lambda (review E5-03).
+        db_log_group = f"/aws/rds/cluster/{cluster_id}/postgresql"
+        # The owner login replaces the master secret: the Data API refuses an express cluster's (IAM-only) master.
+        self.owner_secret = sm.Secret(
+            self, "DbOwner", secret_name=f"setuhaul/{environment_name}/db/owner", encryption_key=key,
+            generate_secret_string=sm.SecretStringGenerator(
+                secret_string_template=json.dumps({"username": "setuhaul_owner", "engine": "postgres", "dbname": "setuhaul"}),
+                generate_string_key="password", exclude_punctuation=True, password_length=40))
+        setup_env = {"SETUHAUL_ENV": environment_name, "SETUHAUL_DATA_CLASS": "synthetic", "SETUHAUL_BOOKING_ENABLED": "false"}
+
+        def setup_fn(name, handler, timeout_s, **kw):
+            return lambda_.Function(self, f"Fn{name.title().replace('-', '')}", function_name=f"setuhaul-{environment_name}-{name}",
+                                    runtime=lambda_.Runtime.PYTHON_3_13, architecture=lambda_.Architecture.X86_64,
+                                    handler=handler, code=code, memory_size=256, timeout=Duration.seconds(timeout_s),
+                                    environment=setup_env,
+                                    log_group=logs.LogGroup(self, f"Logs{name.title().replace('-', '')}",
+                                                            retention=logs.RetentionDays.ONE_WEEK,
+                                                            removal_policy=RemovalPolicy.DESTROY), **kw)
+        boot = setup_fn("db-bootstrap", "setuhaul.aws.express_bootstrap.handler", 60, vpc=vpc, vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED),
+                        security_groups=[boot_sg])
+        # IAM sign-in as the master only. The cluster's resource id is unknown until it exists; this account holds no
+        # other Aurora cluster in the Region.
+        boot.add_to_role_policy(iam.PolicyStatement(actions=["rds-db:connect"], resources=[
+            self.format_arn(service="rds-db", resource="dbuser", resource_name="*/postgres", arn_format=cdk_arn_format())]))
+        express_name = f"setuhaul-{environment_name}-db-express"
+        express = setup_fn("db-express", "setuhaul.aws.express_cluster.handler", 900)
+
+        def rds_arn(kind, name):
+            return self.format_arn(service="rds", resource=kind, resource_name=name, arn_format=cdk_arn_format())
+        express.add_to_role_policy(iam.PolicyStatement(actions=["rds:*"], resources=[
+            rds_arn("cluster", cluster_id), rds_arn("db", f"{cluster_id}*"), rds_arn("subgrp", cluster_id),
+            rds_arn("cluster-pg", cluster_id), rds_arn("cluster-pg", "default.*"), rds_arn("pg", "default.*")]))
+        express.add_to_role_policy(iam.PolicyStatement(actions=[
+            "rds:Describe*", "ec2:DescribeSubnets", "ec2:DescribeSecurityGroups", "ec2:DescribeVpcs",
+            "ec2:DescribeAvailabilityZones"], resources=["*"]))
+        express.add_to_role_policy(iam.PolicyStatement(actions=["iam:CreateServiceLinkedRole"], resources=["*"],
+                                                       conditions={"StringEquals": {"iam:AWSServiceName": "rds.amazonaws.com"}}))
+        express.add_to_role_policy(iam.PolicyStatement(actions=["lambda:InvokeFunction"], resources=[
+            boot.function_arn, self.format_arn(service="lambda", resource="function", resource_name=express_name,
+                                               arn_format=cdk_arn_format())]))
+        self.owner_secret.grant_read(express)
+        express.add_to_role_policy(iam.PolicyStatement(actions=["logs:CreateLogGroup", "logs:PutRetentionPolicy",
+                                                                "logs:DescribeLogGroups"], resources=[
+            self.format_arn(service="logs", resource="log-group", resource_name=f"{db_log_group}:*",
+                            arn_format=cdk_arn_format()),
+            self.format_arn(service="logs", resource="log-group", resource_name=db_log_group, arn_format=cdk_arn_format())]))
+        db = CustomResource(self, "Db", service_token=express.function_arn, resource_type="Custom::SetuHaulExpressAurora",
+                            properties={
+                                "ClusterIdentifier": cluster_id, "SubnetGroupName": subnets.ref,
+                                "SecurityGroupId": db_sg.security_group_id, "ParameterGroupName": params.ref,
+                                "MinCapacity": "0", "MaxCapacity": "2", "SecondsUntilAutoPause": str(AUTO_PAUSE_S),
+                                "BackupRetentionDays": "1",                                   # 1 day: the minimum
+                                "OwnerSecretArn": self.owner_secret.secret_arn, "DatabaseName": "setuhaul",
+                                "BootstrapFunction": boot.function_name,
+                                "LogGroupName": db_log_group, "LogRetentionDays": "7",
+                                "Tags": {"Project": "SetuHaul", "Environment": environment_name, "DataClass": "synthetic"}})
+        db.node.add_dependency(boot)
+        self.db_resource = db
+        return db.get_att_string("ClusterArn")
