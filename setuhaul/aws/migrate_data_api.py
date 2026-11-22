@@ -30,7 +30,7 @@ import re
 from pathlib import Path
 
 from ..db.migrate import META, MIGRATIONS, MigrationError, discover
-from .data_api import Connection, translate
+from .data_api import Connection, begin_with_resume, translate
 
 _DOLLAR = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)?\$")
 _ALTER_ROLE = re.compile(r"^ALTER\s+ROLE\s+([a-z_][a-z0-9_]*)\s+([A-Z][A-Z ]*)$")
@@ -125,7 +125,7 @@ class OwnerSession:
     def run(self, statements: list[str], record: tuple[str, str] | None = None) -> None:
         kw = {"resourceArn": self.arn, "secretArn": self.secret}
         try:
-            tid = self.c.begin_transaction(database=self.db, **kw)["transactionId"]
+            tid = begin_with_resume(self.c, {"database": self.db, **kw}, 120)     # the first call may wake the cluster
         except Exception as e:
             raise translate(e) if getattr(e, "response", None) else e from None
         conn = Connection(self.c, self.arn, self.secret, self.db, tid)
@@ -160,7 +160,7 @@ class OwnerSession:
     def query(self, sql: str, setup: tuple[str, ...] = ()) -> list[tuple]:
         """Rows of one read, in a transaction that is rolled back; `setup` runs first (e.g. a facility scope)."""
         kw = {"resourceArn": self.arn, "secretArn": self.secret}
-        tid = self.c.begin_transaction(database=self.db, **kw)["transactionId"]
+        tid = begin_with_resume(self.c, {"database": self.db, **kw}, 120)
         try:
             conn = Connection(self.c, self.arn, self.secret, self.db, tid)
             for s in setup:

@@ -15,7 +15,7 @@ from aws_cdk.assertions import Match, Template  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "infra"))
-from setuhaul_stack import LEASE_S, WORKLOAD_ROLES, SetuHaulPilotStack  # noqa: E402
+from setuhaul_stack import AUTO_PAUSE_S, LEASE_S, SCHEDULED, WORKLOAD_ROLES, SetuHaulPilotStack, schedule_rule_name  # noqa: E402
 
 PLAINTEXT_SECRETS = ("SESSION_SECRET", "META_APP_SECRET", "WHATSAPP_TOKEN", "OPENROUTER_API_KEY")
 
@@ -76,7 +76,8 @@ def test_aurora_postgresql_18_serverless_with_the_data_api_isolated_and_audited(
     t.has_resource_properties("AWS::RDS::DBCluster", {
         "Engine": "aurora-postgresql", "EngineVersion": Match.string_like_regexp(r"^18\."),
         "EnableHttpEndpoint": True, "StorageEncrypted": True, "DeletionProtection": True,
-        "ServerlessV2ScalingConfiguration": {"MinCapacity": 0.5, "MaxCapacity": 4}})
+        "ServerlessV2ScalingConfiguration": {"MinCapacity": 0, "MaxCapacity": 2, "SecondsUntilAutoPause": AUTO_PAUSE_S},
+        "BackupRetentionPeriod": 1})
     t.has_resource_properties("AWS::RDS::DBClusterParameterGroup", {"Parameters": Match.object_like(
         {"shared_preload_libraries": "pgaudit", "pgaudit.log": "ddl,role", "pgaudit.log_parameter": "0",
          "standard_conforming_strings": "1"})})
@@ -137,8 +138,11 @@ def test_the_approval_state_machine_is_the_repository_definition_with_a_publishe
     t.has_resource_properties("AWS::StepFunctions::StateMachineAlias", {"Name": "live"})
 
 
-def test_the_api_has_waf_and_throttling_and_staff_need_mfa(t):
-    assert resources(t, "AWS::WAFv2::WebACLAssociation")
+def test_low_cost_pilot_no_waf_but_throttling_and_staff_need_mfa(t):
+    """09_LOW_COST_PILOT_PLAN.md: WAF removed for this controlled synthetic pilot; throttling, Cognito MFA and the
+    admin-only sign-up remain (signed webhooks and input validation are tested in test_api.py)."""
+    assert not resources(t, "AWS::WAFv2::WebACL") and not resources(t, "AWS::WAFv2::WebACLAssociation")
+    assert not resources(t, "AWS::ApiGateway::Account")         # the region's existing logging role is left alone
     t.has_resource_properties("AWS::ApiGateway::Stage", {"MethodSettings": Match.array_with([
         Match.object_like({"ThrottlingRateLimit": 20, "ThrottlingBurstLimit": 40})])})
     t.has_resource_properties("AWS::Cognito::UserPool", {"MfaConfiguration": "ON",
@@ -158,6 +162,25 @@ def test_every_gate_monitoring_alarm_exists(t):
     assert {"ApproximateAgeOfOldestMessage", "ApproximateNumberOfMessagesVisible", "5XXError", "ExecutionsFailed",
             "ExecutionsTimedOut", "Errors"} <= metrics
     assert all(a["Properties"].get("AlarmActions") for a in alarms.values())
+
+
+def test_aurora_can_pause_nothing_wakes_it_while_idle_and_logs_are_short(t):
+    """Acceptance 2 (configuration side): 0 ACU minimum with a 300-s auto-pause, and no schedule runs while the pilot
+    sleeps (each would query the database every minute and keep it from pausing). Nothing that prevents pausing:
+    no RDS Proxy, no Performance Insights, no enhanced monitoring, no replica."""
+    rules = resources(t, "AWS::Events::Rule")
+    assert len(rules) == len(SCHEDULED)
+    assert {r["Properties"]["Name"] for r in rules.values()} == {schedule_rule_name("pilot", n) for n in SCHEDULED}
+    assert all(r["Properties"]["State"] == "DISABLED" for r in rules.values())
+    assert not resources(t, "AWS::RDS::DBProxy")
+    (inst,) = resources(t, "AWS::RDS::DBInstance").values()
+    assert not inst["Properties"].get("EnablePerformanceInsights") and not inst["Properties"].get("MonitoringInterval")
+    assert len(resources(t, "AWS::RDS::DBInstance")) == 1
+    groups = resources(t, "AWS::Logs::LogGroup").values()
+    assert groups and all(g["Properties"]["RetentionInDays"] == 7 for g in groups)
+    env = {n: p["Environment"]["Variables"] for n, p in functions(t).items()}
+    assert env["setuhaul-pilot-api"]["SETUHAUL_DB_RESUME_WAIT_S"] == "20"           # inside API Gateway's 29 s
+    assert all(e["SETUHAUL_DB_RESUME_WAIT_S"] == "40" for n, e in env.items() if n != "setuhaul-pilot-api")
 
 
 def test_the_4xx_alarm_is_named_for_what_it_counts(t):
@@ -208,7 +231,7 @@ def test_every_lambda_runs_the_verified_zip_and_no_cdk_helper_function_exists(t)
     assert len(codes) == 1
     assert not [k for k, r in t.to_json()["Resources"].items() if r["Type"].startswith("Custom::")]
     t.has_resource_properties("AWS::Logs::LogGroup", {"LogGroupName": "/aws/rds/cluster/setuhaul-pilot/postgresql",
-                                                      "RetentionInDays": 30})
+                                                      "RetentionInDays": 7})
 
 
 def _copy_assembly(out, tmp_path):

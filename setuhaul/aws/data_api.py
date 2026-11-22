@@ -23,6 +23,7 @@ the AURORA gate confirms the exact text form the Data API returns for `timestamp
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import uuid
@@ -34,6 +35,8 @@ from typing import Any, Iterator
 import psycopg
 from psycopg.types.json import Json, Jsonb
 from psycopg.types.range import Range
+
+log = logging.getLogger("setuhaul.data_api")
 
 from ..api.db import FENCED_ROLES, ROLES, TURN_FENCE
 
@@ -325,8 +328,34 @@ class Connection:
 
 
 # ---------------------------------------------------------------- the backend
+RESUMING = "DatabaseResumingException"
+
+
+def begin_with_resume(client, kw: dict, max_wait_s: float = 60.0, sleep=None, clock=None) -> str:
+    """BeginTransaction, waiting while a paused Aurora Serverless v2 cluster resumes (auto-pause at 0 ACU).
+
+    The Data API answers `DatabaseResumingException` while the cluster wakes (~15 s, sometimes longer). The call is
+    repeated with backoff (1, 2, 4, then 5 s) until it succeeds or `max_wait_s` has passed; then the last error is
+    raised. Only this error is retried: nothing has started, so a retry cannot repeat work. Every other error is
+    raised at once."""
+    import time
+    sleep, clock = sleep or time.sleep, clock or time.monotonic
+    deadline, delay = clock() + max_wait_s, 1.0
+    while True:
+        try:
+            return client.begin_transaction(**kw)["transactionId"]
+        except Exception as e:
+            code = ((getattr(e, "response", None) or {}).get("Error") or {}).get("Code")
+            if code != RESUMING or clock() + delay > deadline:
+                raise
+            log.info("database resuming from auto-pause; retrying BeginTransaction in %.0f s", delay)
+            sleep(delay)
+            delay = min(delay * 2, 5.0)
+
+
 class DataApiDb:
-    def __init__(self, cluster_arn: str, database: str, secret_arns: dict[str, str], client=None):
+    def __init__(self, cluster_arn: str, database: str, secret_arns: dict[str, str], client=None,
+                 resume_wait_s: float = 60.0):
         unknown = set(secret_arns) - set(ROLES)
         if unknown:
             raise ValueError(f"unknown database roles in SETUHAUL_DB_SECRET_ARNS: {sorted(unknown)}")
@@ -334,13 +363,15 @@ class DataApiDb:
             import boto3                                            # only in AWS; tests pass an emulator
             client = boto3.client("rds-data")
         self.cluster_arn, self.database, self.secret_arns, self.client = cluster_arn, database, dict(secret_arns), client
+        self.resume_wait_s = resume_wait_s
         self.dsn = f"rds-data:{database}"                              # for log lines; carries no credential
 
     @classmethod
     def from_env(cls, env: dict | None = None, client=None) -> "DataApiDb":
         env = os.environ if env is None else env
         return cls(env["SETUHAUL_DB_CLUSTER_ARN"], env.get("SETUHAUL_DB_NAME", "setuhaul"),
-                   json.loads(env["SETUHAUL_DB_SECRET_ARNS"]), client)
+                   json.loads(env["SETUHAUL_DB_SECRET_ARNS"]), client,
+                   resume_wait_s=float(env.get("SETUHAUL_DB_RESUME_WAIT_S", "60")))
 
     @contextmanager
     def tx(self, role: str, scope=None, driver: str | None = None, readonly: bool = False,
@@ -354,7 +385,7 @@ class DataApiDb:
             raise PermissionError(f"this workload has no database login for role {role!r}")
         kw = {"resourceArn": self.cluster_arn, "secretArn": secret, "database": self.database}
         try:
-            tid = self.client.begin_transaction(**kw)["transactionId"]
+            tid = begin_with_resume(self.client, kw, self.resume_wait_s)
         except Exception as e:
             if getattr(e, "response", None) is None:
                 raise

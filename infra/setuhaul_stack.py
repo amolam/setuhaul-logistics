@@ -4,9 +4,10 @@ Not deployed. `python infra/app.py` writes the Cloud Assembly to `cdk.out/`; `te
 properties the six deployment gates depend on, and `setuhaul/ops/assembly.py` checks that every function's code is the
 one staged `build/lambda.zip`. Deploying needs the owner's approval and sign-in, and deploys that assembly as built.
 
-Shape (docs/release/04_SYDNEY_PILOT_DEPLOYMENT_PLAN.md §2):
-  REST API (WAF, throttling) → api Lambda → SQS FIFO (+ FIFO DLQ) → agent Lambda
-  EventBridge (1 min) → recovery, outbound, approval-relay Lambdas;  Step Functions approval state machine (published
+Shape (docs/release/04_SYDNEY_PILOT_DEPLOYMENT_PLAN.md §2; low-cost choices in docs/release/09_LOW_COST_PILOT_PLAN.md):
+  REST API (throttling; no WAF in this synthetic pilot) → api Lambda → SQS FIFO (+ FIFO DLQ) → agent Lambda
+  EventBridge (1 min, DISABLED by default; `python -m setuhaul.ops.pilot_mode wake`) → recovery, outbound,
+  approval-relay Lambdas; Aurora Serverless v2 0–2 ACU with auto-pause after 5 idle minutes;  Step Functions approval state machine (published
   version + alias) → notify / record-token / expire Lambdas;  Aurora PostgreSQL 18 Serverless v2 with the Data API in an
   isolated VPC (no NAT; Lambdas stay outside the VPC);  one Secrets Manager login per database role;  Cognito (MFA);
   KMS; CloudWatch alarms.
@@ -23,7 +24,7 @@ from aws_cdk import (CfnOutput, Duration, RemovalPolicy, Stack, Tags, aws_apigat
                      aws_events as events, aws_events_targets as targets, aws_iam as iam, aws_kms as kms,
                      aws_lambda as lambda_, aws_lambda_event_sources as sources, aws_logs as logs, aws_rds as rds,
                      aws_secretsmanager as sm, aws_sns as sns, aws_sns_subscriptions as subs, aws_sqs as sqs,
-                     aws_stepfunctions as sfn, aws_wafv2 as waf)
+                     aws_stepfunctions as sfn)
 from constructs import Construct
 
 def cdk_arn_format():
@@ -35,6 +36,14 @@ ROOT = Path(__file__).resolve().parents[1]
 ASL = ROOT / "setuhaul" / "workflow" / "approval_workflow.asl.json"
 REGION = "ap-southeast-2"
 LEASE_S = 120                                      # orchestrator processing lease; queue visibility >= 2x
+AUTO_PAUSE_S = 300                                 # Aurora pauses after 5 idle minutes (0 ACU)
+# The one-minute schedules, by function; they are created DISABLED so an idle pilot never touches the database
+# (otherwise Aurora would never reach 0 ACU). `setuhaul.ops.pilot_mode` enables them for a test session.
+SCHEDULED = ("recovery", "outbound", "approval-relay")
+
+
+def schedule_rule_name(environment_name: str, fn_name: str) -> str:
+    return f"setuhaul-{environment_name}-{fn_name}-every-minute"
 DB_ROLES = ("agent", "console", "ingest", "feasibility", "system")
 # Database logins per workload: proven minimal by tests/test_aws.py (each handler runs with only these).
 WORKLOAD_ROLES = {
@@ -70,19 +79,20 @@ class SetuHaulPilotStack(Stack):
             "standard_conforming_strings": "1"})        # the Data API backend's literal escaping relies on it
         self.cluster = cluster = rds.DatabaseCluster(
             self, "Db", engine=engine, vpc=vpc, vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED),
-            writer=rds.ClusterInstance.serverless_v2("writer"), serverless_v2_min_capacity=0.5,
-            serverless_v2_max_capacity=4, enable_data_api=True, default_database_name="setuhaul",
+            writer=rds.ClusterInstance.serverless_v2("writer"), serverless_v2_min_capacity=0,
+            serverless_v2_max_capacity=2, serverless_v2_auto_pause_duration=Duration.seconds(AUTO_PAUSE_S),
+            enable_data_api=True, default_database_name="setuhaul",
             credentials=rds.Credentials.from_generated_secret("setuhaul_owner", encryption_key=key,
                                                               secret_name=f"setuhaul/{environment_name}/db/owner"),
             storage_encrypted=True, storage_encryption_key=key, parameter_group=params,
-            backup=rds.BackupProps(retention=Duration.days(7)), deletion_protection=True,
+            backup=rds.BackupProps(retention=Duration.days(1)), deletion_protection=True,    # 1 day: the minimum
             removal_policy=RemovalPolicy.SNAPSHOT, cloudwatch_logs_exports=["postgresql"],
             cluster_identifier=f"setuhaul-{environment_name}")
         # The database log group is created here with its retention, instead of `cloudwatch_logs_retention`, which adds
         # a CDK-provided Lambda (LogRetention) whose code is not the verified artifact (review E5-03). It must exist
         # before the cluster starts exporting, or RDS creates it first and this resource fails.
         db_logs = logs.LogGroup(self, "DbLogs", log_group_name=f"/aws/rds/cluster/setuhaul-{environment_name}/postgresql",
-                                retention=logs.RetentionDays.ONE_MONTH, removal_policy=RemovalPolicy.RETAIN)
+                                retention=logs.RetentionDays.ONE_WEEK, removal_policy=RemovalPolicy.RETAIN)
         cluster.node.add_dependency(db_logs)
 
         # one login per application role, plus the pipeline's evidence writer (WORKLOAD_IDENTITY gate)
@@ -138,7 +148,8 @@ class SetuHaulPilotStack(Stack):
             "SETUHAUL_APP_SECRET_ID": app_secret.secret_arn, "SETUHAUL_AWS_REGION": REGION,
             "COGNITO_ISSUER": f"https://cognito-idp.{REGION}.amazonaws.com/{pool.user_pool_id}",
             "COGNITO_CLIENT_IDS": client.user_pool_client_id, "FACILITIES": "FAC-JAI-01,FAC-GGN-01",
-            "SETUHAUL_PROCESSING_LEASE_S": str(LEASE_S)}
+            "SETUHAUL_PROCESSING_LEASE_S": str(LEASE_S),
+            "SETUHAUL_DB_RESUME_WAIT_S": "40"}           # wait for a paused Aurora to resume (the api overrides it)
         self.functions: dict[str, lambda_.Function] = {}
 
         def fn(name: str, handler: str, workload: str, timeout_s: int = 30, memory: int = 512, extra=None):
@@ -150,7 +161,7 @@ class SetuHaulPilotStack(Stack):
                                  timeout=Duration.seconds(timeout_s), environment=env,
                                  tracing=lambda_.Tracing.ACTIVE,
                                  log_group=logs.LogGroup(self, f"Logs{name.title().replace('-', '')}",
-                                                         retention=logs.RetentionDays.ONE_MONTH,
+                                                         retention=logs.RetentionDays.ONE_WEEK,
                                                          removal_policy=RemovalPolicy.DESTROY))
             f.add_to_role_policy(iam.PolicyStatement(
                 actions=["rds-data:BeginTransaction", "rds-data:ExecuteStatement", "rds-data:CommitTransaction",
@@ -161,7 +172,8 @@ class SetuHaulPilotStack(Stack):
             self.functions[name] = f
             return f
 
-        api_fn = fn("api", "api_handler", "api", timeout_s=29, extra={"SETUHAUL_TOOLS_ROUTE": "off"})
+        api_fn = fn("api", "api_handler", "api", timeout_s=29, extra={"SETUHAUL_TOOLS_ROUTE": "off",
+                    "SETUHAUL_DB_RESUME_WAIT_S": "20"})     # API Gateway ends a request at 29 s
         agent_fn = fn("agent", "agent_handler", "agent", timeout_s=LEASE_S + 60, memory=1024, extra={
             "SETUHAUL_MODEL_PROVIDER": "openrouter", "SETUHAUL_OPENROUTER_SECRET_ID": openrouter.secret_arn,
             "SETUHAUL_OR_EXTRACT_MODEL": "anthropic/claude-haiku-4.5", "SETUHAUL_OR_PROVIDER": "amazon-bedrock",
@@ -216,31 +228,22 @@ class SetuHaulPilotStack(Stack):
                 actions=["states:SendTaskSuccess", "states:SendTaskFailure", "states:SendTaskHeartbeat"],
                 resources=[machine_arn]))
 
-        for f in (recovery_fn, outbound_fn, relay_fn):
-            events.Rule(self, f"Every{f.node.id}", schedule=events.Schedule.rate(Duration.minutes(1)),
-                        targets=[targets.LambdaFunction(f)])
+        self.schedule_rules = {}
+        for name in SCHEDULED:
+            f = self.functions[name]
+            self.schedule_rules[name] = events.Rule(
+                self, f"Every{f.node.id}", rule_name=schedule_rule_name(environment_name, name),
+                schedule=events.Schedule.rate(Duration.minutes(1)), targets=[targets.LambdaFunction(f)],
+                enabled=False)
 
-        # ------------------------------------------------------------ edge: REST API + WAF
-        api = apigw.LambdaRestApi(self, "Api", handler=api_fn, proxy=True,
+        # ------------------------------------------------------------ edge: REST API (no WAF in this synthetic pilot)
+        # Kept: stage throttling, HMAC-signed webhooks, Cognito with MFA for staff, input validation. Throttling limits
+        # volume only; it does not inspect requests the way the removed WAF rule groups did (09_LOW_COST_PILOT_PLAN.md).
+        # cloud_watch_role=False: the region's API Gateway account setting already has a logging role.
+        api = apigw.LambdaRestApi(self, "Api", handler=api_fn, proxy=True, cloud_watch_role=False,
                                   endpoint_types=[apigw.EndpointType.REGIONAL],
                                   deploy_options=apigw.StageOptions(stage_name="pilot", throttling_rate_limit=20,
                                                                     throttling_burst_limit=40, tracing_enabled=True))
-        acl = waf.CfnWebACL(self, "Waf", scope="REGIONAL", default_action=waf.CfnWebACL.DefaultActionProperty(allow={}),
-                            visibility_config=waf.CfnWebACL.VisibilityConfigProperty(
-                                cloud_watch_metrics_enabled=True, metric_name="setuhaul-waf", sampled_requests_enabled=True),
-                            rules=[self._managed("AWSManagedRulesCommonRuleSet", 1),
-                                   self._managed("AWSManagedRulesKnownBadInputsRuleSet", 2),
-                                   waf.CfnWebACL.RuleProperty(
-                                       name="rate-per-ip", priority=3, action=waf.CfnWebACL.RuleActionProperty(block={}),
-                                       statement=waf.CfnWebACL.StatementProperty(
-                                           rate_based_statement=waf.CfnWebACL.RateBasedStatementProperty(
-                                               limit=600, aggregate_key_type="IP")),
-                                       visibility_config=waf.CfnWebACL.VisibilityConfigProperty(
-                                           cloud_watch_metrics_enabled=True, metric_name="rate-per-ip",
-                                           sampled_requests_enabled=True))])
-        waf.CfnWebACLAssociation(self, "WafApi", web_acl_arn=acl.attr_arn,
-                                 resource_arn=f"arn:aws:apigateway:{REGION}::/restapis/{api.rest_api_id}/stages/"
-                                              f"{api.deployment_stage.stage_name}")
 
         # ------------------------------------------------------------ alarms (operations guide §2)
         topic = sns.Topic(self, "Alarms", master_key=key)
@@ -273,14 +276,7 @@ class SetuHaulPilotStack(Stack):
                      "ApprovalVersionArn": version.attr_arn,
                      "UserPoolId": pool.user_pool_id, "OpenRouterSecretArn": openrouter.secret_arn,
                      "AppSecretArn": app_secret.secret_arn, "WhatsAppSecretArn": whatsapp_secret.secret_arn,
+                     "ScheduleRuleNames": ",".join(r.rule_name for r in self.schedule_rules.values()),
                      "LoginSecretArns": self.to_json_string({r: s.secret_arn for r, s in self.login_secrets.items()})}.items():
             CfnOutput(self, k, value=v)
 
-    @staticmethod
-    def _managed(name: str, priority: int):
-        return waf.CfnWebACL.RuleProperty(
-            name=name, priority=priority, override_action=waf.CfnWebACL.OverrideActionProperty(none={}),
-            statement=waf.CfnWebACL.StatementProperty(managed_rule_group_statement=waf.CfnWebACL.ManagedRuleGroupStatementProperty(
-                vendor_name="AWS", name=name)),
-            visibility_config=waf.CfnWebACL.VisibilityConfigProperty(cloud_watch_metrics_enabled=True, metric_name=name,
-                                                                     sampled_requests_enabled=True))

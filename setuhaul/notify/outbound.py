@@ -194,6 +194,7 @@ class TestSinkProvider:
     real provider and the database records it. A `testsink.` id is never a WhatsApp delivery and must not be reported
     as one. Numbers listed in `fail_phones` are refused permanently, so failure handling can be exercised on demand."""
 
+    __test__ = False                       # not a pytest test class, despite the name
     supports_idempotency = False
     service_window = False
 
