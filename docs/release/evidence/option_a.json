@@ -1,0 +1,329 @@
+[
+  {
+    "case": "S1",
+    "scenario": "protections kept without WAF, against the live API",
+    "input": "probes",
+    "evidence": {
+      "status_codes": {
+        "unsigned": 401,
+        "wrong_signature": 401,
+        "signed": 200,
+        "console_no_token": 401,
+        "console_forged_token": 401,
+        "malformed_input": 401,
+        "tools_route": 404
+      },
+      "stage_throttling": {
+        "throttlingRateLimit": 20.0,
+        "throttlingBurstLimit": 40
+      }
+    },
+    "checks": {
+      "unsigned webhook refused (401)": true,
+      "wrong signature refused (401)": true,
+      "signed webhook accepted (200)": true,
+      "console without a token refused (401)": true,
+      "console with a forged token refused (401)": true,
+      "malformed input refused (401/422)": true,
+      "/tools is off (404)": true,
+      "stage throttling 20/40": true
+    },
+    "status": "PASS",
+    "at": "2026-11-22T14:55:14+00:00"
+  },
+  {
+    "case": "A1",
+    "scenario": "delay message: extraction, policy, feasibility against Aurora, options returned",
+    "input": "wamid.SYN.806a4b6621424ddba642f206b26f96b3",
+    "evidence": {
+      "driver_id": "SYN-DRV-50E3DFC1",
+      "vehicle_id": "SYN-VEH-50E3DFC1",
+      "shipment_id": "SYN-SHP-50E3DFC1",
+      "phone": "+99905116493289",
+      "message_id": "wamid.SYN.806a4b6621424ddba642f206b26f96b3",
+      "status": 200,
+      "body": "{\"status\":\"received\"}",
+      "api_request_id": "f52b2564-c77a-41ac-86cf-cfade8206abb",
+      "stored_driver_message": 104,
+      "agent_reply": "I could not find a slot that works right now. Please call your dispatcher.",
+      "agent_reply_id": 105,
+      "agent_log": [],
+      "read_back": "Do you mean you will now reach the gate around 11:25 PM? Reply YES, or send your arrival time.",
+      "model_usage_recent": [
+        [
+          "ERROR",
+          "auth",
+          "extract",
+          "anthropic/claude-haiku-4.5"
+        ],
+        [
+          "ERROR",
+          "auth",
+          "extract",
+          "anthropic/claude-haiku-4.5"
+        ],
+        [
+          "BUDGET_EXHAUSTED",
+          "budget_exhausted",
+          "extract",
+          "anthropic/claude-haiku-4.5"
+        ]
+      ],
+      "eta_signal": [
+        [
+          "DRIVER_DECLARED",
+          "2026-11-22 17:55:15.693682+00:00"
+        ]
+      ],
+      "shown_options": 3,
+      "appointments": 0
+    },
+    "checks": {
+      "webhook accepted (200)": true,
+      "delay read back for confirmation": true,
+      "driver message stored": true,
+      "agent reply stored": true,
+      "driver ETA recorded": true,
+      "options computed and stored": true,
+      "no booking": true
+    },
+    "status": "PASS",
+    "at": "2026-11-22T14:55:46+00:00"
+  },
+  {
+    "case": "A2",
+    "scenario": "driver picks an option: processed, no booking committed (switch off)",
+    "input": [
+      "wamid.SYN.2c3cca7a9e7447f1be3d0cc9a0fea402",
+      "wamid.SYN.7bba8a1c9b5341c4bbfa8fbf9c8b181a"
+    ],
+    "evidence": {
+      "driver_id": "SYN-DRV-4EAE08A4",
+      "vehicle_id": "SYN-VEH-4EAE08A4",
+      "shipment_id": "SYN-SHP-4EAE08A4",
+      "phone": "+99903229144802",
+      "first": {
+        "message_id": "wamid.SYN.2c3cca7a9e7447f1be3d0cc9a0fea402",
+        "status": 200,
+        "body": "{\"status\":\"received\"}",
+        "api_request_id": "b4494cb9-444c-4586-bd05-53644eb61126",
+        "stored_driver_message": 106,
+        "agent_reply": "Do you mean you will now reach the gate around 11:25 PM? Reply YES, or send your arrival time.",
+        "agent_reply_id": 107,
+        "agent_log": []
+      },
+      "confirm": {
+        "message_id": "wamid.SYN.7bba8a1c9b5341c4bbfa8fbf9c8b181a",
+        "status": 200,
+        "body": "{\"status\":\"received\"}",
+        "api_request_id": "71c79fb0-e665-464d-9c74-176b1a4abe83",
+        "stored_driver_message": 108,
+        "agent_reply": "I could not find a slot that works right now. Please call your dispatcher.",
+        "agent_reply_id": 109,
+        "agent_log": []
+      },
+      "appointments": 0,
+      "approval_requests": 0
+    },
+    "checks": {
+      "options offered": true,
+      "confirmation answered": true,
+      "no appointment": true,
+      "no approval request": true
+    },
+    "status": "PASS",
+    "at": "2026-11-22T14:56:16+00:00"
+  },
+  {
+    "case": "A3",
+    "scenario": "the agent's reply goes to the internal test sink (not WhatsApp)",
+    "input": "wamid.SYN.af4f5d11350e411ebe7faa77f8c99ff3",
+    "evidence": {
+      "driver_id": "SYN-DRV-4DCDB955",
+      "vehicle_id": "SYN-VEH-4DCDB955",
+      "shipment_id": "SYN-SHP-4DCDB955",
+      "phone": "+99900348801391",
+      "message_id": "wamid.SYN.af4f5d11350e411ebe7faa77f8c99ff3",
+      "status": 200,
+      "body": "{\"status\":\"received\"}",
+      "api_request_id": "c8db18ef-41e4-4429-ae3d-a6160c535f96",
+      "stored_driver_message": 110,
+      "agent_reply": "Do you mean you will now reach the gate around 10:56 PM? Reply YES, or send your arrival time.",
+      "agent_reply_id": 111,
+      "agent_log": [],
+      "notification": [
+        [
+          "SENT",
+          "testsink.69d83049009045fbaaa1ddf9a2f090e7",
+          1
+        ]
+      ]
+    },
+    "checks": {
+      "reply stored": true,
+      "notification SENT": true,
+      "test-sink id, not a WhatsApp id": true
+    },
+    "status": "PASS",
+    "at": "2026-11-22T14:57:09+00:00"
+  },
+  {
+    "case": "A4",
+    "scenario": "a notification the sink refuses fails safely and a person is told",
+    "input": "wamid.SYN.0c21264353b4415ab8c7d2bafc1d99fb",
+    "evidence": {
+      "driver_id": "SYN-DRV-8569E2AE",
+      "vehicle_id": "SYN-VEH-A8934B21",
+      "shipment_id": "SYN-SHP-A8934B21",
+      "phone": "+99900000009999",
+      "message_id": "wamid.SYN.0c21264353b4415ab8c7d2bafc1d99fb",
+      "status": 200,
+      "body": "{\"status\":\"received\"}",
+      "api_request_id": "ad34260c-0b18-4b9e-a4e4-40c384635423",
+      "stored_driver_message": 112,
+      "agent_reply": "Do you mean you will now reach the gate around 9:09 PM? Reply YES, or send your arrival time.",
+      "agent_reply_id": 113,
+      "agent_log": [],
+      "notification": [
+        [
+          "FAILED",
+          "TEST_SINK_REFUSED",
+          "fdb8fc9e-0025-3741-e83c-21e36cb7b5e7"
+        ]
+      ],
+      "escalation": [
+        [
+          "NOTIFICATION_FAILED",
+          "DECIDE"
+        ]
+      ],
+      "driver_reused": true
+    },
+    "checks": {
+      "notification FAILED": true,
+      "reason recorded": true,
+      "escalation raised": true
+    },
+    "status": "PASS",
+    "at": "2026-11-22T14:58:05+00:00"
+  },
+  {
+    "case": "D1",
+    "scenario": "duplicate webhook delivery: stored once, answered once",
+    "input": "wamid.SYN.4211eac340934f96a6d14cb0d7b73dd9",
+    "evidence": {
+      "driver_id": "SYN-DRV-23B9DBF5",
+      "vehicle_id": "SYN-VEH-23B9DBF5",
+      "shipment_id": "SYN-SHP-23B9DBF5",
+      "phone": "+99907316632967",
+      "first": {
+        "message_id": "wamid.SYN.4211eac340934f96a6d14cb0d7b73dd9",
+        "status": 200,
+        "body": "{\"status\":\"received\"}",
+        "api_request_id": "8329c4bf-d87d-4315-9db8-7296b7d50f77"
+      },
+      "again": {
+        "message_id": "wamid.SYN.4211eac340934f96a6d14cb0d7b73dd9",
+        "status": 200,
+        "body": "{\"status\":\"received\"}",
+        "api_request_id": "3976fc52-c031-433e-b801-22c11b6842d9"
+      },
+      "stored": 1,
+      "replies": 1
+    },
+    "checks": {
+      "both deliveries acknowledged (200)": true,
+      "stored once": true,
+      "answered once": true
+    },
+    "status": "PASS",
+    "at": "2026-11-22T14:58:54+00:00"
+  },
+  {
+    "case": "A5",
+    "scenario": "model unavailable (OpenRouter refuses the key): the rules reader answers",
+    "input": "wamid.SYN.43e94e02bc864d33b7dddf050cf98885",
+    "evidence": {
+      "driver_id": "SYN-DRV-8F607142",
+      "vehicle_id": "SYN-VEH-8F607142",
+      "shipment_id": "SYN-SHP-8F607142",
+      "phone": "+99901833328148",
+      "message_id": "wamid.SYN.43e94e02bc864d33b7dddf050cf98885",
+      "status": 200,
+      "body": "{\"status\":\"received\"}",
+      "api_request_id": "a3457404-6cd8-4843-99dc-78a588cb2cc0",
+      "stored_driver_message": 117,
+      "agent_reply": "Do you mean you will now reach the gate around 11:28 PM? Reply YES, or send your arrival time.",
+      "agent_reply_id": 118,
+      "agent_log": [],
+      "fallback_log": [
+        "[WARNING]\t2026-11-22T14:59:02.623Z\t68fc4380-c390-5b14-8b3b-20fdc6f2f093\textraction fell back to rules (auth)"
+      ],
+      "model_usage_recent": [
+        [
+          "ERROR",
+          "auth"
+        ],
+        [
+          "ERROR",
+          "auth"
+        ],
+        [
+          "ERROR",
+          "auth"
+        ]
+      ]
+    },
+    "checks": {
+      "reply stored": true,
+      "model attempt settled as an error": true,
+      "rules reader used": true,
+      "not a ledger failure": true
+    },
+    "status": "PASS",
+    "at": "2026-11-22T14:59:11+00:00"
+  },
+  {
+    "case": "A6",
+    "scenario": "daily model budget spent: no paid call, the rules reader answers",
+    "input": "wamid.SYN.b3efa4a34e8c48b98ff6115906d3c36e",
+    "evidence": {
+      "driver_id": "SYN-DRV-6785CCD1",
+      "vehicle_id": "SYN-VEH-6785CCD1",
+      "shipment_id": "SYN-SHP-6785CCD1",
+      "phone": "+99901980343885",
+      "message_id": "wamid.SYN.b3efa4a34e8c48b98ff6115906d3c36e",
+      "status": 200,
+      "body": "{\"status\":\"received\"}",
+      "api_request_id": "e88d9d6d-aac6-4477-a0ff-207143ebd240",
+      "stored_driver_message": 119,
+      "agent_reply": "Do you mean you will now reach the gate around 11:29 PM? Reply YES, or send your arrival time.",
+      "agent_reply_id": 120,
+      "agent_log": [],
+      "model_usage_recent": [
+        [
+          "BUDGET_EXHAUSTED",
+          "budget_exhausted",
+          "0"
+        ],
+        [
+          "ERROR",
+          "auth",
+          "0"
+        ],
+        [
+          "ERROR",
+          "auth",
+          "0"
+        ]
+      ]
+    },
+    "checks": {
+      "reply stored": true,
+      "no attempt settled as OK": true,
+      "refused by the budget": true
+    },
+    "status": "PASS",
+    "at": "2026-11-22T14:59:31+00:00"
+  }
+]

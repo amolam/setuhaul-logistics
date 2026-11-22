@@ -1,0 +1,293 @@
+{
+  "stack_outputs": {
+    "ClusterArn": "arn:aws:rds:ap-southeast-2:<ACCOUNT>:cluster:setuhaul-pilot",
+    "OwnerSecretArn": "arn:aws:secretsmanager:ap-southeast-2:<ACCOUNT>:secret:setuhaul/pilot/db/owner-MY9Smg",
+    "OpenRouterSecretArn": "arn:aws:secretsmanager:ap-southeast-2:<ACCOUNT>:secret:setuhaul/pilot/openrouter-sIRct9",
+    "ApprovalAliasArn": "arn:aws:states:ap-southeast-2:<ACCOUNT>:stateMachine:setuhaul-pilot-approval:live",
+    "ConsoleUrl": "https://w8ptr7w960.execute-api.ap-southeast-2.amazonaws.com/pilot/app/",
+    "ConsoleClientId": "5fcbvu9o1qfsj2ue08bmpf4c9n",
+    "ScheduleRuleNames": "setuhaul-pilot-recovery-every-minute,setuhaul-pilot-outbound-every-minute,setuhaul-pilot-approval-relay-every-minute",
+    "AppSecretArn": "arn:aws:secretsmanager:ap-southeast-2:<ACCOUNT>:secret:setuhaul/pilot/app-qgtEot",
+    "QueueUrl": "https://sqs.ap-southeast-2.amazonaws.com/<ACCOUNT>/setuhaul-inbound.fifo",
+    "ApiEndpoint4F160690": "https://w8ptr7w960.execute-api.ap-southeast-2.amazonaws.com/pilot/",
+    "ApiUrl": "https://w8ptr7w960.execute-api.ap-southeast-2.amazonaws.com/pilot/",
+    "UserPoolId": "ap-southeast-2_4t4cJBj0P",
+    "WhatsAppSecretArn": "arn:aws:secretsmanager:ap-southeast-2:<ACCOUNT>:secret:setuhaul/pilot/whatsapp-IWQ16g",
+    "ApprovalVersionArn": "arn:aws:states:ap-southeast-2:<ACCOUNT>:stateMachine:setuhaul-pilot-approval:1",
+    "CognitoDomain": "setuhaul-pilot-console.auth.ap-southeast-2.amazoncognito.com"
+  },
+  "evidence": {
+    "aurora": {
+      "scaling": {
+        "MinCapacity": 0.0,
+        "MaxCapacity": 2.0,
+        "SecondsUntilAutoPause": 300
+      },
+      "backup_retention_days": 1,
+      "data_api": true,
+      "storage_encrypted_flag": false,
+      "kms_key": null,
+      "engine": "aurora-postgresql 17.9",
+      "status": "available",
+      "vpc_networking": true,
+      "internet_access_gateway": false,
+      "deletion_protection": true,
+      "master_user": "postgres",
+      "iam_auth": true,
+      "parameter_group": "setuhaul-pilot",
+      "log_exports": [
+        "postgresql"
+      ],
+      "security_groups": [
+        "sg-02708712e4881b583"
+      ],
+      "instances": [
+        {
+          "class": "db.serverless",
+          "public": false,
+          "performance_insights": false,
+          "monitoring_interval": 0
+        }
+      ],
+      "inbound_rules": [
+        {
+          "ports": [
+            5432,
+            5432
+          ],
+          "cidrs": [],
+          "from_groups": [
+            "sg-08e7e9a0f89a5adc6"
+          ]
+        }
+      ]
+    },
+    "api": {
+      "web_acls": 0,
+      "stage_web_acl": null,
+      "throttle": {
+        "throttlingRateLimit": 20.0,
+        "throttlingBurstLimit": 40
+      }
+    },
+    "cognito": {
+      "mfa": "ON",
+      "self_signup": false
+    },
+    "lambdas": {
+      "setuhaul-pilot-recovery": {
+        "booking": "false",
+        "whatsapp": null,
+        "notification_mode": null,
+        "environment": "pilot",
+        "resume_wait_s": "40",
+        "vpc": false,
+        "log_retention_days": 7
+      },
+      "setuhaul-pilot-db-bootstrap": {
+        "booking": "false",
+        "whatsapp": null,
+        "notification_mode": null,
+        "environment": "pilot",
+        "resume_wait_s": null,
+        "vpc": true,
+        "log_retention_days": 7
+      },
+      "setuhaul-pilot-approval-notify": {
+        "booking": "false",
+        "whatsapp": null,
+        "notification_mode": null,
+        "environment": "pilot",
+        "resume_wait_s": "40",
+        "vpc": false,
+        "log_retention_days": 7
+      },
+      "setuhaul-pilot-agent": {
+        "booking": "false",
+        "whatsapp": null,
+        "notification_mode": null,
+        "environment": "pilot",
+        "resume_wait_s": "40",
+        "vpc": false,
+        "log_retention_days": 7
+      },
+      "setuhaul-pilot-approval-relay": {
+        "booking": "false",
+        "whatsapp": null,
+        "notification_mode": null,
+        "environment": "pilot",
+        "resume_wait_s": "40",
+        "vpc": false,
+        "log_retention_days": 7
+      },
+      "setuhaul-pilot-db-express": {
+        "booking": "false",
+        "whatsapp": null,
+        "notification_mode": null,
+        "environment": "pilot",
+        "resume_wait_s": null,
+        "vpc": false,
+        "log_retention_days": 7
+      },
+      "setuhaul-pilot-outbound": {
+        "booking": "false",
+        "whatsapp": "false",
+        "notification_mode": "test_sink",
+        "environment": "pilot",
+        "resume_wait_s": "40",
+        "vpc": false,
+        "log_retention_days": 7
+      },
+      "setuhaul-pilot-approval-token": {
+        "booking": "false",
+        "whatsapp": null,
+        "notification_mode": null,
+        "environment": "pilot",
+        "resume_wait_s": "40",
+        "vpc": false,
+        "log_retention_days": 7
+      },
+      "setuhaul-pilot-api": {
+        "booking": "false",
+        "whatsapp": null,
+        "notification_mode": null,
+        "environment": "pilot",
+        "resume_wait_s": "20",
+        "vpc": false,
+        "log_retention_days": 7
+      },
+      "setuhaul-pilot-approval-expire": {
+        "booking": "false",
+        "whatsapp": null,
+        "notification_mode": null,
+        "environment": "pilot",
+        "resume_wait_s": "40",
+        "vpc": false,
+        "log_retention_days": 7
+      },
+      "setuhaul-pilot-cognito-pretoken": {
+        "booking": "false",
+        "whatsapp": null,
+        "notification_mode": null,
+        "environment": "pilot",
+        "resume_wait_s": null,
+        "vpc": false,
+        "log_retention_days": 7
+      }
+    },
+    "db_log_retention": [
+      7
+    ],
+    "schedules": {
+      "setuhaul-pilot-recovery-every-minute": "DISABLED",
+      "setuhaul-pilot-outbound-every-minute": "DISABLED",
+      "setuhaul-pilot-approval-relay-every-minute": "DISABLED"
+    },
+    "network": {
+      "db_vpc": [
+        "vpc-0c0bf81f42a2d41cf"
+      ],
+      "internet_gateways_on_db_vpc": [],
+      "nat_gateways": 0,
+      "elastic_ips": 0,
+      "vpc_endpoints": 0,
+      "public_ipv4_interfaces": 0
+    },
+    "database_owner": {
+      "user": "setuhaul_owner",
+      "superuser": false,
+      "bypassrls": false,
+      "server": "PostgreSQL 17.9 on aarch64-unknown-linux-gnu, compiled by aarch64-unknown-linux-gnu-gcc (GCC) 10.5.0, 64-bit"
+    },
+    "database": {
+      "migrations": [
+        "0001_core_schema",
+        "0002_request_functions",
+        "0003_hold_needs_driver_yes",
+        "0004_step2_review_fixes",
+        "0005_attestation_freshness_and_ingest_role",
+        "0006_serialize_per_thread",
+        "0007_locked_shipment_switch",
+        "0008_turn_facts",
+        "0009_breakdown_escalation",
+        "0010_bound_shipment_under_lock",
+        "0011_inbound_outbox",
+        "0012_turn_fencing_and_gates",
+        "0013_deployment_evidence",
+        "0014_evidence_freshness",
+        "0015_approval_workflow",
+        "0016_confirmation_policy",
+        "0017_outbound_delivery",
+        "0018_takeover_time",
+        "0019_review_r3_fixes",
+        "0020_compatibility_locks",
+        "0021_booking_compat_serialization",
+        "0022_handback_context",
+        "0023_model_usage",
+        "0024_task_callback_tracking"
+      ],
+      "login_roles": [
+        "setuhaul_login_agent",
+        "setuhaul_login_console",
+        "setuhaul_login_deploy_evidence",
+        "setuhaul_login_feasibility",
+        "setuhaul_login_ingest",
+        "setuhaul_login_system",
+        "setuhaul_owner"
+      ],
+      "carriers_drivers_facilities_appointments": [
+        1,
+        10,
+        2,
+        0
+      ]
+    },
+    "console": {
+      "url": "https://w8ptr7w960.execute-api.ap-southeast-2.amazonaws.com/pilot/app/",
+      "oauth_flows": [
+        "code"
+      ],
+      "callbacks": [
+        "https://w8ptr7w960.execute-api.ap-southeast-2.amazonaws.com/pilot/app/"
+      ],
+      "client_secret": false,
+      "access_token_minutes": 30,
+      "trigger_version": "V2_0",
+      "cognito_domain_status": "ACTIVE",
+      "page_status": 200,
+      "csp": "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://setuhaul-pilot-console.auth.ap-southeast-2.amazoncognito.com; form-action 'self' https://setuhaul-pilot-console.auth.ap-southeast-2.amazoncognito.com; frame-ancestors 'none'; base-uri 'none'"
+    }
+  },
+  "checks": {
+    "Aurora 0-2 ACU": true,
+    "auto-pause 300 s": true,
+    "backup 1 day": true,
+    "database not public": true,
+    "Data API on": true,
+    "VPC networking on, internet access gateway off": true,
+    "deletion protection on": true,
+    "pgaudit parameter group in sync": true,
+    "database inbound: 5432 from one security group, no CIDR": true,
+    "no WAF": true,
+    "throttling 20/40": true,
+    "Cognito MFA on, no self sign-up": true,
+    "11 Lambdas (8 workload + 2 database setup + Cognito pre-token)": true,
+    "booking false on every Lambda": true,
+    "WhatsApp never enabled": true,
+    "outbound uses the test sink": true,
+    "Lambda logs 7 days": true,
+    "only db-bootstrap in the VPC": true,
+    "database logs 7 days": true,
+    "3 schedules, all disabled": true,
+    "no NAT, no public IPv4, no endpoints, no internet gateway on the database VPC": true,
+    "Data API owner is the non-master owner, not a superuser": true,
+    "migrations 0001-0024 recorded": true,
+    "no appointments (booking off)": true,
+    "Cognito: code grant, no client secret, callback = console only": true,
+    "Cognito hosted domain active": true,
+    "facility-scope trigger V2_0": true,
+    "console page served with a strict CSP": true,
+    "no S3 bucket or CloudFront for the console": true
+  },
+  "all_pass": true
+}
