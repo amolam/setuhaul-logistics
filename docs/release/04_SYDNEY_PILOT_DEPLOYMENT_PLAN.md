@@ -74,7 +74,7 @@ These are code changes; each will come with tests and a review before deployment
 No workload may assume another's role, use `setuhaul_rpc`, the owner or a superuser (DEPLOYMENT_GATES.md, workload
 identity acceptance 1–5).
 
-### Deploy role: GitHub OIDC trust (review E5-08; **external gate, not implemented in AWS**)
+### Deploy role: GitHub OIDC trust (review E5-08; created in AWS 22 Nov 2026 and read back)
 
 The pipeline may deploy only from `refs/heads/release/fde-sydney-pilot`, the one pilot release branch. The workflow
 enforces it twice: the deploy job's condition (`github.ref == 'refs/heads/release/fde-sydney-pilot'`, together with
@@ -82,21 +82,27 @@ enforces it twice: the deploy job's condition (`github.ref == 'refs/heads/releas
 sign-in (`tests/test_pipeline.py`). The AWS role must enforce the same identity on its side, because a workflow file
 can be changed on any branch:
 
-1. **GitHub (owner, repository setting):** customise the OIDC subject claim with
-   `include_claim_keys: ["repo", "context", "ref"]`. The deploy job's token subject is then exactly
+1. **GitHub (repository setting):** the OIDC subject claim is customised with
+   `include_claim_keys: ["repo", "context", "ref"]`. GitHub enforces its immutable subject format for this repository
+   (owner and repository ids in the prefix; `use_immutable_subject` cannot be turned off), so the deploy job's token
+   subject is exactly
+   `repo:amolam@19927631/setuhaul-logistics@1466862604:environment:pilot:ref:refs/heads/release/fde-sydney-pilot`.
+   The plain form of the same identity is
    `repo:amolam/setuhaul-logistics:environment:pilot:ref:refs/heads/release/fde-sydney-pilot`.
-2. **AWS (owner):** the deploy role trusts `token.actions.githubusercontent.com` with **StringEquals** on
-   `token.actions.githubusercontent.com:aud` = `sts.amazonaws.com` and `token.actions.githubusercontent.com:sub` =
-   that exact string, with no `StringLike` and no wildcard. Template: `infra/github_oidc_deploy_trust_policy.json`
-   (`<ACCOUNT_ID>` to fill). The role's permissions are limited to `ap-southeast-2`.
+2. **AWS:** the deploy role `setuhaul-pilot-github-deploy` trusts `token.actions.githubusercontent.com` with
+   **StringEquals** on `token.actions.githubusercontent.com:aud` = `sts.amazonaws.com` and
+   `token.actions.githubusercontent.com:sub` = those two exact strings, with no `StringLike` and no wildcard. Source:
+   `infra/github_oidc_deploy_trust_policy.json`. Its permissions: the CDK bootstrap roles, the Data API on the pilot
+   cluster, the pilot database secrets and their key (`08_AWS_DEPLOYMENT_REQUEST.md` §3).
 3. **Do not rely on the environment subject alone.** Without the customisation, a job with `environment: pilot` gets
    the subject `repo:amolam/setuhaul-logistics:environment:pilot`, which names no branch: a role trusting it would
    accept any branch that reaches the environment. On a free private repository the environment cannot restrict
    deployment branches either, so the environment proves nothing about the branch.
 
-Status: the trust policy is documented and checked statically in this repository; neither the subject customisation
-nor the AWS role exists yet. Until the owner creates both and verifies them (a token from another branch must be
-refused by `AssumeRoleWithWebIdentity`), AWS-side enforcement remains an **external gate**.
+Status (22 Nov 2026): the subject customisation, the OIDC provider and the role exist; the role's trust and
+permissions were read back from IAM and match this file. Still to be shown by a run: that a token from the release
+branch is accepted (the first deploy) and one from another branch is refused (a dispatch elsewhere is already stopped by
+the workflow before any sign-in, so a refused token needs a deliberate test).
 
 ## 5. Configuration per environment
 

@@ -17,6 +17,7 @@ CI = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 POLICY = json.loads((ROOT / "infra" / "github_oidc_deploy_trust_policy.json").read_text(encoding="utf-8"))
 RELEASE_REF = "refs/heads/release/fde-sydney-pilot"     # the one pilot release branch (03_GITHUB_RELEASE_CHECKLIST.md)
 REPO = "amolam/setuhaul-logistics"
+REPO_IMMUTABLE = "amolam@19927631/setuhaul-logistics@1466862604"   # GitHub's enforced immutable subject prefix
 
 
 def _job(name: str) -> str:
@@ -135,16 +136,18 @@ def test_the_documented_oidc_trust_binds_repository_environment_and_branch():
     assert set(cond) == {"StringEquals"}                              # no StringLike: no wildcard can widen it
     eq = cond["StringEquals"]
     assert eq["token.actions.githubusercontent.com:aud"] == "sts.amazonaws.com"
-    sub = eq["token.actions.githubusercontent.com:sub"]
-    assert sub == f"repo:{REPO}:environment:pilot:ref:{RELEASE_REF}"
+    subs = eq["token.actions.githubusercontent.com:sub"]
+    assert subs == [f"repo:{REPO}:environment:pilot:ref:{RELEASE_REF}",
+                    f"repo:{REPO_IMMUTABLE}:environment:pilot:ref:{RELEASE_REF}"]   # exact strings, one identity
     assert "*" not in json.dumps(cond)
 
 
 def test_an_environment_only_subject_is_not_accepted_as_branch_identity():
-    sub = POLICY["Statement"][0]["Condition"]["StringEquals"]["token.actions.githubusercontent.com:sub"]
-    assert sub != f"repo:{REPO}:environment:pilot"                     # the default subject names no branch
-    assert ":ref:" + RELEASE_REF in sub
+    subs = POLICY["Statement"][0]["Condition"]["StringEquals"]["token.actions.githubusercontent.com:sub"]
+    for sub in subs:
+        assert not sub.endswith(":environment:pilot")                  # the default subject names no branch
+        assert sub.endswith(":environment:pilot:ref:" + RELEASE_REF)
     note = " ".join(POLICY["_comment"])
-    assert "names no branch" in note and "include_claim_keys" in note and "NOT verified in AWS" in note
+    assert "names no branch" in note and "include_claim_keys" in note and "read back from IAM" in note
     plan = (ROOT / "docs" / "release" / "04_SYDNEY_PILOT_DEPLOYMENT_PLAN.md").read_text(encoding="utf-8")
-    assert sub in plan and "external gate" in plan
+    assert all(s in plan for s in subs) and "immutable" in plan
