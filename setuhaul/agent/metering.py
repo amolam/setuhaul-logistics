@@ -12,10 +12,26 @@ from __future__ import annotations
 
 import logging
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass
 from decimal import Decimal
 
 log = logging.getLogger("setuhaul.model_usage")
+
+
+@contextmanager
+def _ledger_tx(db):
+    """The ledger is spend accounting, not part of the conversation: its transaction runs outside the turn fence.
+    Inside a turn the agent's writes are fenced (assert_turn_fence), and the fence can only see the turn's receipt
+    with the turn's driver or facility scope, which a ledger transaction has none of; fenced, every reservation failed
+    with TURN_FENCED (seen on the AWS pilot, 22 Nov 2026). The cap is still checked in the same locked statement."""
+    from ..api.db import TURN_FENCE
+    token = TURN_FENCE.set(None)
+    try:
+        with db.tx("agent") as c:
+            yield c
+    finally:
+        TURN_FENCE.reset(token)
 
 
 @dataclass
@@ -39,7 +55,7 @@ class ModelBudget:
     def reserve(self, call_id: uuid.UUID, attempt: int, purpose: str, model: str, provider: str,
                 reserve_usd: Decimal) -> Reservation:
         rid = uuid.uuid4()
-        with self.db.tx("agent") as c:
+        with _ledger_tx(self.db) as c:
             status = c.execute("SELECT reserve_model_call(%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                                (rid, call_id, attempt, self.environment, purpose, model, provider,
                                 reserve_usd, self.daily_cap_usd)).fetchone()[0]
@@ -50,7 +66,7 @@ class ModelBudget:
     def settle(self, r: Reservation, *, ok: bool, sent: bool, actual_provider: str | None = None,
                input_tokens: int | None = None, output_tokens: int | None = None, cost_usd: float | None = None,
                latency_ms: int | None = None, error: str | None = None, generation_id: str | None = None) -> Decimal:
-        with self.db.tx("agent") as c:
+        with _ledger_tx(self.db) as c:
             charged = c.execute("SELECT settle_model_call(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                                 (r.request_id, "OK" if ok else "ERROR", actual_provider, input_tokens, output_tokens,
                                  None if cost_usd is None else Decimal(str(cost_usd)), sent, latency_ms, error,

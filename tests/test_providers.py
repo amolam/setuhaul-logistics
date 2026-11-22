@@ -385,6 +385,23 @@ def test_the_budget_is_never_exceeded_by_concurrent_attempts(dsn):
     assert spent + reserved <= b.daily_cap_usd
 
 
+def test_the_ledger_works_inside_a_fenced_turn(dsn):
+    """Regression (AWS pilot, 22 Nov 2026): inside an agent turn every agent write is fenced, and the fence cannot see
+    the turn's receipt from a ledger transaction (no driver or facility scope), so every reservation failed with
+    TURN_FENCED and extraction always fell back to rules. The ledger now runs outside the fence."""
+    from setuhaul.api.db import TURN_FENCE
+    b = budget_with_room(dsn, "1.00")
+    token = TURN_FENCE.set((987654321, "worker-that-holds-a-turn", 1))       # any turn: the ledger must not care
+    try:
+        r = b.reserve(uuid.uuid4(), 1, "extract", HAIKU_OR, "amazon-bedrock", Decimal("0.004"))
+        assert r.status == "RESERVED"
+        b.settle(r, ok=False, sent=False, error="test")
+        assert TURN_FENCE.get() == (987654321, "worker-that-holds-a-turn", 1)  # the turn's own fence is restored
+    finally:
+        TURN_FENCE.reset(token)
+    assert _row(dsn, r.request_id)["status"] == "ERROR"
+
+
 def test_an_exhausted_budget_records_the_refusal_and_sends_nothing(dsn):
     b = budget_with_room(dsn, "0.001")
     r = b.reserve(uuid.uuid4(), 1, "extract", HAIKU_OR, "amazon-bedrock", Decimal("0.004"))
