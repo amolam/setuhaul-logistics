@@ -11,8 +11,10 @@
 <body>
 <header>
   <h1>SetuHaul staff console</h1>
-  <span class="pill">AWS pilot · synthetic data</span>
-  <span class="pill off">booking execution OFF</span>
+  <!-- G.1 (G5): live state from the public read-only /health endpoint; nothing here is hardcoded -->
+  <span class="pill" id="envpill" title="Environment reported by the server">environment: checking…</span>
+  <span class="pill unk" id="bookingpill" title="SETUHAUL_BOOKING_ENABLED as the server reports it">booking execution: checking…</span>
+  <span class="pill unk" id="killpill" title="The database booking kill switch (migration 0026), reported separately">kill switch: checking…</span>
   <span class="pill">WhatsApp: internal test sink only</span>
   <span class="grow"></span>
   <span id="who" class="muted"></span>

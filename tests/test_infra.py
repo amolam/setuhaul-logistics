@@ -624,3 +624,44 @@ def test_the_relay_may_start_executions_through_the_alias(t):
     machine = next(iter(t.find_resources("AWS::StepFunctions::StateMachine")))
     assert alias in res and machine in res and len(start[0]["Resource"]) == 2
     assert alias in json.dumps(relay["Environment"]["Variables"]["SETUHAUL_APPROVAL_STATE_MACHINE_ARN"])
+
+
+# ================================================================ Phase G.1: OpenRouter secret pinned, LangSmith opt-in
+def test_g1_the_openrouter_secret_resource_is_unchanged_so_a_deploy_cannot_overwrite_the_owners_key(t):
+    """The OpenRouter secret was created with a CloudFormation-generated placeholder (GenerateSecretString: {}): the
+    root cause of the pilot's 401s (OPENROUTER_PILOT_DIAGNOSIS.md). Changing that property now would make
+    CloudFormation replace the VALUE, possibly a real key the owner has set, so G.1 leaves the resource exactly as is."""
+    (props,) = [r["Properties"] for lid, r in resources(t, "AWS::SecretsManager::Secret").items()
+                if lid.startswith("OpenRouterKey")]
+    assert props["GenerateSecretString"] == {} and "SecretString" not in props
+    assert props["Name"] == "setuhaul/pilot/openrouter"
+
+
+def test_g1_langsmith_is_off_by_default_no_secret_no_permission_no_environment(t):
+    assert not [lid for lid in resources(t, "AWS::SecretsManager::Secret") if lid.startswith("LangSmith")]
+    for name, f in functions(t).items():
+        assert not [k for k in f.get("Environment", {}).get("Variables", {}) if "LANGSMITH" in k or k == "SETUHAUL_TRACE_CONTENT"], name
+
+
+def test_g1_langsmith_opt_in_reaches_the_agent_only_with_an_explicit_empty_placeholder(tmp_path):
+    zip_path = _zip(tmp_path / "lambda.zip")
+    app = cdk.App(outdir=str(tmp_path / "cdk.out"))
+    stack = SetuHaulPilotStack(app, "SetuHaulPilot", lambda_asset=str(zip_path), langsmith_tracing="on",
+                               langsmith_ui_url="https://smith.langchain.com/o/x/projects/p/y",
+                               env=cdk.Environment(account="000000000000", region="ap-southeast-2"))
+    tl = Template.from_stack(stack)
+    (lid, sec), = [(k, r) for k, r in resources(tl, "AWS::SecretsManager::Secret").items() if k.startswith("LangSmith")]
+    assert sec["Properties"]["SecretString"] == '{"api_key": ""}' and "GenerateSecretString" not in sec["Properties"]
+    fns = functions(tl)
+    agent, api = fns["setuhaul-pilot-agent"]["Environment"]["Variables"], fns["setuhaul-pilot-api"]["Environment"]["Variables"]
+    assert agent["SETUHAUL_LANGSMITH_TRACING"] == "on" and agent["SETUHAUL_TRACE_CONTENT"] == "off"
+    assert agent["SETUHAUL_LANGSMITH_PROJECT"] == "setuhaul-synthetic-pilot" and "SETUHAUL_LANGSMITH_SECRET_ID" in agent
+    assert "SETUHAUL_LANGSMITH_SECRET_ID" not in api and api["SETUHAUL_LANGSMITH_UI_URL"].startswith("https://smith.")
+    readers = [n for n, f in fns.items()
+               for lid2 in [next(k for k, r in resources(tl, "AWS::Lambda::Function").items()
+                                 if r["Properties"].get("FunctionName") == n)]
+               if lid in json.dumps(_policy_resources(tl, lid2))]
+    assert readers == ["setuhaul-pilot-agent"]                          # only the agent can read the LangSmith key
+    with pytest.raises(ValueError):
+        SetuHaulPilotStack(cdk.App(outdir=str(tmp_path / "o2")), "X", lambda_asset=str(zip_path),
+                           langsmith_ui_url="https://evil.example.com/")

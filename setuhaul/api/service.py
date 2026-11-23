@@ -32,6 +32,7 @@ from ..domain.feasibility import FeasibilityEngine, Option, hm
 from ..domain.optimizer import (FEASIBLE, OPTIMAL, OptimizationRequest, OptimizationResult, OptimizerConfig,
                                 SlotOptimizer)
 from ..domain.scheduling import ENGINE_VERSION, NOT_A_BOOKING, RULES, Proposal, propose, snapshot_from_data
+from ..observability import tracing
 from ..ops import telemetry
 from .db import CORRELATION_ID, TURN_FENCE, Db
 from .security import Principal
@@ -462,9 +463,15 @@ class BookingService:
         """G1 in the driver path: the optimizer re-proves every candidate (HC01..HC12, incl. labour and capacity) and
         ranks the survivors. A failing optimizer never blocks the driver: the engine's own options stand (fallback)."""
         cfg = OptimizerConfig(**{**self.optimizer_config.__dict__, "max_options": n})
-        opt = SlotOptimizer(data, cfg, engine=eng).optimize(
-            OptimizationRequest(sid, fac, es, lf, request_id=CORRELATION_ID.get() or str(uuid.uuid4()),
-                                data_as_of=now, schedule_version=sv), now)
+        with tracing.span("optimizer", "chain", inputs={"facility_id": fac, "earliest_start": es, "latest_finish": lf,
+                                                        "max_options": n}) as so:
+            opt = SlotOptimizer(data, cfg, engine=eng).optimize(
+                OptimizationRequest(sid, fac, es, lf, request_id=CORRELATION_ID.get() or str(uuid.uuid4()),
+                                    data_as_of=now, schedule_version=sv), now)
+            tracing.safe(lambda: so.end({"solver_status": opt.solver_status, "outcome_code": opt.outcome_code,
+                                  "options": len(opt.options), "rejected": len(opt.rejected),
+                                  "candidates_evaluated": opt.candidates_evaluated, "duration_ms": opt.duration_ms,
+                                  "hard_constraints": len(getattr(opt, "constraints_evaluated", {}) or {})}))
         fallback = opt.solver_status not in (OPTIMAL, FEASIBLE, "INFEASIBLE")
         self._record_run(opt, "agent", "feasibility", (fac,), fallback=fallback)
         if fallback:                                             # ERROR / UNKNOWN / STALE: keep the engine's options
@@ -510,14 +517,17 @@ class BookingService:
         """Phase G3: one row per finished turn (tool names, statuses, latencies; no driver data). Best effort."""
         tools = [{"tool": t["tool"], "status": t["status"], "ms": t["ms"]} for t in res.tool_calls][:20]
         model_ms = sum(getattr(t, "latency_ms", 0) or 0 for t in res.traces) or None
-        telemetry.emit("agent.turn", res.correlation_id, facility_id=res.facility_id, extractor=res.extractor,
-                       fallback_reason=res.fallback_reason, turn_ms=res.turn_ms, model_ms=model_ms,
+        turn_ref = getattr(res, "turn_ref", None) or res.correlation_id
+        telemetry.emit("agent.turn", res.correlation_id, turn_ref=turn_ref,
+                       ingest_correlation_id=getattr(res, "ingest_correlation_id", None), facility_id=res.facility_id,
+                       extractor=res.extractor, fallback_reason=res.fallback_reason,
+                       fallback_detail=getattr(res, "fallback_detail", None), turn_ms=res.turn_ms, model_ms=model_ms,
                        tools=[f"{t['tool']}:{t['status']}" for t in tools], escalated=bool(res.escalation_id),
                        path=res.path[:10])
         if not self._has_login("feasibility"):
             return
         ext = res.extractor if res.extractor in ("model", "rules-fallback", "rules") else "none"
-        body = {"turn_ref": res.correlation_id, "facility_id": res.facility_id, "extractor": ext,
+        body = {"turn_ref": turn_ref, "facility_id": res.facility_id, "extractor": ext,
                 "fallback_reason": str(res.fallback_reason)[:60] if res.fallback_reason else None, "tools": tools,
                 "turn_ms": res.turn_ms, "model_ms": model_ms, "escalated": bool(res.escalation_id)}
         try:
@@ -894,6 +904,15 @@ class BookingService:
                                       summary, code_version, finished_at
                                  FROM evaluation_runs ORDER BY finished_at DESC LIMIT 5""")
             glob = c.execute("SELECT observability_global(%s)", (since,)).fetchone()[0]
+            # G.1: recent turns (facility scope by RLS) for per-interaction trace links; ids and codes only
+            recent = rows(c, """SELECT turn_ref::text AS turn_ref, created_at, facility_id, extractor, fallback_reason,
+                                       turn_ms, escalated
+                                  FROM agent_turn_metrics WHERE created_at >= %s ORDER BY created_at DESC LIMIT 20""", since)
+            # G.1 (0028): cost source, refusals vs errors, reconciliation. Absent before 0028 is applied: say so.
+            detail = None
+            if c.execute("SELECT to_regprocedure('setuhaul.observability_model_detail(timestamptz)') IS NOT NULL"
+                         ).fetchone()[0]:
+                detail = c.execute("SELECT observability_model_detail(%s)", (since,)).fetchone()[0]
         for e in evals:
             e["finished_at"] = e["finished_at"].isoformat() if hasattr(e["finished_at"], "isoformat") else e["finished_at"]
         reliability["idempotency"] = glob.get("idempotency")
@@ -902,12 +921,105 @@ class BookingService:
         agent = {**turns, "tools": tools, "fallback_reasons": fallbacks,
                  "model_usage": model if model.get("calls") else {**model, "status": "no model calls in the window"},
                  "model_usage_scope": "all facilities (the model ledger has no facility column; no driver data)"}
+        agent["model_outcomes"] = self._model_outcomes(turns, fallbacks, model, detail)
         if not turns["turns"]:
             agent["status"] = "unavailable: no agent turns recorded in the window"
+            agent["status_code"] = "NO_RECENT_TURNS"
+        else:
+            agent["status_code"] = "OK"
+        ls = self._langsmith_links(recent, evals, agent["model_outcomes"])
+        agent["recent_turns"] = ls.pop("recent_turns")
         return {"generated_at": now.isoformat(), "since": since.isoformat(), "facilities": list(scope),
                 "data_label": "SYNTHETIC DATA - pilot/local only, no real drivers or shipments",
                 "overview": overview, "agent": agent, "optimization": optim, "reliability": reliability,
-                "evaluation": evals or [{"status": "unavailable: no evaluation run recorded"}]}
+                "evaluation": evals or [{"status": "unavailable: no evaluation run recorded"}], "langsmith": ls}
+
+    @staticmethod
+    def _model_outcomes(turns: dict, fallbacks: dict, model: dict, detail: dict | None) -> dict:
+        """G.1 (G3/G5): what happened to model use, split so the parts add up to the totals.
+
+        Turns (this person's facilities): model extraction + rules reader after a failure, by outcome class
+        (provider failure / budget refusal / never started) + rules reader with no model configured.
+        Attempts (ledger, all facilities): ok + provider errors + budget refusals + unsettled reservations."""
+        from ..agent.errors import NOT_STARTED, outcome_class, normalize
+        by_cat: dict[str, int] = {}
+        for reason, n in (fallbacks or {}).items():
+            cat = normalize(reason)
+            by_cat[cat] = by_cat.get(cat, 0) + int(n)
+        classes = {"PROVIDER_FAILURE": 0, "BUDGET_REFUSAL": 0, NOT_STARTED: 0}
+        for cat, n in by_cat.items():
+            classes[outcome_class(cat)] += n
+        total = int(turns.get("turns") or 0)
+        model_turns = int(turns.get("model_turns") or 0)
+        fallback_turns = int(turns.get("fallbacks") or 0)
+        rules_only = int(turns.get("rules_turns") or 0) - fallback_turns
+        src = detail or model
+        attempts = int(src.get("attempts", src.get("calls")) or 0)
+        parts = {k: int(src.get(k) or 0) for k in ("ok", "errors", "budget_refusals", "unsettled")}
+        ledger_by_error: dict[str, int] = {}
+        for k, n in (src.get("by_error") or {}).items():
+            ledger_by_error[normalize(k)] = ledger_by_error.get(normalize(k), 0) + int(n)
+        out = {
+            "turns": {"total": total, "model_extraction": model_turns, "rules_reader_after_failure": fallback_turns,
+                      "rules_reader_no_model": max(rules_only, 0), "fallback_by_class": classes,
+                      "fallback_by_category": by_cat,
+                      "reconciles": total == model_turns + fallback_turns + max(rules_only, 0)},
+            "attempts": {"total": attempts, **parts, "reconciles": attempts == sum(parts.values()),
+                         "by_category": ledger_by_error},
+            "tokens": {"input": src.get("input_tokens"), "output": src.get("output_tokens"),
+                       "calls_with_reported_usage": src.get("usage_reported"),
+                       "note": "provider-reported usage only; failed or refused calls report none (never estimated)"},
+            "cost": ({"provider_reported_usd": detail.get("cost_provider_usd"),
+                      "estimated_usd": detail.get("cost_estimated_usd"),
+                      "estimated_note": "kept reservation: the provider did not report a cost for these attempts",
+                      "open_reservations_usd": detail.get("reserved_open_usd"),
+                      "by_cost_source": detail.get("by_cost_source")}
+                     if detail else {"total_usd": model.get("cost_usd"),
+                                     "note": "provider vs estimated split unavailable: migration 0028 not applied"}),
+            "budget": {"day_boundary": (detail or {}).get("budget_day_boundary", "00:00 UTC (05:30 Asia/Kolkata)"),
+                       "today_spent_usd": model.get("today_spent_usd"), "today_reserved_usd": model.get("today_reserved_usd"),
+                       "days_utc": (detail or {}).get("budget_days_utc")},
+        }
+        if total == 0 and attempts == 0:
+            out["status_code"], out["status"] = "NO_ACTIVITY", "no agent turns and no model calls in the window"
+        elif attempts == 0 and classes[NOT_STARTED]:
+            out["status_code"], out["status"] = "NOT_STARTED", "the model client never started (see fallback_by_category)"
+        elif attempts and parts["ok"] == 0 and parts["errors"]:
+            out["status_code"], out["status"] = "PROVIDER_FAILING", "every model attempt in the window failed"
+        elif attempts and parts["ok"] == 0 and parts["budget_refusals"]:
+            out["status_code"], out["status"] = "BUDGET_REFUSED", "every model attempt was refused by the daily budget"
+        elif parts["errors"] or parts["budget_refusals"] or sum(classes.values()):
+            failed = parts["errors"] + parts["budget_refusals"]
+            out["status_code"], out["status"] = "DEGRADED", (f"{failed} of {attempts} model attempts failed or were "
+                                                             f"refused; {fallback_turns} turn(s) used the rules reader")
+        else:
+            out["status_code"], out["status"] = "OK", "model calls succeeded in the window"
+        return out
+
+    @staticmethod
+    def _langsmith_links(recent: list[dict], evals: list[dict], outcomes: dict) -> dict:
+        """G.1 (G6): links only (no credential, no call to LangSmith from here or the browser). A link that is not
+        configured is reported as unavailable, never guessed."""
+        import os
+        from ..observability.langsmith import ALLOWED_UI, ui_url_from_env
+        from ..observability.tracing import trace_url
+        ui = ui_url_from_env(dict(os.environ))
+        tracing_on = (os.environ.get("SETUHAUL_LANGSMITH_TRACING") or "").lower() in ("on", "true", "1")
+        latest = next((e for e in evals if not e.get("status")), None)
+        ls_meta = ((latest or {}).get("summary") or {}).get("langsmith") or {}
+        exp = ls_meta.get("experiment_url")
+        exp = exp if isinstance(exp, str) and exp.startswith(ALLOWED_UI) else None
+        for r in recent:
+            r["created_at"] = r["created_at"].isoformat() if hasattr(r["created_at"], "isoformat") else r["created_at"]
+            r["trace_url"] = trace_url(ui, r["turn_ref"]) if tracing_on else None
+        return {"tracing": "on" if tracing_on else "off", "project_url": ui,
+                "project_status": None if ui else "unavailable: SETUHAUL_LANGSMITH_UI_URL not configured",
+                "experiment_url": exp, "dataset_version": ls_meta.get("dataset_version") or (latest or {}).get("dataset_version"),
+                "evaluator_version": ls_meta.get("evaluator_version"),
+                "latest_eval": ({"suite": latest["suite"], "passed": latest["passed"], "total": latest["total"],
+                                 "failed": latest["failed"], "finished_at": latest["finished_at"]} if latest else None),
+                "failure_categories": outcomes["turns"]["fallback_by_category"],
+                "recent_turns": recent}
 
     # ---------------------------------------------------------------- console (people decide)
     @staticmethod
@@ -1246,7 +1358,9 @@ class BookingService:
         # between, recover_inbound() finds the receipt and publishes it again (B2-14).
         return {"thread_id": th[0], "message_id": mid, "external_message_id": external_id, "driver_id": drv,
                 "generation": claimed[0], "session_token": sessions.mint(drv, th[0], fac), "attestation_status": status,
-                "recovered": recovered}
+                "recovered": recovered,
+                # G.1: the webhook request's id rides the queue event so the agent turn logs and traces under it
+                "correlation_id": CORRELATION_ID.get()}
 
     def record_delivery_status(self, provider_message_id: str | None, correlation: str | None, status: str,
                                error: str | None = None) -> str:

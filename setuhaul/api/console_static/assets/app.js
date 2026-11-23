@@ -4,6 +4,11 @@
 // request. This page decides nothing: what it shows is what the API returns for this person.
 "use strict";
 const $ = s => document.querySelector(s);
+// G.1 (G5): mirrors SHIPMENT_ID_PATTERN in setuhaul/api/app.py (the server validates the same pattern again)
+const SHIPMENT_ID_PATTERN = "^[A-Za-z0-9][A-Za-z0-9_-]{2,79}$";
+const LS_UI = ["https://smith.langchain.com/", "https://eu.smith.langchain.com/"];   // links only; never a credential
+function extLink(u, text){ return typeof u === "string" && LS_UI.some(p => u.startsWith(p))
+  ? `<a class="ext" href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(text)}</a>` : "" }
 let CFG = null, TOKEN = null, EXPIRES = 0, tab = "threads", selected = null, nextBefore = null, threads = [];
 
 function esc(s){ return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])) }
@@ -59,6 +64,32 @@ async function api(method, path, body){
   if(!r.ok){ const e = new Error((data && (data.detail || data.error || data.message)) ? JSON.stringify(data) : "HTTP " + r.status);
     e.status = r.status; throw e }
   return data;
+}
+
+// ---------------------------------------------------------------- G.1 (G5): live status pills from /health
+// /health is public and read-only (no token): database, booking switch, kill switch, environment. The booking switch and
+// the kill switch are shown as two separate pills; nothing says "production"; a failed read says "status unavailable".
+function pill(id, text, cls){ const e = $(id); if(!e) return; e.textContent = text; e.className = "pill " + (cls || "") }
+async function loadStatus(){
+  try {
+    const r = await fetch(new URL(CFG.apiBase + "health", location.href), {cache:"no-store"});
+    const h = await r.json();
+    if(typeof h.booking_enabled !== "boolean") throw new Error("no booking state");
+    const env = String(h.environment || "environment unknown");
+    pill("#envpill", `${env} · synthetic data only`, "");
+    pill("#bookingpill", h.booking_enabled ? "booking execution ON · synthetic data only" : "booking execution OFF",
+         h.booking_enabled ? "on" : "off");
+    const ks = h.booking_kill_switch;
+    if(!h.booking_enabled) pill("#killpill", "kill switch: not applicable (booking off)", "unk");
+    else if(ks === "ENGAGED") pill("#killpill", "kill switch: ENGAGED (bookings refused)", "warn");
+    else if(ks === "disengaged") pill("#killpill", "kill switch: disengaged", "on");
+    else pill("#killpill", "kill switch: status unavailable", "unk");
+    if(h.database !== "ok") pill("#bookingpill", "booking execution: status unavailable (database " + (h.database || "?") + ")", "unk");
+  } catch {
+    pill("#envpill", "environment: status unavailable", "unk");
+    pill("#bookingpill", "booking execution: status unavailable", "unk");
+    pill("#killpill", "kill switch: status unavailable", "unk");
+  }
 }
 
 // ---------------------------------------------------------------- views
@@ -133,7 +164,11 @@ async function render(){
     }
     else if(tab === "optimizer") renderOptimizer(list, detail);
     else if(tab === "observability") await renderObservability(list, detail);
-  } catch(e){ if(e.message !== "signed out" && e.message !== "401") list.innerHTML = `<div class="empty err">Could not load: ${esc(e.message)}</div>` }
+  } catch(e){ if(e.message !== "signed out" && e.message !== "401"){
+    list.innerHTML = `<div class="empty err">${e.status === 403 ? "Not permitted for your role: " : "Service failure: the server did not answer this view ("}${esc(e.message)}${e.status === 403 ? "" : "). Numbers are not shown rather than guessed."}</div>`;
+    if(tab === "observability") detail.innerHTML = e.status === 403
+      ? `<div class="empty">This view is for planners and ops leads; the server refused it for your role.</div>`
+      : `<div class="empty err">Metrics unavailable because the request failed, not because nothing happened.</div>` } }
 }
 
 // ---------------------------------------------------------------- Phase G: optimizer and observability (read only)
@@ -144,12 +179,20 @@ function renderOptimizer(list, detail){
   list.innerHTML = `<p class="muted">Ranked dock and slot options for one truck from the deterministic optimizer. Every hard
     constraint is evaluated; rejected alternatives are listed with the reason. A recommendation, never a booking.
     Planner or ops_lead only; facility scope is checked by the server.</p>
-    <div class="row"><input id="osid" class="grow mono" placeholder="Shipment id, e.g. SHP-SYN-0001" maxlength="80">
+    <div class="row"><input id="osid" class="grow mono" placeholder="Shipment id, format SYN-SHP-XXXXXXXX" maxlength="80"
+      title="Upper-case letters, digits and dashes, as shown in Conversations or Requests">
     <select id="odays" style="width:auto"><option value="1">ready day + 1 operating day</option><option value="2">+2</option><option value="3">+3</option></select>
-    <button id="orun">Recommend</button></div>`;
-  detail.innerHTML = `<div class="empty">Enter a shipment id.</div>`;
+    <button id="orun">Recommend</button></div>
+    <p class="muted">Shipment ids look like <span class="mono">SYN-SHP-</span> followed by 8 letters or digits (synthetic pilot
+    data). Copy one from a conversation or a request, then press <b>Recommend</b>.</p>`;
+  detail.innerHTML = `<div class="empty">No recommendation yet. Enter a shipment id (format <span class="mono">SYN-SHP-XXXXXXXX</span>)
+    and press <b>Recommend</b>. Read only: nothing is held, booked or changed.</div>`;
   $("#orun").onclick = async () => {
-    const sid = $("#osid").value.trim(); if(!sid) return;
+    const sid = $("#osid").value.trim();
+    if(!sid){ detail.innerHTML = `<div class="empty">Enter a shipment id first (format <span class="mono">SYN-SHP-XXXXXXXX</span>).</div>`; return }
+    if(!new RegExp(SHIPMENT_ID_PATTERN).test(sid)){
+      detail.innerHTML = `<div class="empty err">"${esc(sid)}" is not a shipment id: use upper-case letters, digits and dashes,
+        like <span class="mono">SYN-SHP-XXXXXXXX</span>. Nothing was sent to the server.</div>`; return }
     detail.innerHTML = `<div class="empty">Optimizing…</div>`;
     try {
       const r = await api("GET", `/console/shipments/${encodeURIComponent(sid)}/recommendations?days=${encodeURIComponent($("#odays").value)}`);
@@ -185,15 +228,39 @@ async function renderObservability(list, detail){
     <h3>Shipments by status</h3>${kvTable(o.shipments_by_status)}
     <h3>Current appointments</h3>${kvTable(o.appointments_by_status)}
     <h3>Open escalations</h3>${kvTable(o.open_escalations_by_reason)}`;
-  const mu = a.model_usage || {};
-  detail.innerHTML = `<h2>Agent performance</h2>${a.status ? `<p class="muted">${esc(a.status)}</p>` : ""}
+  const mu = a.model_usage || {}, mo = a.model_outcomes || {}, mt = mo.turns || {}, ma = mo.attempts || {};
+  const noTurns = a.status_code === "NO_RECENT_TURNS";
+  const recon = ok => ok === undefined ? "" : `<span class="recon ${ok ? "ok" : "bad"}">${ok ? "parts add up to the total" : "parts do NOT add up: check the ledger"}</span>`;
+  detail.innerHTML = `<h2>Agent performance</h2>
+    ${noTurns ? `<div class="empty">No agent turns in this window: no driver message was processed. The service answered,
+      so this is not a failure. Send a synthetic driver message to see turns here.</div>` : ""}
     ${kvTable({"turns": a.turns, "model extraction": a.model_turns, "rules reader": a.rules_turns, "fallbacks": a.fallbacks,
       "escalated turns": a.escalated, "turn p50 ms": a.turn_p50_ms, "turn p95 ms": a.turn_p95_ms})}
     <h3>Tool calls</h3>${a.tools.length ? `<div class="tablewrap"><table><tr><th>Tool</th><th>Calls</th><th>Not OK</th><th>p50 ms</th><th>p95 ms</th></tr>${a.tools.map(t =>
-      `<tr><td>${esc(t.tool)}</td><td>${t.calls}</td><td>${t.not_ok}</td><td>${esc(t.p50_ms)}</td><td>${esc(t.p95_ms)}</td></tr>`).join("")}</table></div>` : `<div class="muted">unavailable: no tool calls recorded</div>`}
-    <h3>Model use, tokens and cost</h3><p class="muted">${esc(a.model_usage_scope)}</p>${kvTable({"calls": mu.calls, "ok": mu.ok, "errors": mu.errors,
-      "budget refusals": mu.budget_refusals, "input tokens": mu.input_tokens, "output tokens": mu.output_tokens, "cost USD": mu.cost_usd,
-      "spent today USD": mu.today_spent_usd, "latency p50 ms": mu.latency_p50_ms, "latency p95 ms": mu.latency_p95_ms, "by model": mu.by_model})}
+      `<tr><td>${esc(t.tool)}</td><td>${t.calls}</td><td>${t.not_ok}</td><td>${esc(t.p50_ms)}</td><td>${esc(t.p95_ms)}</td></tr>`).join("")}</table></div>`
+      : `<div class="muted">${noTurns ? "No tool calls: no agent turns ran in this window (not a service failure)."
+                                      : "Agent turns ran but recorded no tool calls (a person owned those conversations)."}</div>`}
+    <h3>Model use: what happened</h3>
+    <p class="${mo.status_code === "OK" || mo.status_code === "NO_ACTIVITY" ? "muted" : "err"}"><b>${esc(mo.status_code || "")}</b> ${esc(mo.status || "")}</p>
+    <h3>Turns by reader (your facilities)</h3>${kvTable({"total turns": mt.total, "model extraction succeeded": mt.model_extraction,
+      "rules reader after a provider failure": (mt.fallback_by_class || {}).PROVIDER_FAILURE,
+      "rules reader after a budget refusal": (mt.fallback_by_class || {}).BUDGET_REFUSAL,
+      "rules reader, model never started (secret/config)": (mt.fallback_by_class || {}).NOT_STARTED,
+      "rules reader, no model configured": mt.rules_reader_no_model})} ${recon(mt.reconciles)}
+    <h3>Failure categories (turns)</h3>${kvTable(mt.fallback_by_category)}
+    <h3>Model attempts (ledger, all facilities)</h3><p class="muted">${esc(a.model_usage_scope)}</p>
+    ${kvTable({"attempts": ma.total, "succeeded": ma.ok, "provider errors": ma.errors, "refused by the daily budget (not sent)": ma.budget_refusals,
+      "reserved, not yet settled": ma.unsettled})} ${recon(ma.reconciles)}
+    <h3>Attempt failure categories</h3>${kvTable(ma.by_category)}
+    <h3>Tokens and cost</h3>${kvTable({"input tokens (provider-reported)": (mo.tokens || {}).input, "output tokens (provider-reported)": (mo.tokens || {}).output,
+      "attempts with reported usage": (mo.tokens || {}).calls_with_reported_usage, ...((mo.cost || {}).note
+        ? {"cost USD": (mo.cost || {}).total_usd, "note": mo.cost.note}
+        : {"cost USD, provider-reported": (mo.cost || {}).provider_reported_usd, "cost USD, ESTIMATED (reservation kept)": (mo.cost || {}).estimated_usd,
+           "open reservations USD": (mo.cost || {}).open_reservations_usd}),
+      "spent today USD": mu.today_spent_usd, "budget day": (mo.budget || {}).day_boundary,
+      "latency p50 ms": mu.latency_p50_ms, "latency p95 ms": mu.latency_p95_ms, "by model": mu.by_model})}
+    <p class="muted">${esc((mo.tokens || {}).note || "")}</p>
+    ${renderLangSmith(r.langsmith || {}, a.recent_turns || [])}
     <h2 style="margin-top:18px">Optimization performance</h2>${kvTable({"runs": z.runs, "with options": z.with_options, "fallbacks to engine order": z.fallbacks,
       "p50 ms": z.p50_ms, "p95 ms": z.p95_ms, "max ms": z.max_ms, "avg candidates": z.avg_candidates, "avg rejected": z.avg_rejected})}
     <h3>By solver status</h3>${kvTable(z.by_status)}<h3>By outcome</h3>${kvTable(z.by_outcome)}<h3>By caller</h3>${kvTable(z.by_caller)}
@@ -210,6 +277,24 @@ async function renderObservability(list, detail){
     <div class="tablewrap"><table><tr><th>Suite</th><th>Mode</th><th>Dataset</th><th>Passed</th><th>Failed</th><th>Skipped</th><th>Cost USD</th><th>Finished</th></tr>${r.evaluation.map(e => e.status
       ? `<tr><td colspan="8" class="muted">${esc(e.status)}</td></tr>`
       : `<tr><td>${esc(e.suite)}</td><td>${esc(e.mode)}</td><td>${esc(e.dataset_version)}</td><td>${e.passed}/${e.total}</td><td>${e.failed}</td><td>${e.skipped}</td><td>${esc(e.cost_usd)}</td><td>${when(e.finished_at)}</td></tr>`).join("")}</table></div>`;
+}
+
+// G.1 (G6): LangSmith links for planner/ops_lead (the server only returns this tab to them). Links only: the browser
+// holds no LangSmith credential and makes no call to LangSmith.
+function renderLangSmith(ls, turns){
+  const ev = ls.latest_eval;
+  return `<h2 style="margin-top:18px">LangSmith (traces and evaluation)</h2>
+    ${kvTable({"tracing": ls.tracing, "project": ls.project_url ? "configured (link below)" : (ls.project_status || "unavailable"),
+      "latest evaluation": ev ? `${ev.suite}: ${ev.passed}/${ev.total} passed, ${ev.failed} failed` : "unavailable: no evaluation run recorded",
+      "dataset version": ls.dataset_version || "unavailable", "evaluator version": ls.evaluator_version || "unavailable",
+      "experiment": ls.experiment_url ? "recorded (link below)" : "unavailable: no LangSmith experiment recorded"})}
+    ${ls.project_url ? `<p>Project: ${extLink(ls.project_url, ls.project_url)}</p>` : ""}
+    ${ls.experiment_url ? `<p>Latest experiment: ${extLink(ls.experiment_url, ls.experiment_url)}</p>` : ""}
+    <h3>Recent turns</h3>
+    ${turns.length ? `<div class="tablewrap"><table><tr><th>When</th><th>Facility</th><th>Reader</th><th>Failure category</th><th>ms</th><th>Trace</th></tr>${turns.map(t =>
+      `<tr><td>${when(t.created_at)}</td><td>${esc(t.facility_id || "CENTRAL")}</td><td>${esc(t.extractor)}</td><td>${esc(t.fallback_reason || "")}</td>
+       <td>${esc(t.turn_ms)}</td><td>${t.trace_url ? extLink(t.trace_url, "open trace") : `<span class="muted mono" title="Search CloudWatch for this turn_ref">${esc(String(t.turn_ref).slice(0, 8))}… (no trace link: tracing ${esc(ls.tracing)}${ls.project_url ? "" : ", project URL not configured"})</span>`}</td></tr>`).join("")}</table></div>`
+      : `<div class="muted">No turns in this window.</div>`}`;
 }
 
 async function loadThreads(more){
@@ -263,7 +348,7 @@ document.addEventListener("click", async ev => {
   try {
     if(b.dataset.t) setTab(b.dataset.t);
     else if(b.dataset.open !== undefined){ if(b.dataset.open) openThread(b.dataset.open); else toast("No conversation for this escalation.") }
-    else if(b.id === "refresh") selected && tab === "threads" ? (await loadThreads(false), openThread(selected)) : render();
+    else if(b.id === "refresh"){ loadStatus(); selected && tab === "threads" ? (await loadThreads(false), openThread(selected)) : render() }
     else if(b.id === "more") loadThreads(true);
     else if(b.id === "signinbtn") signIn();
     else if(b.id === "signout") signOut();
@@ -279,7 +364,8 @@ document.addEventListener("click", async ev => {
 
 (async () => {
   try { CFG = await (await fetch("config.json", {cache:"no-store"})).json() }
-  catch { showSignIn("This console is not configured (config.json missing)."); return }
+  catch { showSignIn("This console is not configured (config.json missing)."); loadStatus(); return }
+  loadStatus(); setInterval(loadStatus, 60000);
   setInterval(() => { if(TOKEN && Date.now() > EXPIRES - 15000){ TOKEN = null; showSignIn("Your session has ended. Please sign in again.") } }, 10000);
   try { if(await finishSignIn()) return showApp() } catch(e){ return showSignIn(e.message) }
   showSignIn();

@@ -135,7 +135,7 @@ def run_conversation(env: Env, row: dict) -> dict:
     model = None if inp.get("model") == "none" else FakeModel(extractions=[])
     orch = Orchestrator(client.app.state.service, client.app.state.sessions, model)
     ctx = {"options": lambda: options_of(env, client, d)}
-    tools, replies, lat, paths, extractors = [], [], [], [], []
+    tools, replies, lat, paths, extractors, fallback_reasons = [], [], [], [], [], []
     inject = inp.get("inject")
     if inject == "optimizer_error":                              # CONTROLLED FAILURE INJECTION (labelled in the report)
         def boom(self, req, now, res, t0):
@@ -152,6 +152,9 @@ def run_conversation(env: Env, row: dict) -> dict:
                 x = t.get("x")
                 if x == "MODEL_ERROR":
                     model.extractions.append(ModelError("controlled failure injection: provider down", "timeout"))
+                elif isinstance(x, str) and x.startswith("MODEL_ERROR:"):   # G.1: a named failure category
+                    cat = x.split(":", 1)[1]
+                    model.extractions.append(ModelError(f"controlled failure injection: {cat}", cat, False))
                 else:
                     model.extractions.append(exd(**resolve(x or {}, ctx)))
             t0 = time.perf_counter()
@@ -161,6 +164,7 @@ def run_conversation(env: Env, row: dict) -> dict:
             replies.append(res.reply or "")
             paths += res.path
             extractors.append(res.extractor)
+            fallback_reasons.append(res.fallback_reason)
     finally:
         optimizer_mod.SlotOptimizer._run = _ORIGINAL_RUN
     sid = sids[0]
@@ -218,6 +222,8 @@ def run_conversation(env: Env, row: dict) -> dict:
     if "escalated" in exp:
         n = env.q("""SELECT count(*) FROM setuhaul.escalations WHERE shipment_id=%s AND reason_code=%s""", sid, exp["escalated"])[0][0]
         check("escalation", n >= 1, f"no {exp['escalated']} escalation")
+    if "fallback_reason" in exp:                                  # G.1: the structured failure category
+        check("fallback_reason", exp["fallback_reason"] in fallback_reasons, f"fallback reasons {fallback_reasons}")
     if "extractor" in exp:
         check("extractor", exp["extractor"] in extractors, f"extractors {extractors}")
     final = replies[-1] if replies else ""

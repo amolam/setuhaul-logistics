@@ -36,5 +36,7 @@ SetuHaulPilotStack(
     alarm_email=ctx("alarm_email") or "",
     llm_daily_budget_usd=ctx("llm_daily_budget_usd") or "0.25",
     approved_templates=ctx("whatsapp_approved_templates") or "[]",
-    booking_approval=ctx("booking_approval") or "")
+    booking_approval=ctx("booking_approval") or "",
+    langsmith_tracing=ctx("langsmith_tracing") or "",            # G.1: off unless the owner passes "on"
+    langsmith_ui_url=ctx("langsmith_ui_url") or "")
 app.synth()

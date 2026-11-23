@@ -166,6 +166,10 @@ class Move(BaseModel):
 
 
 log = logging.getLogger("setuhaul.api")
+# G.1 (G5): the shipment id format the console validates against before it asks (mirrored in console_static/app.js;
+# tests/test_phase_g1.py keeps the two equal). Pilot ids look like SYN-SHP-2172ACB8; seeded ones SYN-SHP1001. Ids are
+# case-sensitive and other sources use lower-case hex (SHP-99399e2f-0), so both cases are accepted.
+SHIPMENT_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_-]{2,79}$"
 
 
 def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, queue=None) -> FastAPI:
@@ -375,7 +379,8 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
         return svc.move_appointment(p, appointment_id, body.proposal_id, body.idempotency_key, body.note)
 
     @app.get("/console/shipments/{shipment_id}/recommendations")
-    def recommendations(shipment_id: str = Path(min_length=1, max_length=80), earliest: AwareDatetime | None = None,
+    def recommendations(shipment_id: str = Path(min_length=3, max_length=80, pattern=SHIPMENT_ID_PATTERN),
+                        earliest: AwareDatetime | None = None,
                         latest: AwareDatetime | None = None, days: int = Query(1, ge=1, le=3),
                         p: Principal = Depends(staff)):
         """Phase G1, read only: the optimizer's ranked dock/slot options for one truck, with every hard constraint

@@ -15,6 +15,11 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 IST = timezone(timedelta(hours=5, minutes=30))
+# G.1: the facility-local wall clock, stated explicitly. Both pilot facilities are Asia/Kolkata (facilities.timezone,
+# migration 0001; India keeps no daylight saving, so the fixed +05:30 offset is exact). A time a driver states ("by
+# 5 pm") is read in this zone, never in the server's local time (Lambda runs in UTC; Windows dev boxes in anything).
+FACILITY_TZ_NAME = "Asia/Kolkata"
+FACILITY_TZ = IST
 SCHEMA_VERSION = "record_driver_report/v1"
 
 # Verbatim from docs/1-frame/02_variables.md §6c (strict, every field nullable, no extra properties).
@@ -106,7 +111,8 @@ SAFE_PLACE = re.compile(
 
 # What the driver must have said for code to accept the model's latest_finish_kind (decision D1: "leave the warehouse
 # by 1:30" is ambiguous and is asked, even when the model reads it as gate-out; G3 run 1, THR002).
-_UNLOAD = re.compile(r"unload|khali|utar|अनलोड|खाली|उतार", re.I)     # utar: "maal utarna" (S4-R2-08 question)
+_UNLOAD = re.compile(r"unload|\bloading\b|khali|utar|अनलोड|खाली|उतार", re.I)   # utar: "maal utarna" (S4-R2-08)
+# G.1: "finish loading by 17:00" is dock work too (the dock's (un)loading ends); start vs finish still decides the kind
 # Review (step 3 update): mentioning unloading is not enough; start and finish must be told apart, or the agent asks.
 _START = re.compile(r"\b(start|starts|started|begin|begins|shuru)\b|शुरू", re.I)
 _FINISH = re.compile(r"\b(finish|finished|complete|completed|done|end|over|khatam|poora|pura)\b|ख़त्म|खत्म|पूरा", re.I)
@@ -153,7 +159,7 @@ class Checked:
 _HHMM = re.compile(r"^\s*(\d{1,2})[:.](\d{2})\s*$")
 
 
-def local_to_ts(hhmm: str, now: datetime, ambiguous_12h: bool = True) -> datetime | None:
+def local_to_ts(hhmm: str, now: datetime, ambiguous_12h: bool = True, tz: timezone = FACILITY_TZ) -> datetime | None:
     """'11:20' → the next sensible occurrence in IST. A 12-hour-looking time ('6:30' at 16:24) resolves to the
     occurrence closest after now − 15 min, so 'ETA 6:30' in the afternoon means 18:30."""
     m = _HHMM.match(hhmm or "")
@@ -162,7 +168,9 @@ def local_to_ts(hhmm: str, now: datetime, ambiguous_12h: bool = True) -> datetim
     h, mi = int(m.group(1)), int(m.group(2))
     if h > 23 or mi > 59:
         return None
-    now_l = now.astimezone(IST)
+    if now.tzinfo is None:                       # G.1: a naive "now" would silently be the server's local time
+        raise ValueError("local_to_ts needs a timezone-aware now")
+    now_l = now.astimezone(tz)
     floor = now_l - timedelta(minutes=15)
     hours = [h] if (h == 0 or h > 12 or not ambiguous_12h) else sorted({h % 12, h % 12 + 12})
     cands = []

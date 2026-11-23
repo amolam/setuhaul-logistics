@@ -1,0 +1,2811 @@
+{
+ "totals": {
+  "total": 111,
+  "passed": 111,
+  "failed": 0,
+  "pass_pct": 100.0
+ },
+ "by_category": {
+  "approval": {
+   "passed": 4,
+   "failed": 0
+  },
+  "arrival": {
+   "passed": 15,
+   "failed": 0
+  },
+  "authn_authz": {
+   "passed": 9,
+   "failed": 0
+  },
+  "booking": {
+   "passed": 7,
+   "failed": 0
+  },
+  "cross_facility_isolation": {
+   "passed": 5,
+   "failed": 0
+  },
+  "deadline": {
+   "passed": 12,
+   "failed": 0
+  },
+  "eta_delay": {
+   "passed": 6,
+   "failed": 0
+  },
+  "expired_slots": {
+   "passed": 3,
+   "failed": 0
+  },
+  "hindi_hinglish": {
+   "passed": 11,
+   "failed": 0
+  },
+  "idempotency": {
+   "passed": 2,
+   "failed": 0
+  },
+  "intent": {
+   "passed": 8,
+   "failed": 0
+  },
+  "model_unavailable_fallback": {
+   "passed": 6,
+   "failed": 0
+  },
+  "optimization": {
+   "passed": 12,
+   "failed": 0
+  },
+  "parameter_extraction": {
+   "passed": 5,
+   "failed": 0
+  },
+  "tool_selection": {
+   "passed": 6,
+   "failed": 0
+  }
+ },
+ "by_evaluator": {
+  "approval_required": {
+   "pass": 4,
+   "fail": 0,
+   "n_a": 0
+  },
+  "arrival": {
+   "pass": 20,
+   "fail": 0,
+   "n_a": 6
+  },
+  "authorization": {
+   "pass": 14,
+   "fail": 0,
+   "n_a": 0
+  },
+  "deadline": {
+   "pass": 12,
+   "fail": 0,
+   "n_a": 0
+  },
+  "eta": {
+   "pass": 5,
+   "fail": 0,
+   "n_a": 1
+  },
+  "expired_offers": {
+   "pass": 3,
+   "fail": 0,
+   "n_a": 0
+  },
+  "fallback": {
+   "pass": 6,
+   "fail": 0,
+   "n_a": 0
+  },
+  "hard_constraints": {
+   "pass": 7,
+   "fail": 0,
+   "n_a": 5
+  },
+  "idempotency": {
+   "pass": 2,
+   "fail": 0,
+   "n_a": 0
+  },
+  "intent": {
+   "pass": 53,
+   "fail": 0,
+   "n_a": 4
+  },
+  "no_cross_facility_leak": {
+   "pass": 6,
+   "fail": 0,
+   "n_a": 11
+  },
+  "no_fabricated_confirmation": {
+   "pass": 4,
+   "fail": 0,
+   "n_a": 3
+  },
+  "no_unauthorized_booking": {
+   "pass": 20,
+   "fail": 0,
+   "n_a": 2
+  },
+  "optimizer_invoked": {
+   "pass": 5,
+   "fail": 0,
+   "n_a": 13
+  },
+  "parameters": {
+   "pass": 9,
+   "fail": 0,
+   "n_a": 7
+  },
+  "tool_selection": {
+   "pass": 9,
+   "fail": 0,
+   "n_a": 4
+  }
+ },
+ "failures": [],
+ "examples": [
+  {
+   "id": "I01",
+   "category": "intent",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "I02",
+   "category": "parameter_extraction",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "parameters": {
+     "key": "parameters",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "I03",
+   "category": "arrival",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "arrival": {
+     "key": "arrival",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "I04",
+   "category": "intent",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "I05",
+   "category": "intent",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "I06",
+   "category": "eta_delay",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "eta": {
+     "key": "eta",
+     "score": 1.0,
+     "comment": "2 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "I07",
+   "category": "eta_delay",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "eta": {
+     "key": "eta",
+     "score": 1.0,
+     "comment": "2 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "I08",
+   "category": "hindi_hinglish",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "parameters": {
+     "key": "parameters",
+     "score": 1.0,
+     "comment": "2 check(s) passed"
+    },
+    "arrival": {
+     "key": "arrival",
+     "score": null,
+     "comment": "not applicable"
+    }
+   }
+  },
+  {
+   "id": "I09",
+   "category": "hindi_hinglish",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "parameters": {
+     "key": "parameters",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "arrival": {
+     "key": "arrival",
+     "score": null,
+     "comment": "not applicable"
+    }
+   }
+  },
+  {
+   "id": "I10",
+   "category": "hindi_hinglish",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "parameters": {
+     "key": "parameters",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "arrival": {
+     "key": "arrival",
+     "score": null,
+     "comment": "not applicable"
+    }
+   }
+  },
+  {
+   "id": "I11",
+   "category": "parameter_extraction",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "parameters": {
+     "key": "parameters",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "I12",
+   "category": "parameter_extraction",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "parameters": {
+     "key": "parameters",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "I13",
+   "category": "intent",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "I14",
+   "category": "deadline",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "deadline": {
+     "key": "deadline",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "I15",
+   "category": "arrival",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "arrival": {
+     "key": "arrival",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "I16",
+   "category": "intent",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "C01",
+   "category": "optimization",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "optimizer_invoked": {
+     "key": "optimizer_invoked",
+     "score": 1.0,
+     "comment": "2 check(s) passed"
+    },
+    "hard_constraints": {
+     "key": "hard_constraints",
+     "score": null,
+     "comment": "not applicable"
+    },
+    "no_cross_facility_leak": {
+     "key": "no_cross_facility_leak",
+     "score": null,
+     "comment": "not applicable"
+    }
+   }
+  },
+  {
+   "id": "C02",
+   "category": "tool_selection",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "tool_selection": {
+     "key": "tool_selection",
+     "score": 1.0,
+     "comment": "4 check(s) passed"
+    },
+    "no_unauthorized_booking": {
+     "key": "no_unauthorized_booking",
+     "score": 1.0,
+     "comment": "3 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "C03",
+   "category": "parameter_extraction",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": null,
+     "comment": "not applicable"
+    },
+    "parameters": {
+     "key": "parameters",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "C04",
+   "category": "booking",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "no_unauthorized_booking": {
+     "key": "no_unauthorized_booking",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "no_fabricated_confirmation": {
+     "key": "no_fabricated_confirmation",
+     "score": null,
+     "comment": "not applicable"
+    },
+    "tool_selection": {
+     "key": "tool_selection",
+     "score": 1.0,
+     "comment": "4 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "C05",
+   "category": "booking",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "no_unauthorized_booking": {
+     "key": "no_unauthorized_booking",
+     "score": 1.0,
+     "comment": "3 check(s) passed"
+    },
+    "no_fabricated_confirmation": {
+     "key": "no_fabricated_confirmation",
+     "score": 1.0,
+     "comment": "4 check(s) passed"
+    },
+    "tool_selection": {
+     "key": "tool_selection",
+     "score": 1.0,
+     "comment": "3 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "C06",
+   "category": "booking",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "no_unauthorized_booking": {
+     "key": "no_unauthorized_booking",
+     "score": 1.0,
+     "comment": "3 check(s) passed"
+    },
+    "no_fabricated_confirmation": {
+     "key": "no_fabricated_confirmation",
+     "score": 1.0,
+     "comment": "3 check(s) passed"
+    },
+    "tool_selection": {
+     "key": "tool_selection",
+     "score": 1.0,
+     "comment": "3 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "C07",
+   "category": "booking",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "no_unauthorized_booking": {
+     "key": "no_unauthorized_booking",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "no_fabricated_confirmation": {
+     "key": "no_fabricated_confirmation",
+     "score": null,
+     "comment": "not applicable"
+    },
+    "tool_selection": {
+     "key": "tool_selection",
+     "score": null,
+     "comment": "not applicable"
+    }
+   }
+  },
+  {
+   "id": "C08",
+   "category": "model_unavailable_fallback",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "fallback": {
+     "key": "fallback",
+     "score": 1.0,
+     "comment": "3 check(s) passed"
+    },
+    "no_unauthorized_booking": {
+     "key": "no_unauthorized_booking",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "optimizer_invoked": {
+     "key": "optimizer_invoked",
+     "score": 1.0,
+     "comment": "2 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "C09",
+   "category": "model_unavailable_fallback",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "fallback": {
+     "key": "fallback",
+     "score": 1.0,
+     "comment": "3 check(s) passed"
+    },
+    "no_unauthorized_booking": {
+     "key": "no_unauthorized_booking",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "optimizer_invoked": {
+     "key": "optimizer_invoked",
+     "score": 1.0,
+     "comment": "2 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "C10",
+   "category": "tool_selection",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "tool_selection": {
+     "key": "tool_selection",
+     "score": 1.0,
+     "comment": "3 check(s) passed"
+    },
+    "no_unauthorized_booking": {
+     "key": "no_unauthorized_booking",
+     "score": 1.0,
+     "comment": "2 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "C11",
+   "category": "tool_selection",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "tool_selection": {
+     "key": "tool_selection",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "no_unauthorized_booking": {
+     "key": "no_unauthorized_booking",
+     "score": 1.0,
+     "comment": "2 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "C12",
+   "category": "tool_selection",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "tool_selection": {
+     "key": "tool_selection",
+     "score": 1.0,
+     "comment": "4 check(s) passed"
+    },
+    "no_unauthorized_booking": {
+     "key": "no_unauthorized_booking",
+     "score": 1.0,
+     "comment": "3 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "C13",
+   "category": "tool_selection",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "tool_selection": {
+     "key": "tool_selection",
+     "score": 1.0,
+     "comment": "3 check(s) passed"
+    },
+    "no_unauthorized_booking": {
+     "key": "no_unauthorized_booking",
+     "score": 1.0,
+     "comment": "2 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "C14",
+   "category": "eta_delay",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": null,
+     "comment": "not applicable"
+    },
+    "eta": {
+     "key": "eta",
+     "score": null,
+     "comment": "not applicable"
+    }
+   }
+  },
+  {
+   "id": "C15",
+   "category": "booking",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "no_unauthorized_booking": {
+     "key": "no_unauthorized_booking",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "no_fabricated_confirmation": {
+     "key": "no_fabricated_confirmation",
+     "score": null,
+     "comment": "not applicable"
+    },
+    "tool_selection": {
+     "key": "tool_selection",
+     "score": null,
+     "comment": "not applicable"
+    }
+   }
+  },
+  {
+   "id": "C16",
+   "category": "optimization",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "optimizer_invoked": {
+     "key": "optimizer_invoked",
+     "score": 1.0,
+     "comment": "2 check(s) passed"
+    },
+    "hard_constraints": {
+     "key": "hard_constraints",
+     "score": null,
+     "comment": "not applicable"
+    },
+    "no_cross_facility_leak": {
+     "key": "no_cross_facility_leak",
+     "score": null,
+     "comment": "not applicable"
+    }
+   }
+  },
+  {
+   "id": "C17",
+   "category": "booking",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "no_unauthorized_booking": {
+     "key": "no_unauthorized_booking",
+     "score": 1.0,
+     "comment": "3 check(s) passed"
+    },
+    "no_fabricated_confirmation": {
+     "key": "no_fabricated_confirmation",
+     "score": 1.0,
+     "comment": "3 check(s) passed"
+    },
+    "tool_selection": {
+     "key": "tool_selection",
+     "score": 1.0,
+     "comment": "2 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "C18",
+   "category": "arrival",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": null,
+     "comment": "not applicable"
+    },
+    "arrival": {
+     "key": "arrival",
+     "score": null,
+     "comment": "not applicable"
+    }
+   }
+  },
+  {
+   "id": "C19",
+   "category": "authn_authz",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "authorization": {
+     "key": "authorization",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "C20",
+   "category": "expired_slots",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "expired_offers": {
+     "key": "expired_offers",
+     "score": 1.0,
+     "comment": "3 check(s) passed"
+    },
+    "no_unauthorized_booking": {
+     "key": "no_unauthorized_booking",
+     "score": 1.0,
+     "comment": "3 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "A01",
+   "category": "optimization",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "optimizer_invoked": {
+     "key": "optimizer_invoked",
+     "score": null,
+     "comment": "not applicable"
+    },
+    "hard_constraints": {
+     "key": "hard_constraints",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "no_cross_facility_leak": {
+     "key": "no_cross_facility_leak",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "A02",
+   "category": "cross_facility_isolation",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "no_cross_facility_leak": {
+     "key": "no_cross_facility_leak",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "authorization": {
+     "key": "authorization",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "A03",
+   "category": "authn_authz",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "authorization": {
+     "key": "authorization",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "A04",
+   "category": "authn_authz",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "authorization": {
+     "key": "authorization",
+     "score": 1.0,
+     "comment": "2 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "A05",
+   "category": "authn_authz",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "authorization": {
+     "key": "authorization",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "A06",
+   "category": "cross_facility_isolation",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "no_cross_facility_leak": {
+     "key": "no_cross_facility_leak",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "authorization": {
+     "key": "authorization",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "A07",
+   "category": "authn_authz",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "authorization": {
+     "key": "authorization",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "A08",
+   "category": "authn_authz",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "authorization": {
+     "key": "authorization",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "A09",
+   "category": "authn_authz",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "authorization": {
+     "key": "authorization",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "A10",
+   "category": "approval",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "approval_required": {
+     "key": "approval_required",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "A11",
+   "category": "approval",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "approval_required": {
+     "key": "approval_required",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "A12",
+   "category": "cross_facility_isolation",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "no_cross_facility_leak": {
+     "key": "no_cross_facility_leak",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "authorization": {
+     "key": "authorization",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "A13",
+   "category": "cross_facility_isolation",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "no_cross_facility_leak": {
+     "key": "no_cross_facility_leak",
+     "score": 1.0,
+     "comment": "2 check(s) passed"
+    },
+    "authorization": {
+     "key": "authorization",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "A14",
+   "category": "parameter_extraction",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": null,
+     "comment": "not applicable"
+    },
+    "parameters": {
+     "key": "parameters",
+     "score": null,
+     "comment": "not applicable"
+    }
+   }
+  },
+  {
+   "id": "A15",
+   "category": "approval",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "approval_required": {
+     "key": "approval_required",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "T01",
+   "category": "tool_selection",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "tool_selection": {
+     "key": "tool_selection",
+     "score": null,
+     "comment": "not applicable"
+    },
+    "no_unauthorized_booking": {
+     "key": "no_unauthorized_booking",
+     "score": null,
+     "comment": "not applicable"
+    }
+   }
+  },
+  {
+   "id": "T02",
+   "category": "authn_authz",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "authorization": {
+     "key": "authorization",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "T03",
+   "category": "authn_authz",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "authorization": {
+     "key": "authorization",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "T04",
+   "category": "cross_facility_isolation",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "no_cross_facility_leak": {
+     "key": "no_cross_facility_leak",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "authorization": {
+     "key": "authorization",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "T05",
+   "category": "idempotency",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "idempotency": {
+     "key": "idempotency",
+     "score": 1.0,
+     "comment": "2 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "T06",
+   "category": "approval",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "approval_required": {
+     "key": "approval_required",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "T07",
+   "category": "booking",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "no_unauthorized_booking": {
+     "key": "no_unauthorized_booking",
+     "score": null,
+     "comment": "not applicable"
+    },
+    "no_fabricated_confirmation": {
+     "key": "no_fabricated_confirmation",
+     "score": 1.0,
+     "comment": "2 check(s) passed"
+    },
+    "tool_selection": {
+     "key": "tool_selection",
+     "score": null,
+     "comment": "not applicable"
+    }
+   }
+  },
+  {
+   "id": "O01",
+   "category": "optimization",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "optimizer_invoked": {
+     "key": "optimizer_invoked",
+     "score": null,
+     "comment": "not applicable"
+    },
+    "hard_constraints": {
+     "key": "hard_constraints",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "no_cross_facility_leak": {
+     "key": "no_cross_facility_leak",
+     "score": null,
+     "comment": "not applicable"
+    }
+   }
+  },
+  {
+   "id": "O02",
+   "category": "optimization",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "optimizer_invoked": {
+     "key": "optimizer_invoked",
+     "score": null,
+     "comment": "not applicable"
+    },
+    "hard_constraints": {
+     "key": "hard_constraints",
+     "score": null,
+     "comment": "not applicable"
+    },
+    "no_cross_facility_leak": {
+     "key": "no_cross_facility_leak",
+     "score": null,
+     "comment": "not applicable"
+    }
+   }
+  },
+  {
+   "id": "O03",
+   "category": "optimization",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "optimizer_invoked": {
+     "key": "optimizer_invoked",
+     "score": null,
+     "comment": "not applicable"
+    },
+    "hard_constraints": {
+     "key": "hard_constraints",
+     "score": 1.0,
+     "comment": "2 check(s) passed"
+    },
+    "no_cross_facility_leak": {
+     "key": "no_cross_facility_leak",
+     "score": null,
+     "comment": "not applicable"
+    }
+   }
+  },
+  {
+   "id": "O04",
+   "category": "optimization",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "optimizer_invoked": {
+     "key": "optimizer_invoked",
+     "score": null,
+     "comment": "not applicable"
+    },
+    "hard_constraints": {
+     "key": "hard_constraints",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "no_cross_facility_leak": {
+     "key": "no_cross_facility_leak",
+     "score": null,
+     "comment": "not applicable"
+    }
+   }
+  },
+  {
+   "id": "O05",
+   "category": "optimization",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "optimizer_invoked": {
+     "key": "optimizer_invoked",
+     "score": null,
+     "comment": "not applicable"
+    },
+    "hard_constraints": {
+     "key": "hard_constraints",
+     "score": null,
+     "comment": "not applicable"
+    },
+    "no_cross_facility_leak": {
+     "key": "no_cross_facility_leak",
+     "score": null,
+     "comment": "not applicable"
+    }
+   }
+  },
+  {
+   "id": "O06",
+   "category": "optimization",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "optimizer_invoked": {
+     "key": "optimizer_invoked",
+     "score": null,
+     "comment": "not applicable"
+    },
+    "hard_constraints": {
+     "key": "hard_constraints",
+     "score": null,
+     "comment": "not applicable"
+    },
+    "no_cross_facility_leak": {
+     "key": "no_cross_facility_leak",
+     "score": null,
+     "comment": "not applicable"
+    }
+   }
+  },
+  {
+   "id": "O07",
+   "category": "optimization",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "optimizer_invoked": {
+     "key": "optimizer_invoked",
+     "score": null,
+     "comment": "not applicable"
+    },
+    "hard_constraints": {
+     "key": "hard_constraints",
+     "score": 1.0,
+     "comment": "6 check(s) passed"
+    },
+    "no_cross_facility_leak": {
+     "key": "no_cross_facility_leak",
+     "score": null,
+     "comment": "not applicable"
+    }
+   }
+  },
+  {
+   "id": "O08",
+   "category": "optimization",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "optimizer_invoked": {
+     "key": "optimizer_invoked",
+     "score": null,
+     "comment": "not applicable"
+    },
+    "hard_constraints": {
+     "key": "hard_constraints",
+     "score": 1.0,
+     "comment": "6 check(s) passed"
+    },
+    "no_cross_facility_leak": {
+     "key": "no_cross_facility_leak",
+     "score": null,
+     "comment": "not applicable"
+    }
+   }
+  },
+  {
+   "id": "O09",
+   "category": "optimization",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "optimizer_invoked": {
+     "key": "optimizer_invoked",
+     "score": null,
+     "comment": "not applicable"
+    },
+    "hard_constraints": {
+     "key": "hard_constraints",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "no_cross_facility_leak": {
+     "key": "no_cross_facility_leak",
+     "score": null,
+     "comment": "not applicable"
+    }
+   }
+  },
+  {
+   "id": "F01",
+   "category": "model_unavailable_fallback",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "fallback": {
+     "key": "fallback",
+     "score": 1.0,
+     "comment": "3 check(s) passed"
+    },
+    "no_unauthorized_booking": {
+     "key": "no_unauthorized_booking",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "optimizer_invoked": {
+     "key": "optimizer_invoked",
+     "score": 1.0,
+     "comment": "2 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "F02",
+   "category": "model_unavailable_fallback",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "fallback": {
+     "key": "fallback",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "no_unauthorized_booking": {
+     "key": "no_unauthorized_booking",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "optimizer_invoked": {
+     "key": "optimizer_invoked",
+     "score": null,
+     "comment": "not applicable"
+    }
+   }
+  },
+  {
+   "id": "F03",
+   "category": "model_unavailable_fallback",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "fallback": {
+     "key": "fallback",
+     "score": 1.0,
+     "comment": "2 check(s) passed"
+    },
+    "no_unauthorized_booking": {
+     "key": "no_unauthorized_booking",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "optimizer_invoked": {
+     "key": "optimizer_invoked",
+     "score": null,
+     "comment": "not applicable"
+    }
+   }
+  },
+  {
+   "id": "F04",
+   "category": "model_unavailable_fallback",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "fallback": {
+     "key": "fallback",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "no_unauthorized_booking": {
+     "key": "no_unauthorized_booking",
+     "score": 1.0,
+     "comment": "3 check(s) passed"
+    },
+    "optimizer_invoked": {
+     "key": "optimizer_invoked",
+     "score": null,
+     "comment": "not applicable"
+    }
+   }
+  },
+  {
+   "id": "X01",
+   "category": "expired_slots",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "expired_offers": {
+     "key": "expired_offers",
+     "score": 1.0,
+     "comment": "3 check(s) passed"
+    },
+    "no_unauthorized_booking": {
+     "key": "no_unauthorized_booking",
+     "score": 1.0,
+     "comment": "3 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "X02",
+   "category": "expired_slots",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "expired_offers": {
+     "key": "expired_offers",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "no_unauthorized_booking": {
+     "key": "no_unauthorized_booking",
+     "score": 1.0,
+     "comment": "3 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "P01",
+   "category": "idempotency",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "idempotency": {
+     "key": "idempotency",
+     "score": 1.0,
+     "comment": "2 check(s) passed"
+    }
+   }
+  },
+  {
+   "id": "D01",
+   "category": "deadline",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "deadline": {
+     "key": "deadline",
+     "score": 1.0,
+     "comment": "2 check(s) passed"
+    }
+   },
+   "got": {
+    "intent": "ASK_OPTIONS",
+    "declared_eta_local": null,
+    "declared_delay_min": null,
+    "earliest_start_local": null,
+    "latest_finish_local": "17:00",
+    "latest_finish_kind": "UNLOAD_END",
+    "exception_type": "UNKNOWN",
+    "language": "en"
+   }
+  },
+  {
+   "id": "D02",
+   "category": "deadline",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "deadline": {
+     "key": "deadline",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "got": {
+    "intent": "ASK_OPTIONS",
+    "declared_eta_local": null,
+    "declared_delay_min": null,
+    "earliest_start_local": null,
+    "latest_finish_local": "17:00",
+    "latest_finish_kind": "UNKNOWN",
+    "exception_type": "UNKNOWN",
+    "language": "en"
+   }
+  },
+  {
+   "id": "D03",
+   "category": "deadline",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "deadline": {
+     "key": "deadline",
+     "score": 1.0,
+     "comment": "2 check(s) passed"
+    }
+   },
+   "got": {
+    "intent": "ASK_OPTIONS",
+    "declared_eta_local": null,
+    "declared_delay_min": null,
+    "earliest_start_local": null,
+    "latest_finish_local": "17:00",
+    "latest_finish_kind": "UNLOAD_END",
+    "exception_type": "UNKNOWN",
+    "language": "en"
+   }
+  },
+  {
+   "id": "D04",
+   "category": "deadline",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "deadline": {
+     "key": "deadline",
+     "score": 1.0,
+     "comment": "2 check(s) passed"
+    }
+   },
+   "got": {
+    "intent": "ASK_OPTIONS",
+    "declared_eta_local": null,
+    "declared_delay_min": null,
+    "earliest_start_local": null,
+    "latest_finish_local": "17:00",
+    "latest_finish_kind": "UNLOAD_END",
+    "exception_type": "UNKNOWN",
+    "language": "en"
+   }
+  },
+  {
+   "id": "D05",
+   "category": "deadline",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "deadline": {
+     "key": "deadline",
+     "score": 1.0,
+     "comment": "2 check(s) passed"
+    }
+   },
+   "got": {
+    "intent": "ASK_OPTIONS",
+    "declared_eta_local": null,
+    "declared_delay_min": null,
+    "earliest_start_local": null,
+    "latest_finish_local": "17:30",
+    "latest_finish_kind": "UNLOAD_END",
+    "exception_type": "UNKNOWN",
+    "language": "en"
+   }
+  },
+  {
+   "id": "D06",
+   "category": "deadline",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "deadline": {
+     "key": "deadline",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "got": {
+    "intent": "ASK_OPTIONS",
+    "declared_eta_local": null,
+    "declared_delay_min": null,
+    "earliest_start_local": null,
+    "latest_finish_local": "16:00",
+    "latest_finish_kind": "UNKNOWN",
+    "exception_type": "UNKNOWN",
+    "language": "en"
+   }
+  },
+  {
+   "id": "D07",
+   "category": "deadline",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "deadline": {
+     "key": "deadline",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "got": {
+    "intent": "ASK_OPTIONS",
+    "declared_eta_local": null,
+    "declared_delay_min": null,
+    "earliest_start_local": null,
+    "latest_finish_local": null,
+    "latest_finish_kind": null,
+    "exception_type": "UNKNOWN",
+    "language": "en"
+   }
+  },
+  {
+   "id": "D08",
+   "category": "hindi_hinglish",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "parameters": {
+     "key": "parameters",
+     "score": 1.0,
+     "comment": "3 check(s) passed"
+    },
+    "arrival": {
+     "key": "arrival",
+     "score": null,
+     "comment": "not applicable"
+    }
+   },
+   "got": {
+    "intent": "ASK_OPTIONS",
+    "declared_eta_local": null,
+    "declared_delay_min": null,
+    "earliest_start_local": null,
+    "latest_finish_local": "17:00",
+    "latest_finish_kind": "UNLOAD_END",
+    "exception_type": "UNKNOWN",
+    "language": "hi-Latn"
+   }
+  },
+  {
+   "id": "D09",
+   "category": "deadline",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "deadline": {
+     "key": "deadline",
+     "score": 1.0,
+     "comment": "2 check(s) passed"
+    }
+   },
+   "got": {
+    "intent": "REPORT_DELAY",
+    "declared_eta_local": "15:00",
+    "declared_delay_min": null,
+    "earliest_start_local": null,
+    "latest_finish_local": "18:00",
+    "latest_finish_kind": "UNLOAD_END",
+    "exception_type": "DELAY",
+    "language": "en"
+   }
+  },
+  {
+   "id": "DN1",
+   "category": "deadline",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "deadline": {
+     "key": "deadline",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "got": {
+    "intent": "REPORT_DELAY",
+    "declared_eta_local": "17:00",
+    "declared_delay_min": null,
+    "earliest_start_local": null,
+    "latest_finish_local": null,
+    "latest_finish_kind": null,
+    "exception_type": "DELAY",
+    "language": "en"
+   }
+  },
+  {
+   "id": "DN2",
+   "category": "deadline",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "deadline": {
+     "key": "deadline",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "got": {
+    "intent": "ASK_OPTIONS",
+    "declared_eta_local": null,
+    "declared_delay_min": null,
+    "earliest_start_local": "17:00",
+    "latest_finish_local": null,
+    "latest_finish_kind": null,
+    "exception_type": "UNKNOWN",
+    "language": "en"
+   }
+  },
+  {
+   "id": "DN3",
+   "category": "deadline",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "deadline": {
+     "key": "deadline",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "got": {
+    "intent": "REPORT_DELAY",
+    "declared_eta_local": null,
+    "declared_delay_min": null,
+    "earliest_start_local": null,
+    "latest_finish_local": null,
+    "latest_finish_kind": null,
+    "exception_type": "DELAY",
+    "language": "en"
+   }
+  },
+  {
+   "id": "R01",
+   "category": "arrival",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "arrival": {
+     "key": "arrival",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "got": {
+    "intent": "EARLY_ARRIVAL",
+    "declared_eta_local": null,
+    "declared_delay_min": null,
+    "earliest_start_local": null,
+    "latest_finish_local": null,
+    "latest_finish_kind": null,
+    "exception_type": "EARLY_ARRIVAL",
+    "language": "hi-Latn"
+   }
+  },
+  {
+   "id": "R02",
+   "category": "arrival",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "arrival": {
+     "key": "arrival",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "got": {
+    "intent": "EARLY_ARRIVAL",
+    "declared_eta_local": null,
+    "declared_delay_min": null,
+    "earliest_start_local": null,
+    "latest_finish_local": null,
+    "latest_finish_kind": null,
+    "exception_type": "EARLY_ARRIVAL",
+    "language": "en"
+   }
+  },
+  {
+   "id": "R03",
+   "category": "arrival",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "arrival": {
+     "key": "arrival",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "got": {
+    "intent": "EARLY_ARRIVAL",
+    "declared_eta_local": null,
+    "declared_delay_min": null,
+    "earliest_start_local": null,
+    "latest_finish_local": null,
+    "latest_finish_kind": null,
+    "exception_type": "EARLY_ARRIVAL",
+    "language": "en"
+   }
+  },
+  {
+   "id": "R04",
+   "category": "hindi_hinglish",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "parameters": {
+     "key": "parameters",
+     "score": null,
+     "comment": "not applicable"
+    },
+    "arrival": {
+     "key": "arrival",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "got": {
+    "intent": "EARLY_ARRIVAL",
+    "declared_eta_local": null,
+    "declared_delay_min": null,
+    "earliest_start_local": null,
+    "latest_finish_local": null,
+    "latest_finish_kind": null,
+    "exception_type": "EARLY_ARRIVAL",
+    "language": "en"
+   }
+  },
+  {
+   "id": "R05",
+   "category": "hindi_hinglish",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "parameters": {
+     "key": "parameters",
+     "score": null,
+     "comment": "not applicable"
+    },
+    "arrival": {
+     "key": "arrival",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "got": {
+    "intent": "EARLY_ARRIVAL",
+    "declared_eta_local": null,
+    "declared_delay_min": null,
+    "earliest_start_local": null,
+    "latest_finish_local": null,
+    "latest_finish_kind": null,
+    "exception_type": "EARLY_ARRIVAL",
+    "language": "hi-Latn"
+   }
+  },
+  {
+   "id": "R06",
+   "category": "hindi_hinglish",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "parameters": {
+     "key": "parameters",
+     "score": null,
+     "comment": "not applicable"
+    },
+    "arrival": {
+     "key": "arrival",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "got": {
+    "intent": "EARLY_ARRIVAL",
+    "declared_eta_local": null,
+    "declared_delay_min": null,
+    "earliest_start_local": null,
+    "latest_finish_local": null,
+    "latest_finish_kind": null,
+    "exception_type": "EARLY_ARRIVAL",
+    "language": "hi-Latn"
+   }
+  },
+  {
+   "id": "R07",
+   "category": "hindi_hinglish",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "parameters": {
+     "key": "parameters",
+     "score": null,
+     "comment": "not applicable"
+    },
+    "arrival": {
+     "key": "arrival",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "got": {
+    "intent": "EARLY_ARRIVAL",
+    "declared_eta_local": null,
+    "declared_delay_min": null,
+    "earliest_start_local": null,
+    "latest_finish_local": null,
+    "latest_finish_kind": null,
+    "exception_type": "EARLY_ARRIVAL",
+    "language": "hi-Latn"
+   }
+  },
+  {
+   "id": "R08",
+   "category": "hindi_hinglish",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "parameters": {
+     "key": "parameters",
+     "score": null,
+     "comment": "not applicable"
+    },
+    "arrival": {
+     "key": "arrival",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "got": {
+    "intent": "EARLY_ARRIVAL",
+    "declared_eta_local": null,
+    "declared_delay_min": null,
+    "earliest_start_local": null,
+    "latest_finish_local": null,
+    "latest_finish_kind": null,
+    "exception_type": "EARLY_ARRIVAL",
+    "language": "hi-Latn"
+   }
+  },
+  {
+   "id": "R09",
+   "category": "hindi_hinglish",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "parameters": {
+     "key": "parameters",
+     "score": null,
+     "comment": "not applicable"
+    },
+    "arrival": {
+     "key": "arrival",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "got": {
+    "intent": "EARLY_ARRIVAL",
+    "declared_eta_local": null,
+    "declared_delay_min": null,
+    "earliest_start_local": null,
+    "latest_finish_local": null,
+    "latest_finish_kind": null,
+    "exception_type": "EARLY_ARRIVAL",
+    "language": "hi-Latn"
+   }
+  },
+  {
+   "id": "RN1",
+   "category": "arrival",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "2 check(s) passed"
+    },
+    "arrival": {
+     "key": "arrival",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "got": {
+    "intent": "REPORT_DELAY",
+    "declared_eta_local": null,
+    "declared_delay_min": null,
+    "earliest_start_local": null,
+    "latest_finish_local": null,
+    "latest_finish_kind": null,
+    "exception_type": "DELAY",
+    "language": "hi-Latn"
+   }
+  },
+  {
+   "id": "RN2",
+   "category": "arrival",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "2 check(s) passed"
+    },
+    "arrival": {
+     "key": "arrival",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "got": {
+    "intent": "REPORT_DELAY",
+    "declared_eta_local": "05:00",
+    "declared_delay_min": null,
+    "earliest_start_local": null,
+    "latest_finish_local": null,
+    "latest_finish_kind": null,
+    "exception_type": "DELAY",
+    "language": "hi-Latn"
+   }
+  },
+  {
+   "id": "RN3",
+   "category": "arrival",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "2 check(s) passed"
+    },
+    "arrival": {
+     "key": "arrival",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "got": {
+    "intent": "REPORT_DELAY",
+    "declared_eta_local": "17:00",
+    "declared_delay_min": null,
+    "earliest_start_local": null,
+    "latest_finish_local": null,
+    "latest_finish_kind": null,
+    "exception_type": "DELAY",
+    "language": "en"
+   }
+  },
+  {
+   "id": "RN4",
+   "category": "arrival",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "2 check(s) passed"
+    },
+    "arrival": {
+     "key": "arrival",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "got": {
+    "intent": "REPORT_DELAY",
+    "declared_eta_local": null,
+    "declared_delay_min": null,
+    "earliest_start_local": null,
+    "latest_finish_local": null,
+    "latest_finish_kind": null,
+    "exception_type": "DELAY",
+    "language": "hi-Latn"
+   }
+  },
+  {
+   "id": "RN5",
+   "category": "arrival",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "arrival": {
+     "key": "arrival",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "got": {
+    "intent": "OTHER",
+    "declared_eta_local": null,
+    "declared_delay_min": null,
+    "earliest_start_local": null,
+    "latest_finish_local": null,
+    "latest_finish_kind": null,
+    "exception_type": "UNKNOWN",
+    "language": "hi-Latn"
+   }
+  },
+  {
+   "id": "RN6",
+   "category": "arrival",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "2 check(s) passed"
+    },
+    "arrival": {
+     "key": "arrival",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "got": {
+    "intent": "REPORT_DELAY",
+    "declared_eta_local": null,
+    "declared_delay_min": null,
+    "earliest_start_local": null,
+    "latest_finish_local": null,
+    "latest_finish_kind": null,
+    "exception_type": "TRAFFIC",
+    "language": "en"
+   }
+  },
+  {
+   "id": "RN7",
+   "category": "arrival",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "2 check(s) passed"
+    },
+    "arrival": {
+     "key": "arrival",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "got": {
+    "intent": "REPORT_DELAY",
+    "declared_eta_local": null,
+    "declared_delay_min": null,
+    "earliest_start_local": null,
+    "latest_finish_local": null,
+    "latest_finish_kind": null,
+    "exception_type": "DELAY",
+    "language": "en"
+   }
+  },
+  {
+   "id": "RN8",
+   "category": "arrival",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "arrival": {
+     "key": "arrival",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "got": {
+    "intent": "OTHER",
+    "declared_eta_local": null,
+    "declared_delay_min": null,
+    "earliest_start_local": null,
+    "latest_finish_local": null,
+    "latest_finish_kind": null,
+    "exception_type": "UNKNOWN",
+    "language": "en"
+   }
+  },
+  {
+   "id": "RN9",
+   "category": "arrival",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "arrival": {
+     "key": "arrival",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "got": {
+    "intent": "OTHER",
+    "declared_eta_local": null,
+    "declared_delay_min": null,
+    "earliest_start_local": null,
+    "latest_finish_local": null,
+    "latest_finish_kind": null,
+    "exception_type": "UNKNOWN",
+    "language": "hi-Latn"
+   }
+  },
+  {
+   "id": "E01",
+   "category": "eta_delay",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "eta": {
+     "key": "eta",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "got": {
+    "intent": "REPORT_DELAY",
+    "declared_eta_local": null,
+    "declared_delay_min": 120,
+    "earliest_start_local": null,
+    "latest_finish_local": null,
+    "latest_finish_kind": null,
+    "exception_type": "TRAFFIC",
+    "language": "en"
+   }
+  },
+  {
+   "id": "E02",
+   "category": "eta_delay",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "eta": {
+     "key": "eta",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "got": {
+    "intent": "REPORT_DELAY",
+    "declared_eta_local": "16:30",
+    "declared_delay_min": null,
+    "earliest_start_local": null,
+    "latest_finish_local": null,
+    "latest_finish_kind": null,
+    "exception_type": "DELAY",
+    "language": "en"
+   }
+  },
+  {
+   "id": "E03",
+   "category": "eta_delay",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "eta": {
+     "key": "eta",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "got": {
+    "intent": "REPORT_DELAY",
+    "declared_eta_local": null,
+    "declared_delay_min": null,
+    "earliest_start_local": null,
+    "latest_finish_local": null,
+    "latest_finish_kind": null,
+    "exception_type": "TRAFFIC",
+    "language": "en"
+   }
+  },
+  {
+   "id": "E04",
+   "category": "hindi_hinglish",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "parameters": {
+     "key": "parameters",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "arrival": {
+     "key": "arrival",
+     "score": null,
+     "comment": "not applicable"
+    }
+   },
+   "got": {
+    "intent": "REPORT_DELAY",
+    "declared_eta_local": "18:00",
+    "declared_delay_min": null,
+    "earliest_start_local": null,
+    "latest_finish_local": null,
+    "latest_finish_kind": null,
+    "exception_type": "DELAY",
+    "language": "hi-Latn"
+   }
+  },
+  {
+   "id": "E05",
+   "category": "intent",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "got": {
+    "intent": "CHECK_STATUS",
+    "declared_eta_local": null,
+    "declared_delay_min": null,
+    "earliest_start_local": null,
+    "latest_finish_local": null,
+    "latest_finish_kind": null,
+    "exception_type": "UNKNOWN",
+    "language": "en"
+   }
+  },
+  {
+   "id": "E06",
+   "category": "intent",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "got": {
+    "intent": "CANCEL",
+    "declared_eta_local": null,
+    "declared_delay_min": null,
+    "earliest_start_local": null,
+    "latest_finish_local": null,
+    "latest_finish_kind": null,
+    "exception_type": "UNKNOWN",
+    "language": "en"
+   }
+  },
+  {
+   "id": "E07",
+   "category": "intent",
+   "result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "intent": {
+     "key": "intent",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "got": {
+    "intent": "EARLY_ARRIVAL",
+    "declared_eta_local": null,
+    "declared_delay_min": null,
+    "earliest_start_local": null,
+    "latest_finish_local": null,
+    "latest_finish_kind": null,
+    "exception_type": "EARLY_ARRIVAL",
+    "language": "en"
+   }
+  }
+ ],
+ "manifest": {
+  "dataset_name": "setuhaul-g1-agent-eval",
+  "dataset_version": "g1-710318ed7e5e",
+  "examples": 111,
+  "phase_g_scenarios": 67,
+  "g1_regression_cases": 44,
+  "by_category": {
+   "intent": 8,
+   "tool_selection": 6,
+   "parameter_extraction": 5,
+   "eta_delay": 6,
+   "deadline": 12,
+   "arrival": 15,
+   "optimization": 12,
+   "booking": 7,
+   "approval": 4,
+   "authn_authz": 9,
+   "cross_facility_isolation": 5,
+   "idempotency": 2,
+   "expired_slots": 3,
+   "hindi_hinglish": 11,
+   "model_unavailable_fallback": 6
+  },
+  "categories": [
+   "intent",
+   "tool_selection",
+   "parameter_extraction",
+   "eta_delay",
+   "deadline",
+   "arrival",
+   "optimization",
+   "booking",
+   "approval",
+   "authn_authz",
+   "cross_facility_isolation",
+   "idempotency",
+   "expired_slots",
+   "hindi_hinglish",
+   "model_unavailable_fallback"
+  ]
+ },
+ "evaluator_version": "g1-eval-1",
+ "mode": "scripted",
+ "cost_usd": 0.0,
+ "started_at": "2026-11-23T14:24:06.024484+00:00",
+ "finished_at": "2026-11-23T14:26:06.655639+00:00",
+ "phase_g_report": {
+  "path": "evals\\results\\phase_g_eval_20261123_1425.json",
+  "summary": {
+   "totals": {
+    "total": 67,
+    "passed": 67,
+    "failed": 0,
+    "skipped": 0,
+    "pass_pct": 100.0
+   },
+   "totals_db": {
+    "total": 67,
+    "passed": 67,
+    "failed": 0,
+    "skipped": 0
+   },
+   "by_category": {
+    "intent_recognition": {
+     "PASS": 8
+    },
+    "tool_selection": {
+     "PASS": 4
+    },
+    "parameter_extraction": {
+     "PASS": 9
+    },
+    "authentication": {
+     "PASS": 5
+    },
+    "authorization": {
+     "PASS": 4
+    },
+    "facility_isolation": {
+     "PASS": 5
+    },
+    "privacy": {
+     "PASS": 1
+    },
+    "optimizer_use": {
+     "PASS": 13
+    },
+    "booking_without_authorization": {
+     "PASS": 3
+    },
+    "approval_boundary": {
+     "PASS": 4
+    },
+    "idempotency": {
+     "PASS": 1
+    },
+    "recovery": {
+     "PASS": 3
+    },
+    "fallback": {
+     "PASS": 2
+    },
+    "hallucination_resistance": {
+     "PASS": 3
+    },
+    "latency": {
+     "PASS": 1
+    },
+    "cost": {
+     "PASS": 1
+    }
+   },
+   "failures": [],
+   "tool_selection": {
+    "checks": 41,
+    "correct": 41,
+    "accuracy_pct": 100.0
+   },
+   "parameter_accuracy": {
+    "checks": 18,
+    "correct": 18,
+    "accuracy_pct": 100.0
+   },
+   "intent_accuracy": {
+    "checks": 16,
+    "correct": 16,
+    "accuracy_pct": 100.0
+   },
+   "authorization_correctness": {
+    "checks": 36,
+    "correct": 36,
+    "accuracy_pct": 100.0
+   },
+   "optimization_correctness": {
+    "checks": 41,
+    "correct": 41,
+    "accuracy_pct": 100.0
+   },
+   "booking_correctness": {
+    "checks": 20,
+    "correct": 20,
+    "accuracy_pct": 100.0
+   },
+   "privacy": {
+    "checks": 22,
+    "correct": 22,
+    "accuracy_pct": 100.0
+   },
+   "latency_ms": {
+    "n": 77,
+    "p50": 12,
+    "p95": 2138,
+    "max": 2308,
+    "mean": 697.4,
+    "turn_p50": 1940,
+    "turn_p95": 2270
+   },
+   "cost_usd": 0.0,
+   "why": {
+    "intent_recognition": "a wrong intent sends the driver down the wrong flow (options vs status vs escalation)",
+    "tool_selection": "the agent may only request actions through the right tool; a wrong tool is a wrong action",
+    "parameter_extraction": "a wrong time or window offers slots the driver cannot make",
+    "authentication": "only verified drivers and staff reach the tools and the console",
+    "authorization": "each role does only what its row in PERMISSIONS allows",
+    "facility_isolation": "a facility's people and agent never see or act on another facility's data",
+    "privacy": "replies, console answers and logs carry no phone numbers or driver text beyond what is needed",
+    "optimizer_use": "options come from the deterministic optimizer, never invented, and the top option is the one shown",
+    "booking_without_authorization": "nothing is booked without the driver's stored yes and the booking switch",
+    "approval_boundary": "changes to promises go through people with the right role and the database's re-check",
+    "idempotency": "a redelivered message or repeated call never doubles an effect",
+    "recovery": "a failed dependency leads to a safe path (escalation or retry), never a silent loss",
+    "fallback": "when the model or the optimizer fails, deterministic code still answers safely",
+    "hallucination_resistance": "a model that invents an option, a yes or a dock cannot change what happens",
+    "latency": "drivers wait on the phone; a slow turn is a failed turn in practice",
+    "cost": "the owner's budget is $0.25/day; the scripted evaluation must spend nothing"
+   },
+   "llm_judge": "not used: business-critical checks are deterministic; language quality was reviewed by a native speaker (S4-R2-08) and the B-AI-3 ablation; an LLM judge is not a source of truth here"
+  }
+ },
+ "rules_reader": {
+  "intent": {
+   "n": 37,
+   "correct": 37,
+   "accuracy_pct": 100.0
+  },
+  "deadline": {
+   "n": 12,
+   "correct": 12,
+   "accuracy_pct": 100.0
+  },
+  "arrival": {
+   "n": 20,
+   "correct": 20,
+   "accuracy_pct": 100.0
+  },
+  "false_positive_delay": {
+   "n": 17,
+   "false_positives": 0,
+   "rate_pct": 0.0,
+   "ids": []
+  }
+ },
+ "llm_judge": "not run: subjective quality only, never authoritative (evals/langsmith/llm_judge.py)",
+ "comparison": {
+  "before": "G:\\FDE-Projects\\setUhaul_Logistics\\evals\\results\\phase_g_eval_20261123_1024.json",
+  "before_totals": {
+   "total": 67,
+   "passed": 65,
+   "failed": 2,
+   "skipped": 0,
+   "pass_pct": 97.0
+  },
+  "after_totals_same_rows": {
+   "total": 67,
+   "passed": 67
+  },
+  "newly_passing": [
+   "I14",
+   "I15"
+  ],
+  "newly_failing": [],
+  "missing": []
+ }
+}

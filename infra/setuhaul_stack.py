@@ -22,7 +22,7 @@ import re
 import json
 from pathlib import Path
 
-from aws_cdk import (CfnOutput, CustomResource, Duration, RemovalPolicy, Stack, Tags, aws_apigateway as apigw,
+from aws_cdk import (CfnOutput, CustomResource, Duration, RemovalPolicy, SecretValue, Stack, Tags, aws_apigateway as apigw,
                      aws_cloudwatch as cw, aws_cloudwatch_actions as cw_actions, aws_cognito as cognito, aws_ec2 as ec2,
                      aws_events as events, aws_events_targets as targets, aws_iam as iam, aws_kms as kms,
                      aws_lambda as lambda_, aws_lambda_event_sources as sources, aws_logs as logs, aws_rds as rds,
@@ -68,8 +68,14 @@ WORKLOAD_ROLES = {
 class SetuHaulPilotStack(Stack):
     def __init__(self, scope: Construct, cid: str, *, lambda_asset: str, environment_name: str = "pilot",
                  whatsapp_phone_number_id: str = "", alarm_email: str = "", llm_daily_budget_usd: str = "0.25",
-                 approved_templates: str = "[]", booking_approval: str = "", **kw) -> None:
+                 approved_templates: str = "[]", booking_approval: str = "", langsmith_tracing: str = "",
+                 langsmith_ui_url: str = "", **kw) -> None:
         super().__init__(scope, cid, **kw)
+        # G.1: LangSmith Cloud tracing is opt-in (context langsmith_tracing=on). Off (the default): no LangSmith secret,
+        # no permission, no environment variable; the template is exactly what it was before G.1.
+        self.langsmith = (langsmith_tracing or "").strip().lower() in ("on", "true", "1")
+        if langsmith_ui_url and not langsmith_ui_url.startswith(("https://smith.langchain.com/", "https://eu.smith.langchain.com/")):
+            raise ValueError("langsmith_ui_url must be a https://[eu.]smith.langchain.com/ project page")
         # Option D switch. Off unless the owner's written approval reference is passed as context (booking_approval);
         # on, the workload functions still refuse to start until all six Step 6 gates have current evidence for this
         # deployment (setuhaul/api/inbound.py check_booking_preconditions). Setup and Cognito functions never book.
@@ -199,14 +205,31 @@ class SetuHaulPilotStack(Stack):
         # recovery sweep, the sender and the approval tasks keep running even if the booking gates lapse.
         booking = ({"SETUHAUL_BOOKING_ENABLED": "true", "SETUHAUL_DEPLOYMENT_MANIFEST_SOURCE": "database"}
                    if self.booking_enabled else {})
+        # G.1: the LangSmith key's secret is created with an explicit EMPTY placeholder ({"api_key": ""}), not a
+        # generated password: an unset key then reads as EMPTY_SECRET (tracing off, logged), never as a key-shaped
+        # string that the provider refuses (the OpenRouter lesson, docs/phase-g1/OPENROUTER_PILOT_DIAGNOSIS.md).
+        langsmith_secret, ls_agent, ls_api = None, {}, {}
+        if self.langsmith:
+            langsmith_secret = sm.Secret(self, "LangSmithKey", secret_name=f"setuhaul/{environment_name}/langsmith",
+                                         encryption_key=key, description="LangSmith API key (owner sets the value)",
+                                         secret_string_value=SecretValue.unsafe_plain_text('{"api_key": ""}'))
+            ls_agent = {"SETUHAUL_LANGSMITH_TRACING": "on", "SETUHAUL_LANGSMITH_SECRET_ID": langsmith_secret.secret_arn,
+                        "SETUHAUL_LANGSMITH_PROJECT": f"setuhaul-synthetic-{environment_name}",
+                        "SETUHAUL_TRACE_CONTENT": "off", "SETUHAUL_LANGSMITH_SAMPLE_RATE": "1.0",
+                        "SETUHAUL_TRACE_FLUSH_S": "0.5"}
+            ls_api = {"SETUHAUL_LANGSMITH_TRACING": "on"}           # links only: the api never reads the key
+            if langsmith_ui_url:
+                ls_agent["SETUHAUL_LANGSMITH_UI_URL"] = ls_api["SETUHAUL_LANGSMITH_UI_URL"] = langsmith_ui_url
         api_fn = fn("api", "api_handler", "api", timeout_s=29, extra={**booking, "SETUHAUL_TOOLS_ROUTE": "off",
                     "SETUHAUL_DB_RESUME_WAIT_S": "20",       # API Gateway ends a request at 29 s
                     "COGNITO_DOMAIN": cognito_domain,         # the console page's sign-in (public values only)
-                    "COGNITO_CONSOLE_CLIENT_ID": client.user_pool_client_id})
+                    "COGNITO_CONSOLE_CLIENT_ID": client.user_pool_client_id, **ls_api})
         agent_fn = fn("agent", "agent_handler", "agent", timeout_s=LEASE_S + 60, memory=1024, extra={**booking,
             "SETUHAUL_MODEL_PROVIDER": "openrouter", "SETUHAUL_OPENROUTER_SECRET_ID": openrouter.secret_arn,
             "SETUHAUL_OR_EXTRACT_MODEL": "anthropic/claude-haiku-4.5", "SETUHAUL_OR_PROVIDER": "amazon-bedrock",
-            "SETUHAUL_LLM_DAILY_BUDGET_USD": llm_daily_budget_usd})
+            "SETUHAUL_LLM_DAILY_BUDGET_USD": llm_daily_budget_usd, **ls_agent})
+        if langsmith_secret is not None:
+            langsmith_secret.grant_read(agent_fn)                   # the agent only (it exports the traces)
         recovery_fn = fn("recovery", "recovery_handler", "recovery", timeout_s=60)
         outbound_fn = fn("outbound", "outbound_handler", "outbound", timeout_s=60,
                          extra={# synthetic pilot: the internal test sink; WhatsApp stays off (no Meta call)
