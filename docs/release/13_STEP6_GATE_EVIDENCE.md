@@ -6,9 +6,9 @@
 > |---|---|
 > | BOOKING_WORKFLOW | **PASS** |
 > | AURORA | **PASS WITH PILOT EXCEPTION (T33-P)** |
-> | AWS_QUEUE | PARTIAL: the DLQ-depth alarm is not demonstrated |
-> | RECOVERY_WORKER | PARTIAL: lease and fencing not forced live |
-> | WORKLOAD_IDENTITY | PARTIAL: check 5 (needs a second staff user); no drift detection on the Free plan |
+> | AWS_QUEUE | **PASS** (DLQ-depth alarm proven live) |
+> | RECOVERY_WORKER | **PASS** (forced lease loss recovered live) |
+> | WORKLOAD_IDENTITY | PARTIAL: check 5's live sign-in by the owner; no drift detection (AWS Config) on the Free plan |
 > | OUTBOUND_DELIVERY | BLOCKED: Meta test number and templates |
 >
 > Booking (Option D) stays **OFF**. No `deployment_evidence` row has been written: the pipeline step that writes them is not built.
@@ -30,9 +30,9 @@
 
 | Gate | Status | Shown live | Not shown / blocker |
 |---|---|---|---|
-| **AWS_QUEUE** | PARTIAL | <ul><li>FIFO queue, with content-based deduplication off (the app sets the deduplication id).</li><li>A FIFO DLQ: maxReceiveCount 5, retention 14 days against 4 days for the queue.</li><li>Visibility 300 s, at least twice the 120 s lease.</li><li>Least privilege: only the API and recovery functions send, only the agent receives, no `sqs:*`.</li><li>**The redrive procedure was tested live (23 Nov):** a tracked message was dead-lettered, redriven (1 moved), dead-lettered again and removed alone; business records unchanged (`evidence/drill_dlq_summary.json`).</li><li>The oldest-message alarm fired.</li></ul> | **DLQ-depth monitoring is not demonstrated:** the DLQ-not-empty alarm never saw the drill message. It needs a drill that keeps the message in the DLQ for 10 minutes or more (owner approval). |
-| **RECOVERY_WORKER** | PARTIAL | <ul><li>`rate(1 minute)`.</li><li>201 real scheduled runs in 3 days.</li><li>**DLQ handling procedure drilled live** (inspect, redrive, remove one message; see AWS_QUEUE).</li></ul> | <ul><li>Schedules are DISABLED while the pilot sleeps.</li><li>Lease renewal and generation fencing were not forced live (that needs a deliberately stuck message on the real queue). They are proven locally.</li></ul> |
-| **WORKLOAD_IDENTITY** | PARTIAL | Acceptance checks 1 to 4 (`DEPLOYMENT_GATES.md` §"Workload identity acceptance"):<ul><li>Each of the 6 logins belongs to exactly one application role.</li><li>Only the console login can use `setuhaul_console`.</li><li>No login can use `setuhaul_rpc`, the database owner, superuser or BYPASSRLS.</li><li>In a real Data API transaction, a second `begin_staff_context` was refused with *"already set in this transaction"*. That shows the staff identity survives from one statement to the next.</li><li>Each function's IAM role can read exactly the database secrets of its configured roles, and no others.</li></ul> | <ul><li>Check 5 (an ordinary operations user cannot create an ops_lead context) needs a second Cognito user, which the owner creates. It is proven locally.</li><li>Live drift detection (AWS Config) is not deployed on the Free plan. The IAM policy hash is recorded instead.</li></ul> |
+| **AWS_QUEUE** | **PASS** (23 Nov) | <ul><li>FIFO queue, content-based deduplication off (the app sets the id).</li><li>FIFO DLQ: maxReceiveCount 5, retention 14 days against 4 for the queue.</li><li>Visibility 300 s, at least twice the 120 s lease.</li><li>Least privilege: only the API and recovery functions send, only the agent receives, no `sqs:*`.</li><li>Redrive procedure tested live (`evidence/drill_dlq_summary.json`).</li><li>**DLQ-depth alarm fired** on a held DLQ message and returned to OK (`evidence/drill_dlq_alarm.json`).</li><li>The oldest-message alarm fired.</li></ul> | none |
+| **RECOVERY_WORKER** | **PASS** (23 Nov) | <ul><li>`rate(1 minute)`; 201 real scheduled runs in 3 days.</li><li>DLQ handling procedure drilled live.</li><li>**Forced lease loss live:** the expired worker's renew and finish were refused (`TURN_FENCED`); the deployed recovery worker re-drove the turn; one reply (`evidence/drill_lease_loss.json`).</li></ul> | Operating note, not a missing proof: the schedules are DISABLED while the pilot sleeps (cost control); they are re-enabled on wake. |
+| **WORKLOAD_IDENTITY** | PARTIAL | Acceptance checks 1 to 4 (`DEPLOYMENT_GATES.md` §"Workload identity acceptance"):<ul><li>Each of the 6 logins belongs to exactly one application role.</li><li>Only the console login can use `setuhaul_console`.</li><li>No login can use `setuhaul_rpc`, the database owner, superuser or BYPASSRLS.</li><li>In a real Data API transaction, a second `begin_staff_context` was refused with *"already set in this transaction"*. That shows the staff identity survives from one statement to the next.</li><li>Each function's IAM role can read exactly the database secrets of its configured roles, and no others.</li></ul> | <ul><li>Check 5: the second Cognito user exists and the deployed pre-token trigger was shown not to add or change role groups; the **live sign-in as `pilot-operations` by the owner** is still to be recorded.</li><li>Live drift detection (AWS Config) is not deployed on the Free plan; the IAM policy hash is recorded instead. Adding it is a cost decision.</li></ul> |
 | **AURORA** | **PASS WITH PILOT EXCEPTION (T33-P)**: not an unconditional pass | <ul><li>`aurora-postgresql 17.9`.</li><li>24 of 24 migrations recorded, every hash equal to the repository.</li><li>Both evidence triggers enabled.</li><li>The Data API works behind `Db.tx()`.</li><li>**Verified on 17.9 (23 Nov):**<ul><li>Migration 0025 applied on the live cluster as the non-superuser owner, then rolled back.</li><li>A real move succeeded.</li><li>The refusals held: re-applying a move, an unknown proposal, and the agent role.</li><li>RLS isolated by facility.</li><li>Five forbidden direct writes were refused with error 42501 (`evidence/pg17_migration_0025.json`, 11 of 11 checks).</li><li>The whole suite passed in CI on `postgres:17.9`: run 45091795877, 1,136 passed and 426 in Data API mode (`evidence/ci_pg17.json`).</li></ul></li></ul> | Production still needs 18.3+ (T33). The exception covers only the synthetic Free-plan pilot, and it is never written as a PASS evidence row. |
 | **BOOKING_WORKFLOW** | **PASS** (23 Nov) | Live on the deployed state machine (drill 2, 10 of 10):<ul><li>Each request starts one execution, through the relay.</li><li>No automatic approval.</li><li>A planner approves (CONFIRMED) or rejects (claim released).</li><li>A request with no decision expires by the state machine's timeout (`ExpireApproval`, `system:expiry`).</li><li>A duplicate decision is idempotent; a second decision is refused.</li><li>Refusals hold: the agent role, another facility, no staff identity.</li><li>One audit record and one test-sink notice per outcome.</li><li>The `live` alias routes to the published version, whose definition equals the repository's.</li><li>The 3 executions that failed on the defect were redriven safely.</li><li>The failed-execution alarm fired on the real failures.</li></ul> | Two defects were found and fixed on the way, both deployed: the relay's IAM grant, and the task functions requiring the state machine ARN. The requests were made through the production database roles because booking is OFF. |
 | **OUTBOUND_DELIVERY** | BLOCKED | The internal test sink only. Delivery and refusal were shown in the Option A run (`evidence/option_a.json`, A3 and A4). | A **Meta WhatsApp Cloud API test number**, **Meta-approved templates** (en, hi; Hinglish is its own gate) and a real, permitted test delivery. Real WhatsApp stays disabled until the owner provides these. |
@@ -63,7 +63,7 @@
 
 ## What it would take to turn booking on (Option D), in order
 
-1. **Owner decisions:** T33-P (or an 18.x cluster); approval of the redrive drill; a second Cognito user in the operations group for identity check 5.
+1. **Owner decisions:** T33-P is accepted for the pilot only, so whether it may count for Option D is a separate decision. Also: the live check-5 sign-in as `pilot-operations`, and whether to accept the Free-plan lack of drift detection as a pilot exception or pay for AWS Config. *(The redrive drill, the DLQ alarm and lease-loss drills, and the BOOKING_WORKFLOW evidence are done: 23 Nov.)*
 2. **Outside dependency:** a Meta test number and approved templates, for OUTBOUND_DELIVERY.
 3. **BOOKING_WORKFLOW evidence while booking is still OFF.** Run the deployed state machine directly with synthetic approval records: request, approve, reject and expiry. This starts executions on the live pilot, so it needs the owner's approval.
 
@@ -195,3 +195,23 @@ Deploying the fix and redriving need the owner's approval.
 **A first attempt at drill 2** reused run 1's slot (D3, 26 Nov 09:00). That slot still holds run 1's CONFIRMED booking, so the database refused the hold with `ex_one_truck_per_dock`: the no-double-booking constraint working live (`evidence/drill_approval_run2_attempt1.log`). The rerun used free slots.
 
 **Note on how the requests were made:** they were created through the production database roles (agent, ingest, feasibility), because the booking switch is OFF and the agent API refuses booking tools. The workflow, relay, task functions, decisions and expiry are the deployed ones.
+
+## Step 6 finalisation drills (23 Nov 2026, owner's Finalization Authorization)
+
+**DLQ-depth alarm** (`evidence/drill_dlq_alarm.json`, 6 of 6):
+- Clean start: both queues empty, `DlqNotEmpty` OK.
+- One tagged, non-JSON synthetic message (`STEP6-DLQ-ALARM-…`) failed 5 times at the JSON parse and was dead-lettered.
+- It was held in the DLQ until `DlqNotEmpty` went to **ALARM** (04:36 UTC). Then only that message was removed, by receipt handle after matching its tag (no purge).
+- The alarm returned to **OK**, with both queues empty. Alarm history: 10:05 UTC OK to ALARM; 10:13 UTC ALARM to OK.
+
+**Forced lease loss** (`evidence/drill_lease_loss.json`, 11 of 11):
+- A synthetic driver message was stored through the ingest role.
+- A first worker claimed a 20-second lease and was then "crashed".
+- After the lease expired, its renew and finish were refused, and its write was fenced (`TURN_FENCED`).
+- The **deployed recovery worker** (`setuhaul-pilot-recovery`) re-drove the turn. The agent took it over and sent **exactly one** reply (to the test sink).
+
+**Second staff identity (WORKLOAD_IDENTITY check 5)** (`evidence/identity_check5.json`):
+- Cognito user `pilot-operations` was created in the `operations` and `facility-FAC-JAI-01` groups. The temporary password goes by Cognito e-mail to the owner; the operator never sees it.
+- The deployed pre-token trigger, invoked with hostile client metadata asking for `ops_lead`, added only `facility_scope` and **did not add or change any role group**.
+- A read-only `GET /console/me` shows the roles and permissions the server derived from the token. The console shows them, and the Docks tab has a read-only schedule-proposal view that an operations user is refused (`tests/test_console_me.py`).
+- **The end-to-end sign-in as `pilot-operations` is the one remaining step.** It needs the owner, because Claude never handles passwords or MFA.

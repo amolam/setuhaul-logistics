@@ -5,14 +5,14 @@
 >
 > | Gate | Status |
 > |---|---|
-> | AWS_QUEUE | **PARTIAL.** The redrive was drilled live on 23 Nov. Only the DLQ-depth alarm is not demonstrated. |
-> | RECOVERY_WORKER | **PARTIAL.** The DLQ procedure was drilled on 23 Nov. Lease and fencing were not forced live. |
-> | WORKLOAD_IDENTITY | **PARTIAL.** Acceptance check 5 needs a second Cognito user. |
+> | AWS_QUEUE | **PASS** (23 Nov): redrive drilled live; the DLQ-depth alarm fired on a held message and returned to OK. |
+> | RECOVERY_WORKER | **PASS** (23 Nov): DLQ procedure drilled; forced lease loss recovered live by the deployed worker (fenced, one reply). |
+> | WORKLOAD_IDENTITY | **PARTIAL.** Checks 1 to 4 live; check 5: second user created and trigger proven, the owner's live sign-in pending; no drift detection on the Free plan. |
 > | AURORA | **PASS WITH PILOT EXCEPTION (T33-P)**, 23 Nov: 17.9 verified live and in CI. Production still needs 18.3+ (T33). |
 > | BOOKING_WORKFLOW | **PASS** (23 Nov): drill 2 live, 10 of 10 (request, approve, reject, duplicate, refusals, audit, timeout expiry); the failed runs were redriven safely; the alarm was proven. |
 > | OUTBOUND_DELIVERY | **BLOCKED.** It needs a Meta test number and approved templates. |
 >
-> **BOOKING_WORKFLOW passed on 23 Nov; no other gate has passed unconditionally. No `deployment_evidence` row has been written.** The booking switch stays OFF.
+> **BOOKING_WORKFLOW, AWS_QUEUE and RECOVERY_WORKER passed on 23 Nov; AURORA passes only with the pilot exception. No `deployment_evidence` row has been written.** The booking switch stays OFF.
 >
 > The text below is the original plan of 21 Nov, kept as written.
 

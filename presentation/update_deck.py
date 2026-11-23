@@ -184,9 +184,9 @@ def status_slide(prs):
          "Booking requests, approvals, schedule moves: built and tested. Turns on only with all six gates current "
          "and the owner's written approval."], size=11, name="Option D text")
     rows = [["Gate (measured live, 22–23 Nov)", "Status", "What is missing"],
-            ["Queue", "PARTIAL", "redrive drilled; DLQ alarm not shown"],
-            ["Recovery worker", "PARTIAL", "forced lease-loss test"],
-            ["Workload identity", "PARTIAL", "check 5: second staff user"],
+            ["Queue", "PASS", "DLQ alarm + redrive drilled live"],
+            ["Recovery worker", "PASS", "forced lease loss recovered live"],
+            ["Workload identity", "PARTIAL", "check 5 sign-in; Free-plan drift detection"],
             ["Database", "PASS (pilot exc.)", "T33-P: 17.9 pilot only; prod needs 18.3+"],
             ["Approval workflow", "PASS", "drilled live 23 Nov; 2 fixes deployed"],
             ["Outbound delivery", "BLOCKED", "Meta test number + templates"]]
