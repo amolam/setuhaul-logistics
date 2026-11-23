@@ -69,7 +69,8 @@ def workload_functions(t):
 
 def test_option_d_switch_needs_the_owners_approval_reference_and_never_reaches_setup_functions(tmp_path):
     """Option D: absent context = OFF (the pilot, and every CI synth); a malformed reference is refused; the approval
-    reference turns it on only for the workload functions, which still need all six gates at start-up."""
+    reference turns it on only for the api and the agent (the functions that make booking commitments), which then
+    read the recorded manifest and still need all six gates at start-up; every other function keeps it off."""
     def synth(approval):
         app = cdk.App(outdir=str(tmp_path / f"out{len(approval)}"))
         s = SetuHaulPilotStack(app, "SetuHaulPilot", lambda_asset=str(_zip(tmp_path / f"l{len(approval)}.zip")),
@@ -80,14 +81,37 @@ def test_option_d_switch_needs_the_owners_approval_reference_and_never_reaches_s
             synth(bad)
     on = synth("OWNER-APPROVAL-20261123-test1")
     for name, p in functions(on).items():
-        flag = p["Environment"]["Variables"]["SETUHAUL_BOOKING_ENABLED"]
-        assert flag == ("false" if name.removeprefix("setuhaul-pilot-") in PLATFORM_FUNCTIONS else "true"), name
+        env = p["Environment"]["Variables"]
+        booking = name.removeprefix("setuhaul-pilot-") in ("api", "agent")
+        assert env["SETUHAUL_BOOKING_ENABLED"] == ("true" if booking else "false"), name
+        assert env.get("SETUHAUL_DEPLOYMENT_MANIFEST_SOURCE") == ("database" if booking else None), name
+        assert env["SETUHAUL_DATA_CLASS"] == "synthetic", name
+    stmts = [s for pol in on.find_resources("AWS::IAM::Policy").values()
+             for s in pol["Properties"]["PolicyDocument"]["Statement"]]
+    reads = [s for s in stmts if s["Action"] == "lambda:GetFunctionConfiguration"]
+    assert len(reads) == 2 and not any("*" in json.dumps(s["Resource"]) for s in reads)
     assert on.find_outputs("BookingMode")["BookingMode"]["Value"] == "ON (OWNER-APPROVAL-20261123-test1)"
 
 
 def test_ci_never_passes_the_booking_approval():
     ci = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     assert "booking_approval" not in ci and "BOOKING_ENABLED=true" not in ci
+
+
+def test_only_the_activation_workflow_turns_booking_on_and_only_for_the_pilot_release_branch():
+    """Option D (23 Nov 2026): a separate, manually started workflow; the release branch only, the typed confirmation
+    and the owner's written reference; the deploy-evidence login only for the gate rows; ci.yml stays OFF."""
+    wf = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "activate-booking.yml").read_text(encoding="utf-8")
+    trig = wf.split("\non:", 1)[1].split("\npermissions:", 1)[0]
+    assert "workflow_dispatch" in trig and "push" not in trig and "pull_request" not in trig and "schedule" not in trig
+    assert wf.count("github.ref == 'refs/heads/release/fde-sydney-pilot'") == 2
+    assert '[ "$DEPLOY_REF" = "refs/heads/release/fde-sydney-pilot" ]' in wf
+    assert '[ "$CONFIRM" = "activate-synthetic-pilot-booking" ]' in wf
+    assert "^OWNER-APPROVAL-20[0-9]{6}-[A-Za-z0-9-]{3,40}$" in wf
+    assert "{deploy_evidence}" in wf and "--environment pilot-ap-southeast-2" in wf
+    assert 'on == {"setuhaul-pilot-api", "setuhaul-pilot-agent"}' in wf
+    assert 'SETUHAUL_WHATSAPP_ENABLED"] == "false"' in wf and "test_sink" in wf
+    assert "prod" not in wf.replace("production", "")
 
 
 def test_the_booking_switch_is_off_and_the_data_is_synthetic_on_every_function(t):

@@ -23,7 +23,8 @@ from starlette.concurrency import run_in_threadpool
 from pydantic import AwareDatetime, BaseModel, Field, model_validator
 
 from .db import Db
-from .inbound import InboundRelay, LocalQueue, SqsFifoQueue, check_booking_preconditions, load_manifest
+from .inbound import (InboundRelay, LocalQueue, SqsFifoQueue, booking_killed, check_booking_preconditions,
+                      load_manifest, manifest_from_database, own_code_sha256)
 from .security import AuthError, CognitoVerifier, Principal, SessionTokens, meta_signature_ok
 from .service import BookingService, ServiceError
 
@@ -43,6 +44,8 @@ class Settings:
     environment: str | None = None              # e.g. "prod-ap-south-1"; deployment evidence is bound to it
     deployment_id: str | None = None            # optional cross-check; the real id is derived from the manifest
     deployment_manifest: str | None = None      # R2.1: path to the immutable deployment manifest shipped with the build
+    # 0026: "database" = the manifest the pipeline recorded, checked against this function's own code hash (AWS)
+    manifest_source: str = "file"
     # Tests and the replay only: lets the booking path run on LocalQueue without deployment gates. from_env never
     # sets it, so a deployed service with the switch on always goes through check_booking_preconditions (S4-05).
     local_test_harness: bool = False
@@ -69,6 +72,7 @@ class Settings:
                    console_client_id=os.environ.get("COGNITO_CONSOLE_CLIENT_ID") or None,
                    deployment_id=os.environ.get("SETUHAUL_DEPLOYMENT_ID") or None,
                    deployment_manifest=os.environ.get("SETUHAUL_DEPLOYMENT_MANIFEST") or None,
+                   manifest_source=os.environ.get("SETUHAUL_DEPLOYMENT_MANIFEST_SOURCE", "file"),
                    tools_route=(os.environ.get("SETUHAUL_TOOLS_ROUTE", "on").lower() not in ("off", "false", "0")
                                 and os.environ.get("SETUHAUL_ENV") not in ("staging", "pilot")))
 
@@ -84,6 +88,12 @@ class Decision(BaseModel):
     decision: Literal["CONFIRM", "REJECT"]
     idempotency_key: str = Field(min_length=16, max_length=128)
     note: str | None = Field(default=None, max_length=500)
+
+
+class KillSwitch(BaseModel):
+    model_config = {"extra": "forbid"}
+    engaged: bool
+    reason: str = Field(min_length=5, max_length=300)
 
 
 class Pause(BaseModel):
@@ -179,9 +189,12 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
     if settings.booking_enabled and not settings.local_test_harness:
         # S4-05: the switch fails closed. Durable FIFO queue with a dead-letter queue and a visibility timeout that
         # covers the processing lease, plus recorded evidence for every deployment gate, or the service does not start.
-        manifest = load_manifest(settings.deployment_manifest) if settings.deployment_manifest else None
-        check_booking_preconditions(db, inbound, settings.processing_lease_s, settings.environment, manifest,
-                                    settings.deployment_id)
+        if settings.manifest_source == "database" and settings.environment:
+            manifest = manifest_from_database(db, settings.environment, own_code_sha256())
+        else:
+            manifest = load_manifest(settings.deployment_manifest) if settings.deployment_manifest else None
+        app.state.gate_exceptions = check_booking_preconditions(db, inbound, settings.processing_lease_s,
+                                                                settings.environment, manifest, settings.deployment_id)
     relay = InboundRelay(svc, inbound, sessions)
     app.state.service, app.state.sessions, app.state.inbound, app.state.relay = svc, sessions, inbound, relay
 
@@ -199,9 +212,15 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
             database = "ok"
         except psycopg.Error:
             database = "unreachable"
-        return JSONResponse({"status": "ok" if database == "ok" else "degraded", "database": database,
-                             "booking_enabled": settings.booking_enabled, "environment": settings.environment,
-                             "version": app.version}, status_code=200 if database == "ok" else 503)
+        body = {"status": "ok" if database == "ok" else "degraded", "database": database,
+                "booking_enabled": settings.booking_enabled, "environment": settings.environment, "version": app.version}
+        if settings.booking_enabled and database == "ok":
+            try:                                                    # 0026: what the database will refuse now
+                body["booking_kill_switch"] = "ENGAGED" if booking_killed(db) else "disengaged"
+            except Exception:                                       # noqa: BLE001 — reported, never fatal here
+                body["booking_kill_switch"] = "unknown"
+            body["gate_exceptions"] = sorted(getattr(app.state, "gate_exceptions", None) or {})
+        return JSONResponse(body, status_code=200 if database == "ok" else 503)
 
     def staff(authorization: str | None = Header(default=None)) -> Principal:
         if not authorization or not authorization.startswith("Bearer "):
@@ -304,6 +323,15 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
     @app.post("/console/holds/{hold_id}/clear")
     def clear_hold(hold_id: int, h: HoldClear, p: Principal = Depends(staff)):
         return {"cleared": svc.clear_hold(p, hold_id, h.note)}
+
+    @app.get("/console/booking-kill-switch")
+    def kill_switch_state(p: Principal = Depends(staff)):
+        return svc.kill_switch(p)
+
+    @app.post("/console/booking-kill-switch")
+    def kill_switch_set(body: KillSwitch, p: Principal = Depends(staff)):
+        """0026: an ops_lead engages (or disengages) the database's booking kill switch. Audited; no deployment."""
+        return svc.set_kill_switch(p, body.engaged, body.reason)
 
     @app.post("/console/facilities/{facility_id}/pause")
     def pause(facility_id: str, body: Pause, p: Principal = Depends(staff)):

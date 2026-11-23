@@ -12,9 +12,9 @@ def test_an_operations_user_has_operations_only_and_no_lead_or_planner_action(cl
     body = me.json()
     assert body["roles"] == ["operations"] and body["facilities"] == [JAI]
     allowed = {a for a, ok in body["permissions"].items() if ok}
-    assert allowed == {"decide", "handback", "list_requests", "takeover", "withdraw"}
+    assert allowed == {"decide", "handback", "list_requests", "takeover", "view_kill_switch", "withdraw"}
     assert not any(body["permissions"][a] for a in ("pause", "booking_hold", "move_appointment", "schedule_proposal",
-                                                     "block_dock", "policy_report"))
+                                                     "block_dock", "policy_report", "booking_kill_switch"))
     r = client.get(f"/console/facilities/{JAI}/schedule-proposal", headers=H(staff_token(keys, groups=("operations",))))
     assert r.status_code == 403 and "FORBIDDEN" in r.text
 

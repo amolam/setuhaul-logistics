@@ -164,7 +164,7 @@ class SetuHaulPilotStack(Stack):
         self.facility_scope_trigger(pool, environment_name, code)
         base_env = {
             "SETUHAUL_ENV": environment_name, "SETUHAUL_ENVIRONMENT": env_label, "SETUHAUL_DATA_CLASS": "synthetic",
-            "SETUHAUL_BOOKING_ENABLED": "true" if self.booking_enabled else "false", "SETUHAUL_DSN": "rds-data", "SETUHAUL_DB_CLUSTER_ARN": cluster_arn,
+            "SETUHAUL_BOOKING_ENABLED": "false", "SETUHAUL_DSN": "rds-data", "SETUHAUL_DB_CLUSTER_ARN": cluster_arn,
             "SETUHAUL_DB_NAME": "setuhaul", "SETUHAUL_QUEUE_URL": queue.queue_url,
             "SETUHAUL_APP_SECRET_ID": app_secret.secret_arn, "SETUHAUL_AWS_REGION": REGION,
             "COGNITO_ISSUER": f"https://cognito-idp.{REGION}.amazonaws.com/{pool.user_pool_id}",
@@ -193,11 +193,17 @@ class SetuHaulPilotStack(Stack):
             self.functions[name] = f
             return f
 
-        api_fn = fn("api", "api_handler", "api", timeout_s=29, extra={"SETUHAUL_TOOLS_ROUTE": "off",
+        # Option D (0026): only the two functions that make booking commitments carry the switch: the api (console
+        # moves and decisions) and the agent (booking tools). With it on they read the manifest the pipeline recorded
+        # in the database and check it against their own code hash; every other function keeps it off, so the
+        # recovery sweep, the sender and the approval tasks keep running even if the booking gates lapse.
+        booking = ({"SETUHAUL_BOOKING_ENABLED": "true", "SETUHAUL_DEPLOYMENT_MANIFEST_SOURCE": "database"}
+                   if self.booking_enabled else {})
+        api_fn = fn("api", "api_handler", "api", timeout_s=29, extra={**booking, "SETUHAUL_TOOLS_ROUTE": "off",
                     "SETUHAUL_DB_RESUME_WAIT_S": "20",       # API Gateway ends a request at 29 s
                     "COGNITO_DOMAIN": cognito_domain,         # the console page's sign-in (public values only)
                     "COGNITO_CONSOLE_CLIENT_ID": client.user_pool_client_id})
-        agent_fn = fn("agent", "agent_handler", "agent", timeout_s=LEASE_S + 60, memory=1024, extra={
+        agent_fn = fn("agent", "agent_handler", "agent", timeout_s=LEASE_S + 60, memory=1024, extra={**booking,
             "SETUHAUL_MODEL_PROVIDER": "openrouter", "SETUHAUL_OPENROUTER_SECRET_ID": openrouter.secret_arn,
             "SETUHAUL_OR_EXTRACT_MODEL": "anthropic/claude-haiku-4.5", "SETUHAUL_OR_PROVIDER": "amazon-bedrock",
             "SETUHAUL_LLM_DAILY_BUDGET_USD": llm_daily_budget_usd})
@@ -222,6 +228,16 @@ class SetuHaulPilotStack(Stack):
                                                          max_concurrency=5))
         agent_fn.add_to_role_policy(iam.PolicyStatement(actions=["sqs:ChangeMessageVisibility"],
                                                         resources=[queue.queue_arn]))
+        if self.booking_enabled:
+            # the start-up check (check_booking_preconditions): read-only. Each reads its own code hash (to match the
+            # recorded manifest) and the dead-letter queue's settings (to match the AWS_QUEUE fingerprint).
+            for name, f in (("api", api_fn), ("agent", agent_fn)):
+                # by its fixed name: a reference to the function from its own policy would be a cycle
+                own = self.format_arn(service="lambda", resource="function", resource_name=f"setuhaul-{environment_name}-{name}",
+                                      arn_format=cdk_arn_format())
+                f.add_to_role_policy(iam.PolicyStatement(actions=["lambda:GetFunctionConfiguration"], resources=[own]))
+                f.add_to_role_policy(iam.PolicyStatement(actions=["sqs:GetQueueAttributes", "sqs:GetQueueUrl"],
+                                                         resources=[dlq.queue_arn, queue.queue_arn]))
 
         # ------------------------------------------------------------ approval workflow (BOOKING_WORKFLOW gate)
         machine = sfn.StateMachine(

@@ -58,6 +58,12 @@ SCHEDULE_PERMISSIONS: dict[str, frozenset] = {
     # the database checks the same rule itself
     "move_appointment":  frozenset({"ops_lead"}),
 }
+# Option D (migration 0026): the booking kill switch. The database refuses every new booking commitment while it is
+# engaged, whatever the deployment says; an ops_lead operates it from the console, the owner with ops/kill_switch.py.
+KILL_SWITCH_PERMISSIONS: dict[str, frozenset] = {
+    "booking_kill_switch": frozenset({"ops_lead"}),
+    "view_kill_switch":    frozenset({"planner", "ops_lead", "operations"}),
+}
 
 
 def env(status: str = "OK", data: dict | None = None, missing: list | None = None, requires_human: dict | None = None,
@@ -679,7 +685,7 @@ class BookingService:
     # ---------------------------------------------------------------- console (people decide)
     @staticmethod
     def require(p: Principal, action: str):
-        allowed = PERMISSIONS.get(action) or SCHEDULE_PERMISSIONS[action]
+        allowed = PERMISSIONS.get(action) or SCHEDULE_PERMISSIONS.get(action) or KILL_SWITCH_PERMISSIONS[action]
         if not (p.roles & allowed):
             raise ServiceError(403, "FORBIDDEN", f"{action} needs one of: {', '.join(sorted(allowed))}")
 
@@ -703,6 +709,8 @@ class BookingService:
                 raise ServiceError(403, code, e.diag.message_primary) from e
             if code in ("APPOINTMENT_UNKNOWN", "HOLD_UNKNOWN"):
                 raise ServiceError(404, code) from e
+            if code == "BOOKING_KILLED":
+                raise ServiceError(409, code, "the booking kill switch is engaged") from e
             raise ServiceError(409 if code in conflict else 400, code or "ERROR") from e
 
     def list_requests(self, p: Principal, facility: str | None) -> list[dict]:
@@ -752,7 +760,7 @@ class BookingService:
         """Read only (Step 6 WORKLOAD_IDENTITY check 5): who the server says this person is, derived ONLY from the
         verified Cognito token (groups -> roles, facility_scope claim), and which console actions that allows. Nothing
         the browser sends can change it; the database receives the same roles in begin_staff_context."""
-        allowed = {**PERMISSIONS, **SCHEDULE_PERMISSIONS}
+        allowed = {**PERMISSIONS, **SCHEDULE_PERMISSIONS, **KILL_SWITCH_PERMISSIONS}
         return {"principal": f"staff:{p.sub}", "roles": sorted(p.roles), "facilities": list(p.facilities),
                 "permissions": {a: bool(p.roles & r) for a, r in sorted(allowed.items())}}
 
@@ -875,6 +883,17 @@ class BookingService:
     def clear_hold(self, p: Principal, hold_id: int, note: str) -> bool:
         self.require(p, "booking_hold")
         return self._console_call(p, "SELECT clear_booking_hold(%s,%s)", (hold_id, note))
+
+    def kill_switch(self, p: Principal) -> dict:
+        self.require(p, "view_kill_switch")
+        with self.db.tx("console", p.facilities, readonly=True) as c:
+            engaged = c.execute("SELECT booking_killed()").fetchone()[0]
+        return {"engaged": bool(engaged), "booking_enabled": self.booking_enabled}
+
+    def set_kill_switch(self, p: Principal, engaged: bool, reason: str) -> dict:
+        self.require(p, "booking_kill_switch")
+        v = self._console_call(p, "SELECT set_booking_kill_switch(%s,%s,%s)", (engaged, f"staff:{p.sub}", reason))
+        return {"engaged": bool(v)}
 
     def pause(self, p: Principal, facility: str, paused: bool, reason: str) -> bool:
         self.require(p, "pause")

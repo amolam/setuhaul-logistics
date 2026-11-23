@@ -162,9 +162,26 @@ def fingerprint(obj) -> str:
     return hashlib.sha256(json.dumps(obj, sort_keys=True, default=str).encode()).hexdigest()
 
 
+# Owner-approved pilot exceptions (0026; OWNER-APPROVAL-20261123-OPTION-D). The database lists the same three pairs.
+EXCEPTION_CODES = {"AURORA": "T33-P", "WORKLOAD_IDENTITY": "NO-LIVE-DRIFT-DETECTION",
+                   "OUTBOUND_DELIVERY": "META-DEFERRED-TEST-SINK-ONLY"}
+GATE_READ_ROLES = ("system", "ingest", "agent")        # 0026: each may read the gate tables; none may write them
+
+
+def gate_role(db) -> str:
+    """The database login this workload reads the gate tables with: the api has ingest, the agent has agent."""
+    have = getattr(db, "secret_arns", None)
+    if have is None:                                    # psycopg (local, tests): every role is available
+        return "system"
+    for r in GATE_READ_ROLES:
+        if r in have:
+            return r
+    raise BookingGateError("this workload has no database login that may read the deployment gates")
+
+
 def database_fingerprint(db) -> str:
     """What the AURORA evidence must have verified: this database, its server version and the exact migrations."""
-    with db.tx("system", readonly=True) as c:
+    with db.tx(gate_role(db), readonly=True) as c:
         name, ver = c.execute("SELECT current_database(), current_setting('server_version_num')").fetchone()
         migs = c.execute("SELECT version, sha256 FROM setuhaul_meta.schema_migrations ORDER BY version").fetchall()
     return fingerprint({"database": name, "server_version_num": ver, "migrations": migs})
@@ -204,19 +221,64 @@ def manifest_fingerprints(manifest: dict) -> dict[str, str]:
     return {g: fingerprint({"gate": g, **manifest["gates"][g]}) for g in MANIFEST_GATES}
 
 
+GUARD_TRIGGERS = {("deployment_evidence", "deployment_evidence_append_only"),
+                  ("deployment_evidence", "deployment_evidence_fresh"),
+                  ("deployment_manifests", "deployment_manifests_append_only"),
+                  ("deployment_exceptions", "deployment_exceptions_append_only"),
+                  ("deployment_exceptions", "deployment_exceptions_clock"),
+                  ("dock_occupancy", "aa_booking_kill_switch"),
+                  ("appointments", "aa_booking_kill_switch")}
+
+
 def evidence_triggers_enabled(db) -> bool:
     """R2.1 §3: the append-only and freshness triggers stop ordinary DML only while they are enabled. An owner can
-    disable them; the service refuses to start if either is missing or disabled."""
-    with db.tx("system", readonly=True) as c:
-        n = c.execute("""SELECT count(*) FROM pg_trigger t JOIN pg_class r ON r.oid = t.tgrelid
-                           JOIN pg_namespace s ON s.oid = r.relnamespace
-                          WHERE s.nspname = 'setuhaul' AND r.relname = 'deployment_evidence' AND t.tgenabled IN ('O','A')
-                            AND t.tgname IN ('deployment_evidence_append_only', 'deployment_evidence_fresh')""").fetchone()[0]
-    return n == 2
+    disable them; the service refuses to start if any is missing or disabled. 0026 adds the manifest and exception
+    tables' guards and the kill switch's triggers: a disabled kill-switch trigger would make the switch a dead letter."""
+    with db.tx(gate_role(db), readonly=True) as c:
+        rows = c.execute("""SELECT r.relname::text, t.tgname::text FROM pg_trigger t JOIN pg_class r ON r.oid = t.tgrelid
+                              JOIN pg_namespace s ON s.oid = r.relnamespace
+                             WHERE s.nspname = 'setuhaul' AND t.tgenabled IN ('O','A') AND NOT t.tgisinternal""").fetchall()
+    return GUARD_TRIGGERS <= {(r[0], r[1]) for r in rows}
+
+
+def booking_killed(db) -> bool:
+    """The kill switch (0026). Read for /health; the database itself refuses commitments while it is engaged."""
+    with db.tx(gate_role(db), readonly=True) as c:
+        return bool(c.execute("SELECT engaged FROM booking_kill_switch WHERE id = 1").fetchone()[0])
+
+
+def own_code_sha256(lambda_client=None, function_name: str | None = None) -> str:
+    """The SHA-256 (hex) of this Lambda function's deployed code, as AWS reports it (CodeSha256 is base64)."""
+    import base64
+    import os
+    if lambda_client is None:
+        import boto3
+        lambda_client = boto3.client("lambda")
+    cfg = lambda_client.get_function_configuration(FunctionName=function_name or os.environ["AWS_LAMBDA_FUNCTION_NAME"])
+    return base64.b64decode(cfg["CodeSha256"]).hex()
+
+
+def manifest_from_database(db, environment: str, code_sha256: str) -> dict:
+    """0026: the newest manifest the pipeline recorded for this environment, accepted only if it is for the code that
+    is running here and its id is the one its content gives. A deployment whose manifest was not recorded therefore
+    finds the previous one, which names other code, and the switch stays closed."""
+    with db.tx(gate_role(db), readonly=True) as c:
+        row = c.execute("""SELECT deployment_id, artifact_sha256, manifest::text FROM deployment_manifests
+                            WHERE environment=%s ORDER BY manifest_id DESC LIMIT 1""", (environment,)).fetchone()
+    if row is None:
+        raise BookingGateError(f"no deployment manifest recorded for {environment}")
+    dep, art, raw = row
+    manifest = json.loads(raw) if isinstance(raw, str) else raw
+    if deployment_id_for(manifest) != dep:
+        raise BookingGateError("the recorded manifest does not match its deployment id")
+    if art != code_sha256:
+        raise BookingGateError("the newest recorded manifest is for other code than this function's "
+                               f"(manifest {art[:12]}..., running {code_sha256[:12]}...)")
+    return manifest
 
 
 def check_booking_preconditions(db, queue, lease_s: int, environment: str | None, manifest: dict | None,
-                                deployment_id: str | None = None) -> None:
+                                deployment_id: str | None = None) -> dict[str, str]:
     """S4-05 / R2.0 S4-R2-04 / R2.1: with the booking switch on, start only if the queue is durable and correctly
     configured, and every gate has a current evidence row for THIS environment and deployment, within its validity
     window. The deployment id comes from the deployment manifest. The queue and database fingerprints are computed
@@ -237,7 +299,7 @@ def check_booking_preconditions(db, queue, lease_s: int, environment: str | None
     if not evidence_triggers_enabled(db):
         raise BookingGateError("deployment_evidence triggers are missing or disabled")
     live = {"AWS_QUEUE": queue.fingerprint(), "AURORA": database_fingerprint(db), **manifest_fingerprints(manifest)}
-    with db.tx("system", readonly=True) as c:
+    with db.tx(gate_role(db), readonly=True) as c:
         # the same freshness rules as the insert trigger (0014), so rows written before it get no more
         rows = c.execute("""SELECT DISTINCT ON (gate) gate,
                                    expires_at > now() AND verified_at <= now() + interval '5 minutes'
@@ -246,17 +308,51 @@ def check_booking_preconditions(db, queue, lease_s: int, environment: str | None
                                    config_fingerprint
                               FROM deployment_evidence WHERE environment=%s AND deployment_id=%s
                              ORDER BY gate, evidence_id DESC""", (environment, deployment_id)).fetchall()
+        exc = c.execute("""SELECT DISTINCT ON (gate) gate, exception_code, expires_at > now(), config_fingerprint,
+                                  approval_ref
+                             FROM deployment_exceptions WHERE environment=%s AND deployment_id=%s
+                            ORDER BY gate, exception_id DESC""", (environment, deployment_id)).fetchall()
+        server_version = int(c.execute("SELECT current_setting('server_version_num')").fetchone()[0])
     latest = {g: (fresh, fp) for g, fresh, fp in rows}
-    problems = []
+    excepted = {g: (code, fresh, fp, ref) for g, code, fresh, fp, ref in exc}
+    problems, by_exception = [], {}
     for g in REQUIRED_GATES:
+        if g in latest and latest[g][0] and latest[g][1] == live[g]:
+            continue                                                       # current evidence: the gate passed
+        e = excepted.get(g)
+        why = exception_problem(g, e, live[g], environment, server_version) if e else "none"
+        if why is None:
+            by_exception[g] = f"{e[0]} ({e[3]})"
+            continue
         if g not in latest:
-            problems.append(f"{g}: no evidence for this deployment")
+            problems.append(f"{g}: no evidence for this deployment"
+                            + (f" and exception {e[0]} does not hold ({why})" if e else ""))
         elif not latest[g][0]:
             problems.append(f"{g}: evidence expired or outside its validity window")
-        elif latest[g][1] != live[g]:
+        else:
             problems.append(f"{g}: evidence is for a different configuration")
     if problems:
         raise BookingGateError("deployment gates not satisfied: " + "; ".join(problems))
+    if by_exception:
+        log.warning("booking switch ON with owner-approved pilot exceptions: %s", by_exception)
+    return by_exception
+
+
+def exception_problem(gate: str, e: tuple, live_fp: str, environment: str, server_version: int) -> str | None:
+    """Why an owner-approved exception does not stand in for this gate here, or None. The database already limits the
+    gate/code pairs, the environment and the duration; these rules hold even if a row got past it."""
+    code, fresh, fp, _ref = e
+    if EXCEPTION_CODES.get(gate) != code:
+        return "not an exception the owner accepted for this gate"
+    if "prod" in environment or not environment.startswith("pilot"):
+        return "exceptions apply only to the pilot, never to production"
+    if not fresh:
+        return "expired"
+    if fp != live_fp:
+        return "recorded for a different configuration"
+    if gate == "AURORA" and not 170009 <= server_version < 180000:
+        return f"T33-P covers PostgreSQL 17.9 on the pilot only; this server is {server_version}"
+    return None
 
 
 def dedup_id(event: dict) -> str:
