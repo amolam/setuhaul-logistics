@@ -1,0 +1,19 @@
+{
+  "_doc": "Phase G dataset and optimizer assumptions (docs/phase-g/PHASE_G_DATASET_AND_ASSUMPTIONS.md). Every value here is an ASSUMPTION, not trainer data: the trainer dataset has no labour roster or facility capacity. Change it here, not in code.",
+  "data_class": "synthetic",
+  "id_prefix": "SYN-",
+  "phone_prefix": "+999",
+  "labour_shifts": {
+    "FAC-JAI-01": [{"name": "DAY", "start": "06:00", "end": "14:00", "crews": 4},
+                   {"name": "NIGHT", "start": "14:00", "end": "22:00", "crews": 3}],
+    "FAC-GGN-01": [{"name": "DAY", "start": "07:00", "end": "15:00", "crews": 2},
+                   {"name": "NIGHT", "start": "15:00", "end": "21:00", "crews": 2}]
+  },
+  "facility_capacity": {"FAC-JAI-01": 5, "FAC-GGN-01": 3},
+  "default_crews_when_missing": null,
+  "extra_hourly_slot_days": 3,
+  "extra_slot_hours": {"start": 6, "end": 22},
+  "snapshot_max_age_s": 120,
+  "eta_stale_after_min": 240,
+  "optimizer_time_limit_ms": 2000
+}

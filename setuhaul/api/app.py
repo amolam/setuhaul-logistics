@@ -22,7 +22,7 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 from pydantic import AwareDatetime, BaseModel, Field, model_validator
 
-from .db import Db
+from .db import CORRELATION_ID, Db
 from .inbound import (InboundRelay, LocalQueue, SqsFifoQueue, booking_killed, check_booking_preconditions,
                       load_manifest, manifest_from_database, own_code_sha256)
 from .security import AuthError, CognitoVerifier, Principal, SessionTokens, meta_signature_ok
@@ -57,6 +57,8 @@ class Settings:
     # and the public client id. Unset: no console page.
     cognito_domain: str | None = None
     console_client_id: str | None = None
+    # Phase G1: rank driver options with the slot optimizer (booking policy: the owner switches it on per environment)
+    optimizer_ranking: bool = False
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -70,6 +72,7 @@ class Settings:
                    environment=os.environ.get("SETUHAUL_ENVIRONMENT") or None,
                    cognito_domain=os.environ.get("COGNITO_DOMAIN") or None,
                    console_client_id=os.environ.get("COGNITO_CONSOLE_CLIENT_ID") or None,
+                   optimizer_ranking=os.environ.get("SETUHAUL_OPTIMIZER_RANKING", "off").lower() in ("on", "true", "1"),
                    deployment_id=os.environ.get("SETUHAUL_DEPLOYMENT_ID") or None,
                    deployment_manifest=os.environ.get("SETUHAUL_DEPLOYMENT_MANIFEST") or None,
                    manifest_source=os.environ.get("SETUHAUL_DEPLOYMENT_MANIFEST_SOURCE", "file"),
@@ -172,14 +175,26 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
 
     @app.middleware("http")
     async def _no_store_for_staff_data(request: Request, call_next):
-        response = await call_next(request)
+        # Phase G3: one correlation id per request (a well-formed caller id is kept, else a new uuid); echoed back
+        # and carried into the structured logs and optimizer runs. It identifies a request, never a person.
+        cid = request.headers.get("x-correlation-id", "")
+        try:
+            cid = str(uuid.UUID(cid))
+        except ValueError:
+            cid = str(uuid.uuid4())
+        token = CORRELATION_ID.set(cid)
+        try:
+            response = await call_next(request)
+        finally:
+            CORRELATION_ID.reset(token)
+        response.headers["X-Correlation-Id"] = cid
         if request.url.path.startswith("/console/"):      # staff data: never kept by a browser or proxy cache
             response.headers["Cache-Control"] = "no-store"
         return response
     from ..aws.data_api import make_db                     # SETUHAUL_DSN=rds-data: the Data API backend (E3)
     db = make_db(settings.dsn)
     svc = BookingService(db, clock or (lambda: datetime.now(timezone.utc)), settings.facilities,
-                         booking_enabled=settings.booking_enabled)
+                         booking_enabled=settings.booking_enabled, optimizer_ranking=settings.optimizer_ranking)
     verifier = CognitoVerifier(settings.cognito_issuer, settings.cognito_client_ids, settings.jwks)
     sessions = SessionTokens(settings.session_secret)
     # Inbound events for the agent orchestrator (B-WF-1). In AWS this is SQS FIFO (inbound.SqsFifoQueue: message group
@@ -358,6 +373,23 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
                          p: Principal = Depends(staff)):
         """Apply one move of a stored proposal. Booking switch, role, facility and every booking rule are re-checked."""
         return svc.move_appointment(p, appointment_id, body.proposal_id, body.idempotency_key, body.note)
+
+    @app.get("/console/shipments/{shipment_id}/recommendations")
+    def recommendations(shipment_id: str = Path(min_length=1, max_length=80), earliest: AwareDatetime | None = None,
+                        latest: AwareDatetime | None = None, days: int = Query(1, ge=1, le=3),
+                        p: Principal = Depends(staff)):
+        """Phase G1, read only: the optimizer's ranked dock/slot options for one truck, with every hard constraint
+        evaluated and the rejected alternatives. A recommendation, never a booking."""
+        if earliest and latest and latest <= earliest:
+            raise HTTPException(422, "latest must be after earliest")
+        return svc.recommend(p, shipment_id, earliest, latest, days)
+
+    @app.get("/console/observability")
+    def observability(facility: str | None = Query(None, max_length=40), hours: int = Query(24, ge=1, le=744),
+                      p: Principal = Depends(staff)):
+        """Phase G3, read only: operational, agent, optimizer, reliability and evaluation metrics in this person's
+        facility scope. Every number is a persisted row or a measured timing; anything else is marked unavailable."""
+        return svc.observability(p, facility, hours)
 
     @app.get("/console/escalations")
     def escalations(p: Principal = Depends(staff)):

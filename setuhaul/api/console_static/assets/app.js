@@ -81,7 +81,8 @@ function setTab(t){ tab = t; selected = null; nextBefore = null; threads = [];
   document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.t === t)); render() }
 
 async function render(){
-  const titles = {threads:"Conversations", requests:"Requests waiting for a decision", escalations:"Escalations", docks:"Docks"};
+  const titles = {threads:"Conversations", requests:"Requests waiting for a decision", escalations:"Escalations", docks:"Docks",
+                  optimizer:"Slot optimizer (Phase G)", observability:"Observability (Phase G)"};
   $("#lefttitle").textContent = titles[tab]; $("#more").hidden = true;
   const list = $("#list"), detail = $("#detail");
   try {
@@ -130,7 +131,85 @@ async function render(){
             (r.unscheduled.length ? `<p class="muted">To a person: ${r.unscheduled.map(u => esc(u.shipment_id) + " (" + esc(u.reason_code) + ")").join(", ")}</p>` : "");
         } catch(e){ out.innerHTML = `<div class="empty err">Refused by the server: ${esc(e.message)}</div>` } };
     }
+    else if(tab === "optimizer") renderOptimizer(list, detail);
+    else if(tab === "observability") await renderObservability(list, detail);
   } catch(e){ if(e.message !== "signed out" && e.message !== "401") list.innerHTML = `<div class="empty err">Could not load: ${esc(e.message)}</div>` }
+}
+
+// ---------------------------------------------------------------- Phase G: optimizer and observability (read only)
+function kvTable(o){ const e = Object.entries(o || {}); return e.length ? `<table>${e.map(([k, v]) =>
+  `<tr><td>${esc(k)}</td><td><b>${esc(typeof v === "object" && v !== null ? JSON.stringify(v) : v ?? "unavailable")}</b></td></tr>`).join("")}</table>`
+  : `<div class="muted">none recorded</div>` }
+function renderOptimizer(list, detail){
+  list.innerHTML = `<p class="muted">Ranked dock and slot options for one truck from the deterministic optimizer. Every hard
+    constraint is evaluated; rejected alternatives are listed with the reason. A recommendation, never a booking.
+    Planner or ops_lead only; facility scope is checked by the server.</p>
+    <div class="row"><input id="osid" class="grow mono" placeholder="Shipment id, e.g. SHP-SYN-0001" maxlength="80">
+    <select id="odays" style="width:auto"><option value="1">ready day + 1 operating day</option><option value="2">+2</option><option value="3">+3</option></select>
+    <button id="orun">Recommend</button></div>`;
+  detail.innerHTML = `<div class="empty">Enter a shipment id.</div>`;
+  $("#orun").onclick = async () => {
+    const sid = $("#osid").value.trim(); if(!sid) return;
+    detail.innerHTML = `<div class="empty">Optimizing…</div>`;
+    try {
+      const r = await api("GET", `/console/shipments/${encodeURIComponent(sid)}/recommendations?days=${encodeURIComponent($("#odays").value)}`);
+      const hc = Object.entries(r.constraints_evaluated).map(([k, v]) => `<tr><td class="mono">${esc(k)}</td><td>${esc(v)}</td></tr>`).join("");
+      detail.innerHTML = `<h2>${esc(r.shipment_id)} · ${esc(r.facility_id || "")}</h2>
+        <p class="muted">${esc(r.note)}</p>
+        <dl class="kv"><dt>Solver status</dt><dd><b>${esc(r.solver_status)}</b> · ${esc(r.outcome_code)} · action ${esc(r.recommended_action)}</dd>
+        <dt>Input ETA / ready</dt><dd>${when(r.input_eta)} / ${when(r.ready_at)}</dd>
+        <dt>Solver</dt><dd>${esc(r.solver)} ${esc(r.solver_version)} · ${esc(r.engine_version)} · ${esc(r.duration_ms)} ms · ${esc(r.candidates_evaluated)} candidates</dd>
+        <dt>Data</dt><dd>as of ${when(r.data_as_of)} · schedule version ${esc(r.schedule_version)} · <span class="mono">${esc((r.input_fingerprint || "").slice(0, 16))}</span></dd>
+        <dt>Correlation id</dt><dd class="mono">${esc(r.correlation_id)}</dd></dl>
+        ${r.warnings.length ? `<p class="err">${r.warnings.map(esc).join("<br>")}</p>` : ""}
+        <h3>Ranked options</h3>
+        ${r.options.length ? `<div class="tablewrap"><table><tr><th>#</th><th>Dock</th><th>Start</th><th>End</th><th>Wait</th><th>Score</th><th>Approval</th><th>Why</th></tr>${r.options.map(o =>
+          `<tr><td>${o.rank}</td><td>${esc(o.dock_code)}</td><td>${when(o.start)}</td><td>${when(o.end)}</td><td>${o.wait_min} min</td>
+           <td title="${esc(JSON.stringify(o.score_terms))}">${o.score}</td><td>${o.needs_approval ? "yes" : "no"}</td><td class="muted">${esc(o.reasons.join("; "))}</td></tr>`).join("")}</table></div>`
+          : `<div class="empty">No feasible option: the truck goes to a person.</div>`}
+        <h3>Rejected alternatives (${r.rejected.length})</h3>
+        <div class="tablewrap"><table><tr><th>Dock</th><th>Stage</th><th>Reason</th></tr>${r.rejected.slice(0, 40).map(x =>
+          `<tr><td>${esc(x.dock_code)}</td><td>${esc(x.stage)}</td><td class="muted">${esc(x.reason)}</td></tr>`).join("")}</table></div>
+        <h3>Hard constraints evaluated</h3><div class="tablewrap"><table>${hc}</table></div>`;
+    } catch(e){ detail.innerHTML = `<div class="empty err">${e.status === 404 ? "Not found, or not in your facilities." : "Refused by the server: " + esc(e.message)}</div>` }
+  };
+}
+async function renderObservability(list, detail){
+  const r = await api("GET", "/console/observability?hours=24");
+  const o = r.overview, a = r.agent, z = r.optimization, rel = r.reliability;
+  list.innerHTML = `<p class="pill">${esc(r.data_label)}</p>
+    <p class="muted">Window: ${when(r.since)} – ${when(r.generated_at)} · facilities ${esc(r.facilities.join(", "))}.
+    Every number is a stored row or a measured timing; anything else says unavailable.</p>
+    <h3>Operational overview</h3>${kvTable({"open approval requests": o.open_approval_requests, "docks blocked now": o.docks_blocked_now,
+      "active conversations": o.conversations_active})}
+    <h3>Shipments by status</h3>${kvTable(o.shipments_by_status)}
+    <h3>Current appointments</h3>${kvTable(o.appointments_by_status)}
+    <h3>Open escalations</h3>${kvTable(o.open_escalations_by_reason)}`;
+  const mu = a.model_usage || {};
+  detail.innerHTML = `<h2>Agent performance</h2>${a.status ? `<p class="muted">${esc(a.status)}</p>` : ""}
+    ${kvTable({"turns": a.turns, "model extraction": a.model_turns, "rules reader": a.rules_turns, "fallbacks": a.fallbacks,
+      "escalated turns": a.escalated, "turn p50 ms": a.turn_p50_ms, "turn p95 ms": a.turn_p95_ms})}
+    <h3>Tool calls</h3>${a.tools.length ? `<div class="tablewrap"><table><tr><th>Tool</th><th>Calls</th><th>Not OK</th><th>p50 ms</th><th>p95 ms</th></tr>${a.tools.map(t =>
+      `<tr><td>${esc(t.tool)}</td><td>${t.calls}</td><td>${t.not_ok}</td><td>${esc(t.p50_ms)}</td><td>${esc(t.p95_ms)}</td></tr>`).join("")}</table></div>` : `<div class="muted">unavailable: no tool calls recorded</div>`}
+    <h3>Model use, tokens and cost</h3><p class="muted">${esc(a.model_usage_scope)}</p>${kvTable({"calls": mu.calls, "ok": mu.ok, "errors": mu.errors,
+      "budget refusals": mu.budget_refusals, "input tokens": mu.input_tokens, "output tokens": mu.output_tokens, "cost USD": mu.cost_usd,
+      "spent today USD": mu.today_spent_usd, "latency p50 ms": mu.latency_p50_ms, "latency p95 ms": mu.latency_p95_ms, "by model": mu.by_model})}
+    <h2 style="margin-top:18px">Optimization performance</h2>${kvTable({"runs": z.runs, "with options": z.with_options, "fallbacks to engine order": z.fallbacks,
+      "p50 ms": z.p50_ms, "p95 ms": z.p95_ms, "max ms": z.max_ms, "avg candidates": z.avg_candidates, "avg rejected": z.avg_rejected})}
+    <h3>By solver status</h3>${kvTable(z.by_status)}<h3>By outcome</h3>${kvTable(z.by_outcome)}<h3>By caller</h3>${kvTable(z.by_caller)}
+    <h2 style="margin-top:18px">Reliability</h2>
+    <h3>Approval requests</h3>${kvTable(rel.approval_requests_by_status)}
+    <h3>Booking events</h3>${kvTable(rel.booking_events_by_action)}
+    <h3>Driver notifications</h3>${kvTable({...rel.notifications_by_status, "retried": rel.notification_retries})}
+    <h3>Inbound messages</h3>${kvTable(rel.inbound)}
+    <h3>Idempotency</h3>${kvTable(rel.idempotency)}
+    <h3>Approval workflow callbacks</h3>${kvTable(rel.approval_callbacks)}
+    <h3>Outbox</h3>${kvTable(rel.outbox_by_status)}
+    <h3>Queue / DLQ</h3><p class="muted">${esc(rel.queue_dlq.status)}: ${esc(rel.queue_dlq.reason)}</p>
+    <h2 style="margin-top:18px">Evaluation results</h2>
+    <div class="tablewrap"><table><tr><th>Suite</th><th>Mode</th><th>Dataset</th><th>Passed</th><th>Failed</th><th>Skipped</th><th>Cost USD</th><th>Finished</th></tr>${r.evaluation.map(e => e.status
+      ? `<tr><td colspan="8" class="muted">${esc(e.status)}</td></tr>`
+      : `<tr><td>${esc(e.suite)}</td><td>${esc(e.mode)}</td><td>${esc(e.dataset_version)}</td><td>${e.passed}/${e.total}</td><td>${e.failed}</td><td>${e.skipped}</td><td>${esc(e.cost_usd)}</td><td>${when(e.finished_at)}</td></tr>`).join("")}</table></div>`;
 }
 
 async function loadThreads(more){

@@ -26,6 +26,8 @@ ROLES = {"agent": "setuhaul_agent",              # requests from the agent tools
 # worker still holds the turn; a superseded worker commits nothing more.
 TURN_FENCE: ContextVar[tuple[int, str, int] | None] = ContextVar("setuhaul_turn_fence", default=None)
 FENCED_ROLES = ("agent", "feasibility")
+# Phase G3: the correlation id of the current turn or console request (structured logs, optimizer runs, turn metrics).
+CORRELATION_ID: ContextVar[str | None] = ContextVar("setuhaul_correlation_id", default=None)
 
 
 class Db:
