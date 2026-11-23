@@ -326,15 +326,32 @@ def gate_aurora(out):
           "evidence_triggers": dict(triggers), "tables_with_forced_rls": rls[0], "tables": rls[1]}
     major = int(str(cl["EngineVersion"]).split(".")[0])
     checks = {
-        "engine is Aurora PostgreSQL 18.3+ (T33)": major >= 18,
         "every deployed migration's hash matches the repository": not ev["hash_mismatches"],
         "both evidence triggers enabled": {t: e for t, e in triggers} == {"deployment_evidence_append_only": "O", "deployment_evidence_fresh": "O"},
         "Data API connectivity behind Db.tx()": True,
     }
-    missing = ["T33 asks for 18.3+; the Free-plan express configuration offers 17.9 (owner decision: exception or plan change)",
-               "the RLS and role-allowlist test files have not been run against Aurora itself (they need a writable test "
-               "database on the cluster); the deploy-time role checks and the live S1/A1-A6/D1 run went through RLS"]
-    return ev, checks, missing
+    # T33 (production): 18.3+. T33-P (owner, 23 Nov 2026): 17.9 is permitted for the synthetic Free-plan pilot only,
+    # once 17.9 is verified: migration 0025, RLS and the role allow-list live on this cluster (verify_pg17_migration.py)
+    # and the whole suite in CI on postgres:17.9 (ci_pg17.json). It is never reported as an unconditional PASS.
+    ev["t33"] = {"production_requirement": "PostgreSQL 18.3+ (T33, unchanged)", "engine_major": major}
+    if major >= 18:
+        checks["engine is Aurora PostgreSQL 18.3+ (T33)"] = True
+        return ev, checks, [], None
+    pilot = {}
+    for name in ("pg17_migration_0025.json", "ci_pg17.json"):
+        f = ROOT / "docs" / "release" / "evidence" / name
+        pilot[name] = json.loads(f.read_text(encoding="utf-8")) if f.exists() else None
+    ver = pilot["pg17_migration_0025.json"] and pilot["pg17_migration_0025.json"]["evidence"].get("server_version", "")
+    ev["t33_p"] = {"engine": ev["server_version"], "pilot_only": True, "synthetic_data": True,
+                   "live_verification": pilot["pg17_migration_0025.json"] and pilot["pg17_migration_0025.json"]["checks"],
+                   "ci_on_17_9": pilot["ci_pg17.json"]}
+    checks["T33-P: engine is exactly 17.9 (the Free-plan express engine)"] = str(ev["server_version"]).startswith("17.9")
+    checks["T33-P: migration 0025, RLS and role allow-list verified live on this 17.9 cluster"] = bool(
+        pilot["pg17_migration_0025.json"] and pilot["pg17_migration_0025.json"].get("all_pass") and str(ver).startswith("17.9"))
+    checks["T33-P: the whole suite passed in CI on postgres:17.9"] = bool(
+        pilot["ci_pg17.json"] and pilot["ci_pg17.json"].get("conclusion") == "success"
+        and all(str(v).startswith("17.9") for v in pilot["ci_pg17.json"].get("server_versions", [])))
+    return ev, checks, [], "PASS WITH PILOT EXCEPTION (T33-P)"
 
 
 def status(checks, missing, blocked=False):
@@ -355,8 +372,10 @@ def main() -> int:
     gates = {}
     ev, ch, mi = gate_identity(out, fns, stmts)[:3]
     gates["WORKLOAD_IDENTITY"] = {"evidence": ev, "checks": ch, "not_shown": mi, "status": status(ch, mi)}
-    ev, ch, mi = gate_aurora(out)
-    gates["AURORA"] = {"evidence": ev, "checks": ch, "not_shown": mi, "status": status(ch, mi)}
+    ev, ch, mi, exception = gate_aurora(out)
+    st = status(ch, mi)
+    gates["AURORA"] = {"evidence": ev, "checks": ch, "not_shown": mi,
+                       "status": exception if (exception and st == "PASS") else st}
     ev, ch, mi = gate_queue(out, fns, stmts)
     gates["AWS_QUEUE"] = {"evidence": ev, "checks": ch, "not_shown": mi, "status": status(ch, mi)}
     ev, ch, mi = gate_recovery(out, fns, res)

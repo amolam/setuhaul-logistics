@@ -1,5 +1,5 @@
 {
- "collected_utc": "2026-11-22T18:47:31+00:00",
+ "collected_utc": "2026-11-23T01:09:25+00:00",
  "stack": "SetuHaulPilot",
  "region": "ap-southeast-2",
  "booking_enabled": false,
@@ -178,27 +178,76 @@
     "engine": "aurora-postgresql 17.9",
     "server_version": "17.9",
     "migrations_live": 24,
-    "migrations_in_repo": 24,
+    "migrations_in_repo": 25,
     "hash_mismatches": [],
-    "repo_only_migrations": [],
+    "repo_only_migrations": [
+     "0025"
+    ],
     "evidence_triggers": {
      "deployment_evidence_append_only": "O",
      "deployment_evidence_fresh": "O"
     },
     "tables_with_forced_rls": 22,
-    "tables": 37
+    "tables": 37,
+    "t33": {
+     "production_requirement": "PostgreSQL 18.3+ (T33, unchanged)",
+     "engine_major": 17
+    },
+    "t33_p": {
+     "engine": "17.9",
+     "pilot_only": true,
+     "synthetic_data": true,
+     "live_verification": {
+      "server is PostgreSQL 17.9": true,
+      "migration 0025 applies on 17.9 as the non-superuser owner": true,
+      "both proposal tables exist with forced RLS": true,
+      "both functions are SECURITY DEFINER owned by setuhaul_rpc": true,
+      "only setuhaul_console can EXECUTE move_appointment": true,
+      "a real move succeeds on 17.9 (MOVED, CONFIRMED)": true,
+      "re-apply, unknown proposal and the agent role are all refused": true,
+      "RLS on Aurora: the JAI shipment is visible in JAI scope only": true,
+      "role allow-list on Aurora: every forbidden direct write is refused with 42501": true,
+      "old appointment cancelled, one current CONFIRMED on the new dock, one active claim": true,
+      "after rollback: still 24 migrations, no 0025 objects, no probe rows": true
+     },
+     "ci_on_17_9": {
+      "run_id": 45091795877,
+      "head_sha": "2ce1e017969d",
+      "branch": "phase-f/challenge-completion",
+      "conclusion": "success",
+      "image": "postgres:17.9",
+      "image_digest": "sha256:2a0d0fe14825b0939f78a8cad5cd4e6aa68bf94d0e5dd96e24b6d23af4315545",
+      "server_versions": [
+       "17.9 (Debian 17.9-1.pgdg13+1)",
+       "17.9 (Debian 17.9-1.pgdg13+1)"
+      ],
+      "full_suite": "1136 passed, 1 skipped (test_data_api.py:155 runs only when the whole suite goes through the Data API)",
+      "data_api_mode": "426 passed",
+      "jobs": {
+       "test": "success",
+       "synth": "success",
+       "deploy": "skipped (manual dispatch only)"
+      },
+      "previous_run_on_floating_postgres_17": {
+       "run_id": 45062734398,
+       "head_sha": "d8ae280",
+       "conclusion": "success",
+       "full_suite": "1136 passed, 1 skipped",
+       "data_api_mode": "426 passed"
+      }
+     }
+    }
    },
    "checks": {
-    "engine is Aurora PostgreSQL 18.3+ (T33)": false,
     "every deployed migration's hash matches the repository": true,
     "both evidence triggers enabled": true,
-    "Data API connectivity behind Db.tx()": true
+    "Data API connectivity behind Db.tx()": true,
+    "T33-P: engine is exactly 17.9 (the Free-plan express engine)": true,
+    "T33-P: migration 0025, RLS and role allow-list verified live on this 17.9 cluster": true,
+    "T33-P: the whole suite passed in CI on postgres:17.9": true
    },
-   "not_shown": [
-    "T33 asks for 18.3+; the Free-plan express configuration offers 17.9 (owner decision: exception or plan change)",
-    "the RLS and role-allowlist test files have not been run against Aurora itself (they need a writable test database on the cluster); the deploy-time role checks and the live S1/A1-A6/D1 run went through RLS"
-   ],
-   "status": "FAIL"
+   "not_shown": [],
+   "status": "PASS WITH PILOT EXCEPTION (T33-P)"
   },
   "AWS_QUEUE": {
    "evidence": {

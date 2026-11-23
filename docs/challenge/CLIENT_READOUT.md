@@ -70,11 +70,11 @@ The details are in `docs/challenge/INTEGRITY_PROOF.md`. The wider attack and fai
 - **No requests to decide yet:** while booking is off, the console's Requests list stays empty.
 - **AI budget:** the AI reader is capped at $0.25 a day. When the cap is reached, a simpler rules-based reader takes over, which understands less varied phrasing.
 - **Hinglish templates:** Meta must approve the Hinglish message templates separately. Until then, a Hinglish-speaking driver contacted outside WhatsApp's 24-hour window gets the English template.
-- **Database version:** the cloud database is PostgreSQL 17.9, the only version on the current free AWS plan. The design asked for 18. The same software is tested on both, and this needs your sign-off as a pilot exception.
+- **Database version:** the cloud database is PostgreSQL 17.9, the only version on the current free AWS plan. You approved this as a pilot-only exception (T33-P). It was verified on the real database and on the same version in automated tests. Production still needs version 18.
 
 ## Open risks and decisions for you
 
-1. **Release checks:** approve the remaining live checks (a dead-letter queue drill, and a test run of the approval workflow) and the database-version exception. Then provide the Meta test number and templates.
+1. **Release checks:** approve the remaining live checks (a dead-letter queue drill, and a test run of the approval workflow). Then provide the Meta test number and templates. The database-version exception was approved on 23 Nov.
 2. **Automatic confirmation:** any rule that confirms without a person (for example, low-risk night arrivals at Gurugram) needs your written policy. None is switched on.
 3. **"Talk to a person" button:** deferred at your request. Drivers can still reach a coordinator through the safety words and the escalation path.
 4. **Peak capacity:** before any automatic rule relies on "how busy is the dock", peak occupancy should be measured against usable capacity (review item R3 Q3).

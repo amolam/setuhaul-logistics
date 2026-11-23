@@ -85,7 +85,7 @@ def table(slide, x, y, w, rows, widths, size=10, header_fill="navy", name=None, 
             run.font.bold = r == 0 or (status_col is not None and ci == status_col)
             color = "white" if r == 0 else "ink"
             if r and status_col is not None and ci == status_col:
-                color = {"PARTIAL": "amber", "FAIL": "red", "BLOCKED": "muted", "PASS": "green",
+                color = {"PARTIAL": "amber", "FAIL": "red", "BLOCKED": "muted", "PASS": "green", "PASS (pilot": "green",
                          "LIVE": "green", "OFF": "red"}.get(str(val).split()[0], "ink")
             run.font.color.rgb = C[color]
     return shape
@@ -187,11 +187,11 @@ def status_slide(prs):
             ["Queue", "PARTIAL", "dead-letter drill (needs approval)"],
             ["Recovery worker", "PARTIAL", "forced lease-loss test"],
             ["Workload identity", "PARTIAL", "check 5: second staff user"],
-            ["Database", "FAIL (version)", "17.9 vs 18.3+: owner exception T33-P"],
+            ["Database", "PASS (pilot exc.)", "T33-P: 17.9 pilot only; prod needs 18.3+"],
             ["Approval workflow", "BLOCKED", "live run needs approval"],
             ["Outbound delivery", "BLOCKED", "Meta test number + templates"]]
     table(s, 3.65, 1.1, 5.85, rows, [2.45, 1.15, 2.25], size=10, status_col=1, name="Gate table")
-    text(s, 3.65, 3.25, 5.85, 1.4, "No gate has passed, so no evidence row was written and booking cannot start. "
+    text(s, 3.65, 3.25, 5.85, 1.4, "No gate has passed unconditionally, so no evidence row was written and booking cannot start. "
          "Real WhatsApp and production stay off.", size=11, color="muted", name="Gate note")
     return s
 

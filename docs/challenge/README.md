@@ -5,7 +5,7 @@ The brief (`docs/brief/…Project_Brief.pdf`, p.5) asks for six items plus an op
 | # | Hand-in | Where | Status |
 |---|---|---|---|
 | 1 | Problem Definition Sheet and data audit | `docs/1-frame/01_problem_definition_sheet.md`, `audit_results.md` (30 checks, each with a query) | Done (Frame) |
-| 2 | Decision register | `docs/2-design/01_decision_register.md` | Done (Design). T33-P, a pilot database-version exception, is proposed in `docs/release/13_STEP6_GATE_EVIDENCE.md` and still needs the owner's decision |
+| 2 | Decision register | `docs/2-design/01_decision_register.md` | Done (Design). T33-P, a pilot-only database-version exception, was approved by the owner on 23 Nov 2026 and verified (`docs/release/13_STEP6_GATE_EVIDENCE.md`) |
 | 3 | Working prototype | Code in `setuhaul/`; library versions in the root `README.md` and `requirements*.txt`; Option A deployed on AWS (`docs/release/12_CONSOLE_PILOT_REPORT.md`) | Done |
 | 4 | Scenario run | `SCENARIO_RUN.md`; raw transcript in `evidence/scenario_run.json` | Done. All six must-show items plus item 7, ending in escalation |
 | 5 | Integrity proof | `INTEGRITY_PROOF.md`; output in `evidence/integrity_proof.txt` | Done. 20 concurrent drivers, 1 claim on the slot, 0 overlaps |

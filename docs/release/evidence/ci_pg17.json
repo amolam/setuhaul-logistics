@@ -1,0 +1,26 @@
+{
+ "run_id": 45091795877,
+ "head_sha": "2ce1e017969d",
+ "branch": "phase-f/challenge-completion",
+ "conclusion": "success",
+ "image": "postgres:17.9",
+ "image_digest": "sha256:2a0d0fe14825b0939f78a8cad5cd4e6aa68bf94d0e5dd96e24b6d23af4315545",
+ "server_versions": [
+  "17.9 (Debian 17.9-1.pgdg13+1)",
+  "17.9 (Debian 17.9-1.pgdg13+1)"
+ ],
+ "full_suite": "1136 passed, 1 skipped (test_data_api.py:155 runs only when the whole suite goes through the Data API)",
+ "data_api_mode": "426 passed",
+ "jobs": {
+  "test": "success",
+  "synth": "success",
+  "deploy": "skipped (manual dispatch only)"
+ },
+ "previous_run_on_floating_postgres_17": {
+  "run_id": 45062734398,
+  "head_sha": "d8ae280",
+  "conclusion": "success",
+  "full_suite": "1136 passed, 1 skipped",
+  "data_api_mode": "426 passed"
+ }
+}

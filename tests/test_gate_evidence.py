@@ -86,3 +86,12 @@ def test_the_live_pilot_report_yields_no_evidence_row():
     rows, refused = rows_from_report(live, manifest(), "test-env", "s3://e/r.json", path.read_bytes(),
                                      {g: "0" * 64 for g in REQUIRED_GATES})
     assert rows == [] and set(refused) == set(REQUIRED_GATES)
+
+
+def test_a_pilot_exception_is_never_written_as_gate_evidence():
+    """T33-P (23 Nov 2026): the AURORA gate on the 17.9 pilot reports PASS WITH PILOT EXCEPTION. That is not a PASS:
+    no evidence row is written for it, so it can never satisfy the booking switch without a separate owner decision."""
+    man = manifest()
+    exc = report(AURORA={"status": "PASS WITH PILOT EXCEPTION (T33-P)", "checks": {"x": True}, "not_shown": []})
+    rows, refused = rows_from_report(exc, man, "test-env", "s3://e/r.json", b"{}", {g: "0" * 64 for g in REQUIRED_GATES})
+    assert "AURORA" in refused and "PILOT EXCEPTION" in refused["AURORA"] and all(r["gate"] != "AURORA" for r in rows)

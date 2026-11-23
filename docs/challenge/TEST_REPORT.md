@@ -23,8 +23,11 @@ The migration's dependents were rerun:
 
 **The second skip in run 1:** `test_data_api.py:155` runs only when the whole suite goes through the Data API backend, and is skipped by design otherwise. It is the same skip CI has.
 
+**CI (GitHub, Ubuntu):**
+- Run 45062734398 on `d8ae280`, with floating `postgres:17`: success. 1,136 passed and 1 skipped; Data API mode 426 passed.
+- Run 45091795877 on `2ce1e01`, **pinned to `postgres:17.9`**, with both servers reporting `17.9 (Debian 17.9-1.pgdg13+1)`: success. 1,136 passed and 1 skipped; Data API mode 426 passed (`docs/release/evidence/ci_pg17.json`).
+
 **Not run here:**
-- CI's Ubuntu job on PostgreSQL 17. It runs when this branch is pushed; see the final report for its result.
 - Anything against AWS that changes state. The live checks of 22–23 Nov were read-only: `docs/release/13_STEP6_GATE_EVIDENCE.md`, `docs/release/evidence/security_live.json`.
 - `pip_audit` (it needs the network).
 

@@ -8,11 +8,11 @@
 > | AWS_QUEUE | **PARTIAL.** The redrive drill is not done; it needs the owner's approval. |
 > | RECOVERY_WORKER | **PARTIAL.** Lease and fencing were not forced live. |
 > | WORKLOAD_IDENTITY | **PARTIAL.** Acceptance check 5 needs a second Cognito user. |
-> | AURORA | **FAIL, version only:** it runs 17.9 and T33 requires 18.3+. A pilot exception, T33-P, is proposed and still needs the owner's decision. |
+> | AURORA | **PASS WITH PILOT EXCEPTION (T33-P)**, 23 Nov: 17.9 verified live and in CI. Production still needs 18.3+ (T33). |
 > | BOOKING_WORKFLOW | **BLOCKED.** A live run of the workflow needs the owner's approval. |
 > | OUTBOUND_DELIVERY | **BLOCKED.** It needs a Meta test number and approved templates. |
 >
-> **No gate has passed, and no `deployment_evidence` row has been written.** The booking switch stays OFF.
+> **No gate has passed unconditionally, and no `deployment_evidence` row has been written.** The booking switch stays OFF.
 >
 > The text below is the original plan of 21 Nov, kept as written.
 
