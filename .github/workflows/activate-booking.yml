@@ -95,7 +95,8 @@ jobs:
           cmp first-build.zip build/lambda.zip
           rm first-build.zip
       - name: Synthesise once with the owner's approval in the context (booking ON for api and agent only)
-        run: CDK_CONTEXT_JSON="$(jq -cn --arg r "$APPROVAL_REF" '{booking_approval: $r}')" python infra/app.py
+        run: |
+          CDK_CONTEXT_JSON="$(jq -cn --arg r "$APPROVAL_REF" '{booking_approval: $r}')" python infra/app.py
       - name: The template is the synthetic pilot with booking on only where it belongs, and no real sender
         run: |
           python - <<'PY'
