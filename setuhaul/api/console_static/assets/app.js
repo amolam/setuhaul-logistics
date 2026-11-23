@@ -161,7 +161,9 @@ async function openThread(id){
       <dt>Facility</dt><dd>${esc(t.facility_id)}</dd><dt>Conversation</dt><dd>${esc(t.status)}${t.human_active ? " · a person has it since " + when(t.human_active_since) : " · the agent has it"}</dd>
       <dt>Flow state</dt><dd>${esc(f.state)}${f.appointment_id ? " · appointment " + esc(f.appointment_id) : " · no appointment"}</dd></dl>
     <h3>Messages (masked)</h3>
-    <div class="chat">${b.messages.map(m => `<div class="b ${m.sender === "DRIVER" ? "in" : m.sender === "AGENT" ? "out" : "sys"}">${esc(m.body_masked)}<small>${esc(m.sender)} · ${when(m.at)}</small></div>`).join("") || `<div class="empty">No messages.</div>`}</div>
+    <div class="chat">${b.messages.map(m => m.read_back_record
+        ? `<div class="b sys" title="Stored so the driver's YES can be checked against exactly this wording; the driver receives the reply below, once">${esc(m.body_masked)}<small>READ-BACK RECORD (not sent) · ${when(m.at)}</small></div>`
+        : `<div class="b ${m.sender === "DRIVER" ? "in" : m.sender === "AGENT" ? "out" : "sys"}">${esc(m.body_masked)}<small>${esc(m.sender)} · ${when(m.at)}</small></div>`).join("") || `<div class="empty">No messages.</div>`}</div>
     <h3>What the reader recorded</h3>
     ${facts ? `<dl class="kv">${facts}</dl>` : `<div class="muted">No open facts carried (the last report was acted on, or nothing was extracted yet).</div>`}
     ${x.asked ? `<div class="muted">Waiting for the driver to answer: ${esc(x.asked)}</div>` : ""}

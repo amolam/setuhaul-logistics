@@ -62,6 +62,19 @@ def test_the_detail_is_what_the_database_holds(client, dsn, keys):
     assert phone not in r.text and "payload" not in r.text and "recipient_ref" not in r.text
 
 
+def test_the_read_back_record_is_marked_and_was_never_sent(client, dsn, keys):
+    """Owner's console check, 23 Nov 2026: the read-back appeared twice. One row is the stored read-back the YES is
+    checked against (never sent); the other is the reply the driver received. The detail marks the record."""
+    d, phone, sid = converse(client, dsn, JAI)
+    opt = rows(dsn, "SELECT option_id::text FROM setuhaul.shown_options WHERE thread_id = %s ORDER BY rank LIMIT 1", d.thread)[0][0]
+    assert d.tool("select_option", option_id=opt)["status"] == "OK"
+    b = client.get(f"/console/threads/{d.thread}", headers=H(staff_token(keys, facilities=(JAI,)))).json()
+    rec = [m for m in b["messages"] if m["read_back_record"]]
+    assert len(rec) == 1 and rec[0]["sender"] == "AGENT" and rec[0]["reply_to"] is None
+    sent_ids = {n[0] for n in rows(dsn, "SELECT chat_message_id FROM setuhaul.notifications WHERE thread_id = %s", d.thread)}
+    assert rec[0]["message_id"] not in sent_ids                     # never sent to the driver
+
+
 def test_another_facility_cannot_list_or_open_the_conversation(client, dsn, keys):
     d, _, _ = converse(client, dsn, JAI)
     ggn = H(staff_token(keys, facilities=(GGN,)))

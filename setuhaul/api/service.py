@@ -831,6 +831,10 @@ class BookingService:
                                     WHERE o.thread_id = %s ORDER BY o.created_at DESC, o.rank LIMIT 30""", (thread_id,)).fetchall()
             picks = c.execute("""SELECT option_id, selected_at FROM option_selections WHERE thread_id = %s
                                   ORDER BY selected_at DESC LIMIT 10""", (thread_id,)).fetchall()
+            # the stored read-back each YES is checked against (record_read_back): evidence, never sent itself; the
+            # reply the driver received is its own row (with reply_to and a notification)
+            read_backs = {r[0] for r in c.execute("""SELECT read_back_message_id FROM option_selections
+                                                      WHERE thread_id = %s""", (thread_id,)).fetchall()}
             notes = c.execute("""SELECT notification_id, template_id, channel, status, attempts, max_attempts,
                                         provider_message_id, last_error, chat_message_id, created_at, updated_at
                                    FROM notifications WHERE thread_id = %s ORDER BY created_at DESC LIMIT 50""",
@@ -841,7 +845,7 @@ class BookingService:
                        "opened_at": t[8], "closed_at": t[9], "clarification_turns": t[10]},
             "flow": {"state": t[11], "selected_option": t[12], "appointment_id": t[13], "updated_at": t[14]},
             "messages": [{"message_id": m[0], "sender": m[1], "channel": m[2], "body_masked": m[3], "at": m[4],
-                          "reply_to": m[5]} for m in msgs],
+                          "reply_to": m[5], "read_back_record": m[0] in read_backs} for m in msgs],
             "extracted": {"facts": facts[0] if facts else None, "asked": facts[1] if facts else None,
                           "updated_at": facts[2] if facts else None,
                           "eta_signals": [{"source": e[0], "derived_eta": e[1], "confidence": e[2],
