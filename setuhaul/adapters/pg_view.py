@@ -33,7 +33,8 @@ def load_view(c, now: datetime, horizon_h: int = 36) -> FacilityData:
     for f in _rows(c, "SELECT * FROM facilities"):
         k = cfg.get(f["facility_id"], {})
         facilities[f["facility_id"]] = dict(f, close_time=f["close_time"].strftime("%H:%M"),
-                                            checkin_grace_min=k.get("no_show_grace_min", 30))
+                                            checkin_grace_min=k.get("no_show_grace_min", 30),
+                                            shifts=k.get("shifts") or [])            # Phase G: labour crews per shift
     rules = {fid: {k: v for k, v in {
         "HEAVY_DOCK_REQUIRED_KG": r["heavy_dock_required_kg"],
         "LAST_NEW_START_TIME": r["last_new_start_local"].strftime("%H:%M") if r["last_new_start_local"] else None,

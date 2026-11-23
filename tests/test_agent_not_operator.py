@@ -36,7 +36,8 @@ PROTECTED = {"dock_occupancy", "appointments", "approval_requests", "notificatio
              "inbound_receipts", "deployment_evidence",
              "staff_context", "approval_role_rules", "booking_holds", "confirmation_rules", "outbox_consumptions",  # 0015
              "model_budget_day", "model_usage",                                                        # 0023
-             "approval_callbacks"}                                                                     # 0024
+             "approval_callbacks",                                                                     # 0024
+             "optimization_runs", "agent_turn_metrics", "evaluation_runs"}                             # 0027
 
 
 def test_agent_role_attributes(conn):
@@ -125,7 +126,10 @@ def test_every_table_is_rls_forced_or_reasoned(conn):
              # 0026 (Option D): append-only manifests and owner-approved exceptions (no facility data; written only by
              # the deploy-evidence login, read only through booking_gate_snapshot) and the single-row kill switch
              # (changed only by set_booking_kill_switch or the owner)
-             "deployment_manifests", "deployment_exceptions", "booking_kill_switch"}
+             "deployment_manifests", "deployment_exceptions", "booking_kill_switch",
+             # 0027 (Phase G2): evaluation run summaries; synthetic evaluation totals only, no facility, driver or
+             # booking data; written only by record_evaluation_run (system role), read by console and system
+             "evaluation_runs"}
     bad = [r[0] for r in conn.execute("""SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
                                          WHERE n.nspname='setuhaul' AND c.relkind='r'
                                            AND NOT (c.relrowsecurity AND c.relforcerowsecurity)""") if r[0] not in allow]
@@ -167,7 +171,11 @@ def test_feasibility_role_allowlist(conn):
     assert tables == {"SELECT": {"shipments", "docks", "facilities", "facility_config", "appointment_slots", "appointments",
                                  "dock_events", "dock_occupancy", "eta_signals"},
                       "INSERT": {"shown_options"}}
-    assert cols == {} and funcs == {"scope_allows", "driver_or_staff", "assert_turn_fence"}   # 0012: fenced publishing
+    # 0012: fenced publishing. 0027 (Phase G1/G3): the service records the optimizer run summaries and per-turn agent
+    # metrics it measured, through definer functions that validate every value and keep facility scope. Neither touches
+    # booking, approval or capacity state, and the agent role gains nothing.
+    assert cols == {} and funcs == {"scope_allows", "driver_or_staff", "assert_turn_fence",
+                                    "record_optimization_run", "record_agent_turn"}
 
 
 def test_system_role_lost_inbound_duties(conn):

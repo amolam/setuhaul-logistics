@@ -30,6 +30,10 @@ T = {
                     "एक कोऑर्डिनेटर को आपकी जानकारी मिल गई है, {sla} मिनट में जवाब आएगा।"),
     "safety": ("Please stay safe. A coordinator will call you now.", "कृपया सुरक्षित रहें। कोऑर्डिनेटर अभी आपको कॉल करेंगे।"),
     "lost": ("That slot was just taken.", "वह स्लॉट अभी किसी और ने ले लिया।"),
+    # Phase G (open item from v0.2.1): a pick that arrives after the 5-minute offer expired is answered, not "unclear".
+    # The Hindi and Hinglish wording awaits the native-speaker review (as S4-R2-08 did for the others).
+    "options_expired": ("Those slots have expired (an offer is held for 5 minutes). Here are the slots available now.",
+                        "पहले बताए गए स्लॉट की समय-सीमा खत्म हो गई (ऑफ़र 5 मिनट रहता है)। ये अभी के स्लॉट हैं।"),
     "ask_yes": ("Please reply YES to confirm, or choose another option.", "पक्का करने के लिए YES भेजें, या दूसरा विकल्प चुनें।"),
     # B2-18 (found again by the G3 replay, AT10): never promise a coordinator unless an escalation row exists
     "no_slot": ("I could not find a slot that works right now. Please call your dispatcher.",
@@ -68,6 +72,7 @@ HL = {
     "coordinator": "Aapki details coordinator ko mil gayi hain, {sla} minute mein jawab aayega.",
     "safety": "Aap safe rahiye, coordinator abhi aapko call karenge.",
     "lost": "Wo slot abhi kisi aur ne le liya.",
+    "options_expired": "Pehle wale slots ka time khatam ho gaya (offer 5 minute ka hota hai). Ye abhi ke slots hain.",
     "ask_yes": "Pakka karne ke liye YES bhej dijiye, ya koi aur option chun lijiye.",
     "no_slot": "Abhi koi sahi slot nahi mila. Apne dispatcher ko call kar lijiye.",
     "cancelled": "{ref} aur uski appointment cancel ho gayi hai. Aane se pehle apne dispatcher se baat kar lijiye.",

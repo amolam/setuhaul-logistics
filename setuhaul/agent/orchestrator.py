@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import re
 import threading
+import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -22,7 +23,7 @@ from typing import Callable
 
 from pydantic import ValidationError
 
-from ..api.db import TURN_FENCE
+from ..api.db import CORRELATION_ID, TURN_FENCE
 from ..api.security import Principal, SessionTokens
 from ..api.service import BookingService
 from ..domain.booking import classify_confirmation
@@ -53,6 +54,12 @@ class TurnResult:
     escalation_id: str | None = None
     extraction: dict | None = None                              # what the model said, after merging earlier turns
     fallback_reason: str | None = None                          # why the rules reader was used (T52: budget, timeout...)
+    # Phase G3: measured per turn, recorded without any driver data (agent_turn_metrics, structured logs)
+    correlation_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    facility_id: str | None = None
+    tool_calls: list[dict] = field(default_factory=list)      # {"tool", "status", "ms"} only
+    turn_ms: int = 0
+    expired_pick: bool = False                                  # a pick of slots whose 5-minute offer has expired
 
 
 _NUMBER_ANSWER = re.compile(r"^\s*(?:no\.?\s*)?([1-9])\s*(?:number|no\.?|wala|vala|वाला|नंबर)?\s*[.!]?\s*$", re.I)
@@ -101,9 +108,13 @@ class Orchestrator:
                     log.exception("lease renewal failed for message %s", mid)
         hb = threading.Thread(target=heartbeat, daemon=True)
         token = TURN_FENCE.set((mid, owner, gen))
+        corr = CORRELATION_ID.set(str(uuid.uuid4()))                    # Phase G3: one id per turn, logs + metrics
         hb.start()
+        t0 = time.perf_counter()
         try:
             res = self._turn(p, event)
+            if res is not None:                                       # a turn with nothing to do returns None
+                res.turn_ms = int((time.perf_counter() - t0) * 1000)
             if not self.svc.finish_turn(p, mid, owner, gen):            # R2.0 S4-R2-01: not a successful turn
                 raise TurnLeaseLost(f"message {mid}: the lease was lost before the turn finished; it will be redelivered")
         except BaseException:
@@ -115,19 +126,27 @@ class Orchestrator:
         finally:
             stop.set()
             TURN_FENCE.reset(token)
+            CORRELATION_ID.reset(corr)
             hb.join(5)
+        if res is not None:
+            self.svc.record_turn_metrics(res)                           # Phase G3: best effort, never fails the turn
         return res
 
     def _turn(self, p, event: dict) -> TurnResult:
         turn = int(event["message_id"])
-        res = TurnResult(reply=None)
+        res = TurnResult(reply=None, correlation_id=CORRELATION_ID.get() or str(uuid.uuid4()))
 
         def tool(name, **args):
+            t = time.perf_counter()
             r = self.svc.call_tool(p, name, turn, args)
             res.tools.append((name, r["status"]))
+            res.tool_calls.append({"tool": name, "status": r["status"], "ms": int((time.perf_counter() - t) * 1000)})
             return r
 
         ctx = tool("get_driver_context")
+        bound = ctx.get("data", {}).get("thread_shipment_id")
+        res.facility_id = next((x["facility_id"] for x in ctx.get("data", {}).get("live_shipments", [])
+                                if x["shipment_id"] == bound), None)
         if ctx["status"] == "REQUIRES_HUMAN":                       # a person owns the conversation: stay silent
             res.path.append("human-owns-thread")
             return res
@@ -165,6 +184,10 @@ class Orchestrator:
                                            "selected_option_id": None})
                 res.path.append("shipment-by-number")
         res.extraction = ex.model_dump()
+        # Phase G (open item from v0.2.1): the driver answers an offer after it expired. get_driver_context lists only
+        # unexpired options, so the pick ("1", "dock 2 wala") matched nothing and the turn ended in "did not understand".
+        res.expired_pick = (flow["state"] == "OPTIONS_SHOWN" and not shown
+                            and (ex.intent == "BOOK" or ex.selected_option_id is not None or _bare_number(text) is not None))
         chk = check(ex, self.clock(), self._base_eta(data, ex.shipment_ref_mentioned), text, shown)
         if verdict == "YES":                                         # "yes, around 11:00": the computed time stands
             chk.declared_eta, chk.eta_precision = datetime.fromisoformat(stored["candidate_eta"]), "VAGUE"
@@ -319,6 +342,10 @@ class Orchestrator:
         if c.shipment_ref and not self._resolve_ref(c.shipment_ref, data):   # G3 replay ADV03: not this driver's
             res.path.append("refused")
             return replies.t("not_yours", lang, refs=self._refs(data))
+
+        if res.expired_pick and not (c.earliest_start or c.latest_finish):
+            res.path.append("options-expired")                    # say why, then offer what is free now
+            return replies.t("options_expired", lang) + "\n" + self._options_turn(None, None, lang, tool, res, data)
 
         # Review S3-01: a message that brings a new time constraint never selects or confirms in the same turn. The
         # constraint is resolved first (asked if ambiguous), then options are re-offered under it.

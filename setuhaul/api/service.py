@@ -29,8 +29,11 @@ from pydantic import AwareDatetime, BaseModel, Field, ValidationError, model_val
 from ..adapters.pg_view import load_view
 from ..domain.booking import BookingFlow, S, classify_confirmation, idem_key, map_db_error
 from ..domain.feasibility import FeasibilityEngine, Option, hm
+from ..domain.optimizer import (FEASIBLE, OPTIMAL, OptimizationRequest, OptimizationResult, OptimizerConfig,
+                                SlotOptimizer)
 from ..domain.scheduling import ENGINE_VERSION, NOT_A_BOOKING, RULES, Proposal, propose, snapshot_from_data
-from .db import Db
+from ..ops import telemetry
+from .db import CORRELATION_ID, TURN_FENCE, Db
 from .security import Principal
 
 log = logging.getLogger("setuhaul.service")
@@ -63,6 +66,13 @@ SCHEDULE_PERMISSIONS: dict[str, frozenset] = {
 KILL_SWITCH_PERMISSIONS: dict[str, frozenset] = {
     "booking_kill_switch": frozenset({"ops_lead"}),
     "view_kill_switch":    frozenset({"planner", "ops_lead", "operations"}),
+}
+# Phase G (migration 0027): read-only optimizer recommendations and the observability dashboard. Planner and ops_lead
+# only: the operations role keeps exactly its Step 6 permission set (tests/test_console_me.py pins it). Facility scope
+# is the database's (RLS) as for every console read.
+PHASE_G_PERMISSIONS: dict[str, frozenset] = {
+    "view_recommendations": frozenset({"planner", "ops_lead"}),
+    "view_observability":   frozenset({"planner", "ops_lead"}),
 }
 
 
@@ -159,8 +169,14 @@ TOOLS = {"propose_facility_schedule": ScheduleArgs,
 
 class BookingService:
     def __init__(self, db: Db, clock: Callable[[], datetime], facilities: tuple[str, ...], hold_ttl_s: int = 180,
-                 booking_enabled: bool = False):
+                 booking_enabled: bool = False, optimizer_ranking: bool = False,
+                 optimizer_config: OptimizerConfig | None = None):
         self.db, self.clock, self.facilities, self.hold_ttl = db, clock, tuple(facilities), hold_ttl_s
+        # Phase G1: rank the driver's options with the slot optimizer (labour, capacity and the soft objectives).
+        # OFF by default: which slots a driver is offered first is booking policy, switched on by the owner per
+        # environment (SETUHAUL_OPTIMIZER_RANKING=on). The options stay the feasibility engine's either way.
+        self.optimizer_ranking = optimizer_ranking
+        self.optimizer_config = optimizer_config or OptimizerConfig.from_assumptions()
         # Production booking switch (review R0.8): OFF by default. Until durable inbound delivery (step 4) is in
         # place, the agent may understand, find options and read back, but not hold or request a slot.
         self.booking_enabled = booking_enabled
@@ -404,7 +420,17 @@ class BookingService:
             ok = f.allow("find_feasible_options")
             if not ok.allowed:
                 return env("REQUIRES_HUMAN" if ok.reason == "HUMAN_ACTIVE" else "ERROR", {"code": ok.reason})
-        res = self._engine().find_options(sid, self.now(), earliest_start=es, latest_finish=lf, max_options=n)
+        if self.optimizer_ranking:
+            now = self.now()
+            with self.db.tx("feasibility", self.facilities, readonly=True) as c:
+                data = load_view(c, now)
+                sv = c.execute("SELECT schedule_version FROM facilities WHERE facility_id=%s", (fac,)).fetchone()
+            eng = FeasibilityEngine(data)
+            res = eng.find_options(sid, now, earliest_start=es, latest_finish=lf, max_options=n)
+            if res.outcome_code in ("OPTIONS", "NEEDS_APPROVAL", "NO_FEASIBLE_SLOT"):
+                res = self._rank_with_optimizer(data, eng, res, sid, fac, es, lf, n, now, sv[0] if sv else None)
+        else:
+            res = self._engine().find_options(sid, self.now(), earliest_start=es, latest_finish=lf, max_options=n)
         if res.outcome_code == "CONTRADICTORY_DATA":
             return env("REQUIRES_HUMAN", {"shipment_id": sid}, requires_human={"reason_code": "CONTRADICTORY_DATA",
                        "detail": "driver or truck is assigned to an overlapping shipment"},
@@ -431,6 +457,74 @@ class BookingService:
             self._save(c, f, ver)
         return env("OK", {"shipment_id": sid, "options": out}, schedule_version=sv,
                    say_hint="List the numbered options exactly as given; ask the driver to choose one.")
+
+    def _rank_with_optimizer(self, data, eng, res, sid, fac, es, lf, n, now, sv):
+        """G1 in the driver path: the optimizer re-proves every candidate (HC01..HC12, incl. labour and capacity) and
+        ranks the survivors. A failing optimizer never blocks the driver: the engine's own options stand (fallback)."""
+        cfg = OptimizerConfig(**{**self.optimizer_config.__dict__, "max_options": n})
+        opt = SlotOptimizer(data, cfg, engine=eng).optimize(
+            OptimizationRequest(sid, fac, es, lf, request_id=CORRELATION_ID.get() or str(uuid.uuid4()),
+                                data_as_of=now, schedule_version=sv), now)
+        fallback = opt.solver_status not in (OPTIMAL, FEASIBLE, "INFEASIBLE")
+        self._record_run(opt, "agent", "feasibility", (fac,), fallback=fallback)
+        if fallback:                                             # ERROR / UNKNOWN / STALE: keep the engine's options
+            return res
+        res.options = [o.option() for o in opt.options]
+        if not res.options:
+            res.outcome, res.outcome_code = "ESCALATE (NO_FEASIBLE_SLOT)", "NO_FEASIBLE_SLOT"
+        elif all(o.needs_approval for o in res.options):
+            res.outcome, res.outcome_code = "OPTIONS NEED APPROVAL (after last new start time)", "NEEDS_APPROVAL"
+        else:
+            res.outcome, res.outcome_code = f"{len(res.options)} feasible option(s)", "OPTIONS"
+        return res
+
+    def _record_run(self, opt: OptimizationResult, caller: str, role: str, scope: tuple[str, ...],
+                    fallback: bool = False) -> None:
+        """Persist the run summary (0027) and log it. Best effort: telemetry never fails a driver turn or a request."""
+        top = opt.options[0] if opt.options else None
+        telemetry.emit("optimizer.run", opt.request_id, caller=caller, facility_id=opt.facility_id,
+                       shipment_id=opt.shipment_id, solver_status=opt.solver_status, outcome_code=opt.outcome_code,
+                       options=len(opt.options), rejected=len(opt.rejected), candidates=opt.candidates_evaluated,
+                       duration_ms=opt.duration_ms, fallback=fallback)
+        if opt.facility_id is None or not self._has_login(role):
+            return
+        body = {"request_id": opt.request_id[:80], "facility_id": opt.facility_id, "shipment_id": opt.shipment_id,
+                "caller": caller, "engine": opt.engine_version, "solver_status": opt.solver_status,
+                "outcome_code": opt.outcome_code or "NONE", "recommended_action": opt.recommended_action,
+                "options_count": len(opt.options), "rejected_count": len(opt.rejected),
+                "candidates_evaluated": opt.candidates_evaluated, "duration_ms": opt.duration_ms,
+                "input_fingerprint": opt.input_fingerprint or None, "schedule_version": opt.schedule_version,
+                "data_as_of": opt.data_as_of, "top_dock_id": top.dock_id if top else None,
+                "top_start": top.start.isoformat() if top else None, "top_score": top.score if top else None,
+                "warnings": len(opt.warnings), "fallback_used": fallback}
+        token = TURN_FENCE.set(None)                             # evidence of a computation, not a turn's write
+        try:
+            with self.db.tx(role, scope) as c:
+                c.execute("SELECT record_optimization_run(%s)", (Jsonb(body),))
+        except Exception:                                        # noqa: BLE001 — logged, never fatal
+            log.warning("optimizer run not recorded (%s)", opt.request_id)
+        finally:
+            TURN_FENCE.reset(token)
+
+    def record_turn_metrics(self, res) -> None:
+        """Phase G3: one row per finished turn (tool names, statuses, latencies; no driver data). Best effort."""
+        tools = [{"tool": t["tool"], "status": t["status"], "ms": t["ms"]} for t in res.tool_calls][:20]
+        model_ms = sum(getattr(t, "latency_ms", 0) or 0 for t in res.traces) or None
+        telemetry.emit("agent.turn", res.correlation_id, facility_id=res.facility_id, extractor=res.extractor,
+                       fallback_reason=res.fallback_reason, turn_ms=res.turn_ms, model_ms=model_ms,
+                       tools=[f"{t['tool']}:{t['status']}" for t in tools], escalated=bool(res.escalation_id),
+                       path=res.path[:10])
+        if not self._has_login("feasibility"):
+            return
+        ext = res.extractor if res.extractor in ("model", "rules-fallback", "rules") else "none"
+        body = {"turn_ref": res.correlation_id, "facility_id": res.facility_id, "extractor": ext,
+                "fallback_reason": str(res.fallback_reason)[:60] if res.fallback_reason else None, "tools": tools,
+                "turn_ms": res.turn_ms, "model_ms": model_ms, "escalated": bool(res.escalation_id)}
+        try:
+            with self.db.tx("feasibility", self.facilities) as c:
+                c.execute("SELECT record_agent_turn(%s)", (Jsonb(body),))
+        except Exception:                                        # noqa: BLE001
+            log.warning("turn metrics not recorded (%s)", res.correlation_id)
 
     def _publish(self, p, sid, fac, res):
         out, shown = [], {}
@@ -687,10 +781,139 @@ class BookingService:
             raise ServiceError(409 if code in self.MOVE_CONFLICTS else 400, code or "ERROR",
                                e.diag.message_primary or "") from e
 
+    # ---------------------------------------------------------------- Phase G: optimizer + observability (read only)
+    RECOMMEND_NOTE = ("Recommendation only, not a booking. Options are ranked by the deterministic optimizer; a booking "
+                      "still goes through the driver's read-back and yes, or a person, and the database re-checks it.")
+
+    def recommend(self, p: Principal, shipment_id: str, earliest: datetime | None = None, latest: datetime | None = None,
+                  days: int = 1) -> dict:
+        """Console (planner, ops_lead): ranked dock/slot options for one truck, with every hard constraint evaluated and
+        the rejected alternatives. Reads with the CONSOLE role in the person's own facility scope, so it needs no
+        feasibility login (the pilot api has none; see PHASE_G_FAILURE_DEMONSTRATIONS.md, Confirm 500) and it cannot
+        see another facility's shipments. Records a run summary; changes nothing."""
+        self.require(p, "view_recommendations")
+        now = self.now()
+        corr = CORRELATION_ID.get() or str(uuid.uuid4())
+        with self.db.tx("console", p.facilities, readonly=True) as c:
+            row = c.execute("SELECT destination_facility_id FROM shipments WHERE shipment_id=%s", (shipment_id,)).fetchone()
+            if not row or row[0] not in p.facilities:
+                raise ServiceError(404, "NOT_FOUND", "no such shipment")
+            fac = row[0]
+            data = load_view(c, now)
+            sv = c.execute("SELECT schedule_version FROM facilities WHERE facility_id=%s", (fac,)).fetchone()[0]
+        cfg = OptimizerConfig(**{**self.optimizer_config.__dict__, "operating_days_ahead": days, "max_options": 5})
+        opt = SlotOptimizer(data, cfg).optimize(
+            OptimizationRequest(shipment_id, fac, earliest, latest, request_id=corr, data_as_of=now, schedule_version=sv), now)
+        self._record_run(opt, "console", "console", (fac,))
+        return opt.to_dict() | {"status": "RECOMMENDATION", "note": self.RECOMMEND_NOTE, "correlation_id": corr}
+
+    DLQ_NOTE = ("Queue and dead-letter depth live in SQS/CloudWatch, not in the database; the console does not read "
+                "AWS metrics. Proxy shown: inbound redeliveries and unprocessed messages from inbound_receipts.")
+
+    def observability(self, p: Principal, facility: str | None = None, hours: int = 24) -> dict:
+        """Console (planner, ops_lead): every number comes from a persisted row or a measured timing, in this person's
+        facility scope (RLS). What cannot be measured here is reported as unavailable, with the reason."""
+        self.require(p, "view_observability")
+        scope = self._scope(p, facility)
+        now = self.now()
+        since = now - timedelta(hours=max(1, min(hours, 24 * 31)))
+
+        def rows(c, sql, *a):
+            cur = c.execute(sql, a)
+            cols = [d.name for d in cur.description]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+        def kv(c, sql, *a):
+            return {str(k): int(v) for k, v in c.execute(sql, a).fetchall()}
+
+        with self.db.tx("console", scope, readonly=True) as c:
+            overview = {
+                "shipments_by_status": kv(c, "SELECT current_status, count(*) FROM shipments GROUP BY 1 ORDER BY 1"),
+                "appointments_by_status": kv(c, """SELECT a.status, count(*) FROM appointments a WHERE a.is_current
+                                                   GROUP BY 1 ORDER BY 1"""),
+                "open_escalations_by_reason": kv(c, """SELECT reason_code, count(*) FROM escalations
+                                                       WHERE status IN ('OPEN','ACKNOWLEDGED') GROUP BY 1 ORDER BY 1"""),
+                "open_approval_requests": c.execute("SELECT count(*) FROM approval_requests WHERE status='OPEN'").fetchone()[0],
+                "docks_blocked_now": c.execute("""SELECT count(DISTINCT dock_id) FROM dock_events
+                                                  WHERE during @> now()""").fetchone()[0],
+                "conversations_active": c.execute("""SELECT count(DISTINCT thread_id) FROM chat_messages
+                                                     WHERE created_at >= %s""", (since,)).fetchone()[0],
+            }
+            turns = rows(c, """SELECT count(*) AS turns,
+                                      count(*) FILTER (WHERE extractor = 'model') AS model_turns,
+                                      count(*) FILTER (WHERE extractor <> 'model') AS rules_turns,
+                                      count(*) FILTER (WHERE fallback_reason IS NOT NULL) AS fallbacks,
+                                      count(*) FILTER (WHERE escalated) AS escalated,
+                                      percentile_disc(0.5) WITHIN GROUP (ORDER BY turn_ms) AS turn_p50_ms,
+                                      percentile_disc(0.95) WITHIN GROUP (ORDER BY turn_ms) AS turn_p95_ms
+                                 FROM agent_turn_metrics WHERE created_at >= %s""", since)[0]
+            tools = rows(c, """SELECT t->>'tool' AS tool, count(*) AS calls,
+                                      count(*) FILTER (WHERE t->>'status' NOT IN ('OK','NEEDS_INFO')) AS not_ok,
+                                      percentile_disc(0.5) WITHIN GROUP (ORDER BY (t->>'ms')::int) AS p50_ms,
+                                      percentile_disc(0.95) WITHIN GROUP (ORDER BY (t->>'ms')::int) AS p95_ms
+                                 FROM agent_turn_metrics m, jsonb_array_elements(m.tools) t
+                                WHERE m.created_at >= %s GROUP BY 1 ORDER BY 2 DESC, 1""", since)
+            fallbacks = kv(c, """SELECT fallback_reason, count(*) FROM agent_turn_metrics
+                                 WHERE created_at >= %s AND fallback_reason IS NOT NULL GROUP BY 1 ORDER BY 1""", since)
+            optim = rows(c, """SELECT count(*) AS runs,
+                                      count(*) FILTER (WHERE options_count > 0) AS with_options,
+                                      count(*) FILTER (WHERE fallback_used) AS fallbacks,
+                                      percentile_disc(0.5) WITHIN GROUP (ORDER BY duration_ms) AS p50_ms,
+                                      percentile_disc(0.95) WITHIN GROUP (ORDER BY duration_ms) AS p95_ms,
+                                      max(duration_ms) AS max_ms,
+                                      coalesce(round(avg(candidates_evaluated))::int, 0) AS avg_candidates,
+                                      coalesce(round(avg(rejected_count))::int, 0) AS avg_rejected
+                                 FROM optimization_runs WHERE created_at >= %s""", since)[0]
+            optim["by_status"] = kv(c, """SELECT solver_status, count(*) FROM optimization_runs WHERE created_at >= %s
+                                          GROUP BY 1 ORDER BY 1""", since)
+            optim["by_caller"] = kv(c, """SELECT caller, count(*) FROM optimization_runs WHERE created_at >= %s
+                                          GROUP BY 1 ORDER BY 1""", since)
+            optim["by_outcome"] = kv(c, """SELECT outcome_code, count(*) FROM optimization_runs WHERE created_at >= %s
+                                           GROUP BY 1 ORDER BY 1""", since)
+            reliability = {
+                "approval_requests_by_status": kv(c, """SELECT status, count(*) FROM approval_requests
+                                                        WHERE created_at >= %s GROUP BY 1 ORDER BY 1""", since),
+                "booking_events_by_action": kv(c, """SELECT action, count(*) FROM booking_events WHERE at >= %s
+                                                     GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 20""", since),
+                "notifications_by_status": kv(c, """SELECT status, count(*) FROM notifications WHERE created_at >= %s
+                                                    GROUP BY 1 ORDER BY 1""", since),
+                "notification_retries": c.execute("""SELECT count(*) FROM notifications WHERE created_at >= %s
+                                                     AND attempts > 1""", (since,)).fetchone()[0],
+                "outbox_by_status": kv(c, """SELECT status, count(*) FROM outbox WHERE created_at >= %s
+                                             GROUP BY 1 ORDER BY 1""", since),
+                "inbound": rows(c, """SELECT count(*) AS received,
+                                             count(*) FILTER (WHERE processed_at IS NOT NULL) AS processed,
+                                             count(*) FILTER (WHERE deliveries > 1) AS redelivered,
+                                             count(*) FILTER (WHERE attempts > 1) AS retried,
+                                             count(*) FILTER (WHERE processed_at IS NULL
+                                                              AND created_at < now() - interval '5 minutes') AS stuck_over_5_min
+                                        FROM inbound_receipts WHERE created_at >= %s""", since)[0],
+                "queue_dlq": {"status": "unavailable", "reason": self.DLQ_NOTE},
+            }
+            evals = rows(c, """SELECT suite, mode, dataset_version, total, passed, failed, skipped, cost_usd::text AS cost_usd,
+                                      summary, code_version, finished_at
+                                 FROM evaluation_runs ORDER BY finished_at DESC LIMIT 5""")
+            glob = c.execute("SELECT observability_global(%s)", (since,)).fetchone()[0]
+        for e in evals:
+            e["finished_at"] = e["finished_at"].isoformat() if hasattr(e["finished_at"], "isoformat") else e["finished_at"]
+        reliability["idempotency"] = glob.get("idempotency")
+        reliability["approval_callbacks"] = glob.get("approval_callbacks")
+        model = glob.get("model_usage") or {}
+        agent = {**turns, "tools": tools, "fallback_reasons": fallbacks,
+                 "model_usage": model if model.get("calls") else {**model, "status": "no model calls in the window"},
+                 "model_usage_scope": "all facilities (the model ledger has no facility column; no driver data)"}
+        if not turns["turns"]:
+            agent["status"] = "unavailable: no agent turns recorded in the window"
+        return {"generated_at": now.isoformat(), "since": since.isoformat(), "facilities": list(scope),
+                "data_label": "SYNTHETIC DATA - pilot/local only, no real drivers or shipments",
+                "overview": overview, "agent": agent, "optimization": optim, "reliability": reliability,
+                "evaluation": evals or [{"status": "unavailable: no evaluation run recorded"}]}
+
     # ---------------------------------------------------------------- console (people decide)
     @staticmethod
     def require(p: Principal, action: str):
-        allowed = PERMISSIONS.get(action) or SCHEDULE_PERMISSIONS.get(action) or KILL_SWITCH_PERMISSIONS[action]
+        allowed = (PERMISSIONS.get(action) or SCHEDULE_PERMISSIONS.get(action) or PHASE_G_PERMISSIONS.get(action)
+                   or KILL_SWITCH_PERMISSIONS[action])
         if not (p.roles & allowed):
             raise ServiceError(403, "FORBIDDEN", f"{action} needs one of: {', '.join(sorted(allowed))}")
 
@@ -765,7 +988,7 @@ class BookingService:
         """Read only (Step 6 WORKLOAD_IDENTITY check 5): who the server says this person is, derived ONLY from the
         verified Cognito token (groups -> roles, facility_scope claim), and which console actions that allows. Nothing
         the browser sends can change it; the database receives the same roles in begin_staff_context."""
-        allowed = {**PERMISSIONS, **SCHEDULE_PERMISSIONS, **KILL_SWITCH_PERMISSIONS}
+        allowed = {**PERMISSIONS, **SCHEDULE_PERMISSIONS, **KILL_SWITCH_PERMISSIONS, **PHASE_G_PERMISSIONS}
         return {"principal": f"staff:{p.sub}", "roles": sorted(p.roles), "facilities": list(p.facilities),
                 "permissions": {a: bool(p.roles & r) for a, r in sorted(allowed.items())}}
 
