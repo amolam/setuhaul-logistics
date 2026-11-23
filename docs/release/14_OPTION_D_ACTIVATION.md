@@ -1,5 +1,7 @@
 # 14 — Option D activation on the synthetic Sydney pilot (23 Nov 2026)
 
+> **Frozen baseline: `v0.2.1` (`4f7da62`),** deployed by activate-booking run 45140560077; it includes both fixes below (`15_RELEASE_NOTES.md`).
+
 **Authority:** the owner's written decision "FINAL DECISION — OPTION D APPROVED", recorded as
 `OWNER-APPROVAL-20261123-OPTION-D`. Scope: the **synthetic** Sydney pilot only. No production deployment and no merge
 to `main`.

@@ -16,7 +16,7 @@
 | A Repository cleanup | Done (archive moved out, `.gitignore`, `.env.example`, requirements split, restructure into a standard layout) |
 | B Provider architecture | Done (T52: OpenRouter primary, pinned ZDR route, Secrets Manager, usage ledger + daily budget; Bedrock optional) plus review fixes R1/R4 |
 | C Tests and quality gates | Done; the latest consolidated run is in `docs/challenge/TEST_REPORT.md` |
-| D Security and GitHub readiness | Done: private repository `amolam/setuhaul-logistics`, tag `v0.1.0-fde-pilot` (`02_SECURITY_SCAN.md`, `03_GITHUB_RELEASE_CHECKLIST.md`) |
+| D Security and GitHub readiness | Done: private repository `amolam/setuhaul-logistics`, tag `v0.1.0-fde-pilot` (`02_SECURITY_SCAN.md`, `03_GITHUB_RELEASE_CHECKLIST.md`). **Frozen synthetic booking-enabled pilot baseline: `v0.2.1` (`4f7da62`)** (`15_RELEASE_NOTES.md`) |
 | E AWS Sydney pilot | **Option A deployed and verified** (`10_EXPRESS_AURORA.md`, `11_STAFF_CONSOLE.md`, `12_CONSOLE_PILOT_REPORT.md`). **Option D (booking) ACTIVE on the synthetic pilot since 23 Nov 2026** (`OWNER-APPROVAL-20261123-OPTION-D`; `14_OPTION_D_ACTIVATION.md`) |
 | F Step 6 acceptance | **Measured live (22–23 Nov):** BOOKING_WORKFLOW, AWS_QUEUE and RECOVERY_WORKER **PASS**; AURORA PASS WITH PILOT EXCEPTION (T33-P); WORKLOAD_IDENTITY PARTIAL (all 5 acceptance checks pass live; only drift detection, not on the Free plan); OUTBOUND_DELIVERY BLOCKED (`13_STEP6_GATE_EVIDENCE.md`) |
 | G Monitoring, cost, operations | Done as a guide; `/health`; pilot wake and sleep; pause evidence from RDS events (`06_PILOT_OPERATIONS_GUIDE.md`) |
