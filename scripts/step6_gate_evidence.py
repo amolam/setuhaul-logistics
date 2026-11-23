@@ -117,6 +117,11 @@ def secret_resources(statements):
     return sorted(out)
 
 
+def drill(name):
+    f = ROOT / "docs" / "release" / "evidence" / name
+    return json.loads(f.read_text(encoding="utf-8")) if f.exists() else None
+
+
 def gate_queue(out, fns, stmts):
     sqs = c("sqs")
     url = out["QueueUrl"]
@@ -158,8 +163,15 @@ def gate_queue(out, fns, stmts):
         "messages flowed through the real queue (last 48 h)": ev["last_48h"]["messages_sent"] > 0,
         "DLQ empty": int(d.get("ApproximateNumberOfMessages", "0")) == 0,
     }
-    missing = ["a redrive drill (move a message DLQ -> queue) has not been run: it writes to the live queue, so it needs "
-               "the owner's approval; the procedure is in docs/operations/RUNBOOK_0011.md"]
+    d = drill("drill_dlq_summary.json")
+    ev["dlq_drill"] = d and {"checks": d["checks"], "monitoring": d["monitoring"]}
+    if d:
+        checks["redrive procedure tested live (owner-approved drill, 23 Nov)"] = bool(d["all_pass"])
+        missing = ["DLQ-depth monitoring not demonstrated: the DlqNotEmpty alarm (5-minute maximum) never saw the drill "
+                   "message, which sat in the DLQ only seconds/minutes; the oldest-message alarm did fire"]
+    else:
+        missing = ["a redrive drill (move a message DLQ -> queue) has not been run: it writes to the live queue, so it needs "
+                   "the owner's approval; the procedure is in docs/operations/RUNBOOK_0011.md"]
     return ev, checks, missing
 
 
@@ -200,6 +212,10 @@ def gate_recovery(out, fns, res):
                "lease renewal and generation fencing were not forced live (it needs a deliberately stuck message on the real "
                "queue); they are proven locally (tests/test_inbound_delivery.py)",
                "the DLQ handling procedure has not been drilled live (see AWS_QUEUE)"]
+    d = drill("drill_dlq_summary.json")
+    if d and d["all_pass"]:
+        missing = missing[:2]
+        checks["DLQ handling procedure drilled live: inspect, redrive, remove one message (23 Nov)"] = True
     return ev, checks, missing
 
 
@@ -235,6 +251,12 @@ def gate_workflow(out, fns, res):
     }
     missing = ["request / approve / reject / expiry against the real state machine need the booking switch ON (Option D), "
                "which needs the owner's separate approval; proven locally (tests/test_approval_workflow*.py, LocalApprovalWorkflow + ASL)"]
+    d = drill("drill_approval_run1.json")
+    if d:
+        ev["approval_drill"] = {"executions_started": d["executions"], "relay_error": d["relay_error"],
+                                "requests": d["requests"]}
+        checks["the deployed relay can start executions (live drill, 23 Nov)"] = d["executions"] > 0
+        missing = ["rerun the drill after the IAM fix is deployed (decision callbacks and expiry by timeout)"]
     return ev, checks, missing
 
 
@@ -381,7 +403,8 @@ def main() -> int:
     ev, ch, mi = gate_recovery(out, fns, res)
     gates["RECOVERY_WORKER"] = {"evidence": ev, "checks": ch, "not_shown": mi, "status": status(ch, mi)}
     ev, ch, mi = gate_workflow(out, fns, res)
-    gates["BOOKING_WORKFLOW"] = {"evidence": ev, "checks": ch, "not_shown": mi, "status": status(ch, mi, blocked=True)}
+    gates["BOOKING_WORKFLOW"] = {"evidence": ev, "checks": ch, "not_shown": mi,
+                                 "status": status(ch, mi, blocked="approval_drill" not in ev)}
     gates["OUTBOUND_DELIVERY"] = {
         "evidence": {"sender": "internal test sink (SETUHAUL_OUTBOUND=test-sink); WhatsApp never enabled",
                      "see": "docs/release/evidence/option_a.json (A3/A4: delivered to the sink; reserved number refused)"},

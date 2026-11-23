@@ -1,0 +1,139 @@
+{
+ "collected_utc": "2026-11-23T02:19:10+00:00",
+ "evidence": {
+  "queue": "setuhaul-inbound.fifo",
+  "dlq": "setuhaul-inbound-dlq.fifo",
+  "max_receive_count": 5,
+  "visibility_timeout_s": 300,
+  "consumer": [
+   {
+    "state": "Enabled",
+    "batch_size": 1,
+    "response": [
+     "ReportBatchItemFailures"
+    ]
+   }
+  ],
+  "before": {
+   "queue": {
+    "visible": 0,
+    "NotVisible": 1,
+    "Delayed": 0
+   },
+   "dlq": {
+    "visible": 0,
+    "NotVisible": 0,
+    "Delayed": 0
+   },
+   "inbound_receipts": [
+    27,
+    135
+   ]
+  },
+  "resumed": {
+   "from_run": 1,
+   "failures_so_far": 10,
+   "only_tracked_message_failing": true,
+   "baseline_note": "inbound_receipts counters taken at resume; run 1 recorded none before its crash"
+  },
+  "message": {
+   "tag": "STEP6-DLQ-DRILL-8436a4759a40",
+   "message_ids": [
+    "0bff4e2f-d993-4a24-93f6-385901d153fb",
+    "cf6ed815-c893-4e39-a3b2-c4327d33929c"
+   ],
+   "group": "STEP6-DLQ-DRILL-8436a4759a40",
+   "sent_at": "2026-11-23T01:28:14+00:00",
+   "note": "the redrive gave the message a new SQS id; identity is proven by the body tag in the DLQ"
+  },
+  "dead_lettered": {
+   "in_dlq": true,
+   "agent_failures_logged": 10,
+   "error_types": [
+    "JSONDecodeError"
+   ],
+   "dlq_message_matches_tag": false,
+   "other_messages_in_dlq": 0,
+   "dlq_message_id": null,
+   "receive_count_on_source": null
+  },
+  "redrive": {
+   "status": "COMPLETED",
+   "moved": 1,
+   "to_move": 1,
+   "destination": "source queue (default)"
+  },
+  "after_redrive": {
+   "redelivered_to_consumer": true,
+   "agent_failures_logged": 5,
+   "error_types": [
+    "JSONDecodeError"
+   ],
+   "dead_lettered_again": true,
+   "dlq_message_matches_tag": true,
+   "other_messages_in_dlq": 0
+  },
+  "tracked_message_removed": true,
+  "after": {
+   "queue": {
+    "visible": 0,
+    "NotVisible": 0,
+    "Delayed": 0
+   },
+   "dlq": {
+    "visible": 0,
+    "NotVisible": 0,
+    "Delayed": 0
+   },
+   "inbound_receipts": [
+    27,
+    135
+   ]
+  }
+ },
+ "checks": {
+  "queues held nothing but the tracked message": true,
+  "the tracked message was dead-lettered after repeated consumer failures": true,
+  "the DLQ held exactly the tracked message": false,
+  "redrive moved exactly 1 message back to the source queue": true,
+  "the redriven message reached the consumer again and was dead-lettered again (nothing lost)": true,
+  "every failure happened at the JSON parse (no business code ran)": true,
+  "no inbound receipt or turn was created (business records unchanged)": true,
+  "only the tracked message was removed; both queues empty after": true
+ },
+ "all_pass": false,
+ "log": [
+  {
+   "t": "2026-11-23T02:17:11+00:00",
+   "event": "resumed tracking",
+   "message_id": "cf6ed815-c893-4e39-a3b2-c4327d33929c,0bff4e2f-d993-4a24-93f6-385901d153fb",
+   "failures_so_far": 10
+  },
+  {
+   "t": "2026-11-23T02:17:18+00:00",
+   "event": "continuing after the completed redrive",
+   "at": "2026-11-23T01:53:27+00:00"
+  },
+  {
+   "t": "2026-11-23T02:17:23+00:00",
+   "event": "redrive finished",
+   "status": "COMPLETED",
+   "moved": 1,
+   "to_move": 1,
+   "destination": "source queue (default)"
+  },
+  {
+   "t": "2026-11-23T02:18:55+00:00",
+   "event": "phase 2: message is in the DLQ",
+   "dlq": {
+    "visible": 1,
+    "NotVisible": 0,
+    "Delayed": 0
+   }
+  },
+  {
+   "t": "2026-11-23T02:18:58+00:00",
+   "event": "tracked message removed from the DLQ"
+  }
+ ]
+}

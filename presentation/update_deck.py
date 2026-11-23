@@ -183,12 +183,12 @@ def status_slide(prs):
     text(s, 0.62, 2.68, 2.7, 1.5, [[("Option D — OFF", {"bold": True, "color": "red", "size": 14})],
          "Booking requests, approvals, schedule moves: built and tested. Turns on only with all six gates current "
          "and the owner's written approval."], size=11, name="Option D text")
-    rows = [["Gate (measured live, 22 Nov)", "Status", "What is missing"],
-            ["Queue", "PARTIAL", "dead-letter drill (needs approval)"],
+    rows = [["Gate (measured live, 22–23 Nov)", "Status", "What is missing"],
+            ["Queue", "PARTIAL", "redrive drilled; DLQ alarm not shown"],
             ["Recovery worker", "PARTIAL", "forced lease-loss test"],
             ["Workload identity", "PARTIAL", "check 5: second staff user"],
             ["Database", "PASS (pilot exc.)", "T33-P: 17.9 pilot only; prod needs 18.3+"],
-            ["Approval workflow", "BLOCKED", "live run needs approval"],
+            ["Approval workflow", "FAIL", "relay IAM fix ready, not deployed"],
             ["Outbound delivery", "BLOCKED", "Meta test number + templates"]]
     table(s, 3.65, 1.1, 5.85, rows, [2.45, 1.15, 2.25], size=10, status_col=1, name="Gate table")
     text(s, 3.65, 3.25, 5.85, 1.4, "No gate has passed unconditionally, so no evidence row was written and booking cannot start. "

@@ -5,8 +5,8 @@
 >
 > | Gate | Status |
 > |---|---|
-> | AWS_QUEUE | **PARTIAL.** The redrive drill is not done; it needs the owner's approval. |
-> | RECOVERY_WORKER | **PARTIAL.** Lease and fencing were not forced live. |
+> | AWS_QUEUE | **PARTIAL.** The redrive was drilled live on 23 Nov. Only the DLQ-depth alarm is not demonstrated. |
+> | RECOVERY_WORKER | **PARTIAL.** The DLQ procedure was drilled on 23 Nov. Lease and fencing were not forced live. |
 > | WORKLOAD_IDENTITY | **PARTIAL.** Acceptance check 5 needs a second Cognito user. |
 > | AURORA | **PASS WITH PILOT EXCEPTION (T33-P)**, 23 Nov: 17.9 verified live and in CI. Production still needs 18.3+ (T33). |
 > | BOOKING_WORKFLOW | **FAIL** (drill, 23 Nov): the deployed relay is not allowed to start executions (IAM grant on the alias ARN only). The fix is ready locally and not deployed. |

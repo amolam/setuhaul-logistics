@@ -1,0 +1,14 @@
+2026-11-23T02:17:11+00:00 resumed tracking {"message_id": "cf6ed815-c893-4e39-a3b2-c4327d33929c,0bff4e2f-d993-4a24-93f6-385901d153fb", "failures_so_far": 10}
+2026-11-23T02:17:18+00:00 continuing after the completed redrive {"at": "2026-11-23T01:53:27+00:00"}
+2026-11-23T02:17:23+00:00 redrive finished {"status": "COMPLETED", "moved": 1, "to_move": 1, "destination": "source queue (default)"}
+2026-11-23T02:18:55+00:00 phase 2: message is in the DLQ {"dlq": {"visible": 1, "NotVisible": 0, "Delayed": 0}}
+2026-11-23T02:18:58+00:00 tracked message removed from the DLQ {}
+ok queues held nothing but the tracked message
+ok the tracked message was dead-lettered after repeated consumer failures
+NO the DLQ held exactly the tracked message
+ok redrive moved exactly 1 message back to the source queue
+ok the redriven message reached the consumer again and was dead-lettered again (nothing lost)
+ok every failure happened at the JSON parse (no business code ran)
+ok no inbound receipt or turn was created (business records unchanged)
+ok only the tracked message was removed; both queues empty after
+exit=1

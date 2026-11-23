@@ -1,5 +1,5 @@
 {
- "collected_utc": "2026-11-23T01:09:25+00:00",
+ "collected_utc": "2026-11-23T02:21:24+00:00",
  "stack": "SetuHaulPilot",
  "region": "ap-southeast-2",
  "booking_enabled": false,
@@ -291,9 +291,25 @@
      ]
     },
     "last_48h": {
-     "messages_sent": 27,
+     "messages_sent": 29,
      "messages_deleted": 27,
      "dlq_messages_sent": 0
+    },
+    "dlq_drill": {
+     "checks": {
+      "queues held nothing but the tracked message [run 2]": true,
+      "dead-lettered after 5 consumer failures, all JSONDecodeError [run 2]": true,
+      "the DLQ held exactly the tracked message (body tag, same id) [run 2]": true,
+      "redrive moved exactly 1 message back to the source queue [run 5, move task record]": true,
+      "the redriven message reached the consumer again, failed 5 times and was dead-lettered again; body tag matched [run 5]": true,
+      "no business code ran: every failure at the JSON parse [runs 2, 5]": true,
+      "business records unchanged: inbound_receipts write counters [runs 2 to 5]": true,
+      "only the tracked message removed; both queues empty after [run 5]": true
+     },
+     "monitoring": {
+      "QueueOldestMessage alarm (age > 300 s)": "fired during the drill: OK->ALARM 01:35:18 and 02:00:18 UTC",
+      "DlqNotEmpty alarm (visible > 0, 5-min max)": "did NOT fire: the DLQ metric recorded no non-zero point; the message stayed in the DLQ only seconds/minutes before redrive or removal. Not demonstrated."
+     }
     }
    },
    "checks": {
@@ -307,10 +323,11 @@
     "senders are only the API and recovery functions": true,
     "receivers are only the agent function": true,
     "messages flowed through the real queue (last 48 h)": true,
-    "DLQ empty": true
+    "DLQ empty": true,
+    "redrive procedure tested live (owner-approved drill, 23 Nov)": true
    },
    "not_shown": [
-    "a redrive drill (move a message DLQ -> queue) has not been run: it writes to the live queue, so it needs the owner's approval; the procedure is in docs/operations/RUNBOOK_0011.md"
+    "DLQ-depth monitoring not demonstrated: the DlqNotEmpty alarm (5-minute maximum) never saw the drill message, which sat in the DLQ only seconds/minutes; the oldest-message alarm did fire"
    ],
    "status": "PARTIAL"
   },
@@ -349,12 +366,12 @@
    },
    "checks": {
     "recovery schedule exists, every minute": true,
-    "recovery worker has run on the real schedule": true
+    "recovery worker has run on the real schedule": true,
+    "DLQ handling procedure drilled live: inspect, redrive, remove one message (23 Nov)": true
    },
    "not_shown": [
     "schedules are DISABLED while the pilot sleeps (cost control); evidence is from the last wake period",
-    "lease renewal and generation fencing were not forced live (it needs a deliberately stuck message on the real queue); they are proven locally (tests/test_inbound_delivery.py)",
-    "the DLQ handling procedure has not been drilled live (see AWS_QUEUE)"
+    "lease renewal and generation fencing were not forced live (it needs a deliberately stuck message on the real queue); they are proven locally (tests/test_inbound_delivery.py)"
    ],
    "status": "PARTIAL"
   },
@@ -367,18 +384,55 @@
     "tracing": true,
     "live_definition_sha256": "d5d970c03393afa647027e6f43c5c37dbfcb46cea9731b4b3b9b67181c45f908",
     "repo_definition_sha256": "d5d970c03393afa647027e6f43c5c37dbfcb46cea9731b4b3b9b67181c45f908",
-    "executions": 0
+    "executions": 0,
+    "approval_drill": {
+     "executions_started": 0,
+     "relay_error": "AccessDeniedException: ...FnApprovalRelayServiceRole... is not authorized to perform: states:StartExecution on resource: arn:aws:states:ap-southeast-2:************:stateMachine:setuhaul-pilot-approval because no identity-based policy allows the states:StartExecution action",
+     "requests": [
+      [
+       "e0a3c0bb-7d17-4181-9336-a64f0eb1f40f",
+       "SYN-STEP6-SHP-4AB620D0",
+       "APPROVED",
+       "staff:step6-drill-planner",
+       "2026-11-23 01:35:03.738954+00",
+       false,
+       "CONFIRMED",
+       true
+      ],
+      [
+       "ec99648f-e0ad-4c32-b0ee-02bfde2d8e8a",
+       "SYN-STEP6-SHP-ECCDE8C2",
+       "REJECTED",
+       "staff:step6-drill-planner",
+       "2026-11-23 01:35:15.931354+00",
+       false,
+       "REJECTED",
+       false
+      ],
+      [
+       "2c6b6e0f-a222-42c3-be5e-2099d7e87547",
+       "SYN-STEP6-SHP-9DEE8575",
+       "OPEN",
+       null,
+       "2026-11-23 01:35:29.317121+00",
+       false,
+       "PENDING_CONFIRMATION",
+       true
+      ]
+     ]
+    }
    },
    "checks": {
     "live alias 'live' routes 100% to one published version": true,
     "published definition equals the repository ASL": true,
     "no execution ever started (booking off)": true,
-    "booking switch false on every function": true
+    "booking switch false on every function": true,
+    "the deployed relay can start executions (live drill, 23 Nov)": false
    },
    "not_shown": [
-    "request / approve / reject / expiry against the real state machine need the booking switch ON (Option D), which needs the owner's separate approval; proven locally (tests/test_approval_workflow*.py, LocalApprovalWorkflow + ASL)"
+    "rerun the drill after the IAM fix is deployed (decision callbacks and expiry by timeout)"
    ],
-   "status": "BLOCKED"
+   "status": "FAIL"
   },
   "OUTBOUND_DELIVERY": {
    "evidence": {

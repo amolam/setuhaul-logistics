@@ -18,7 +18,7 @@
 | C Tests and quality gates | Done; the latest consolidated run is in `docs/challenge/TEST_REPORT.md` |
 | D Security and GitHub readiness | Done: private repository `amolam/setuhaul-logistics`, tag `v0.1.0-fde-pilot` (`02_SECURITY_SCAN.md`, `03_GITHUB_RELEASE_CHECKLIST.md`) |
 | E AWS Sydney pilot | **Option A deployed and verified** (`10_EXPRESS_AURORA.md`, `11_STAFF_CONSOLE.md`, `12_CONSOLE_PILOT_REPORT.md`). Option D is built and OFF |
-| F Step 6 acceptance | **Measured live:** AURORA is PASS WITH PILOT EXCEPTION (T33-P, 23 Nov); 3 PARTIAL; 2 BLOCKED. No unconditional pass (`13_STEP6_GATE_EVIDENCE.md`, `05_STEP6_GATE_STATUS.md`) |
+| F Step 6 acceptance | **Measured live, with the drills of 23 Nov:** AURORA PASS WITH PILOT EXCEPTION (T33-P); 3 PARTIAL; BOOKING_WORKFLOW **FAIL** (relay IAM defect, fix not deployed); OUTBOUND_DELIVERY BLOCKED. No unconditional pass (`13_STEP6_GATE_EVIDENCE.md`) |
 | G Monitoring, cost, operations | Done as a guide; `/health`; pilot wake and sleep; pause evidence from RDS events (`06_PILOT_OPERATIONS_GUIDE.md`) |
 
 ## The twelve deliverables
@@ -79,7 +79,7 @@ Since the restructure (`git diff --name-only 77e82cc HEAD`): `README.md`; `.env.
 
 | Item | Kind | Note |
 |---|---|---|
-| Step 6 gates: 3 PARTIAL, AURORA PASS WITH PILOT EXCEPTION (T33-P, approved 23 Nov), BOOKING_WORKFLOW and OUTBOUND_DELIVERY BLOCKED | blocking for booking | owner: redrive drill, live workflow run, second Cognito user, Meta test number and templates; whether T33-P may count for Option D on the pilot (`13_STEP6_GATE_EVIDENCE.md`) |
+| Step 6 gates (23 Nov, after the owner-approved drills): AURORA PASS WITH PILOT EXCEPTION (T33-P); AWS_QUEUE, RECOVERY_WORKER and WORKLOAD_IDENTITY PARTIAL; **BOOKING_WORKFLOW FAIL** (the deployed relay is denied `states:StartExecution`; the fix is ready locally, not deployed); OUTBOUND_DELIVERY BLOCKED | blocking for booking | owner: deploy the relay IAM fix and rerun the workflow drill; a longer DLQ drill for the depth alarm; a second Cognito user; a Meta test number and templates; whether T33-P may count for Option D (`13_STEP6_GATE_EVIDENCE.md`) |
 | R2 (low): spending cap and cost are supplied by the calling code | **deferred (23 Nov)** | the cap comes from the deployment configuration (`SETUHAUL_LLM_DAILY_BUDGET_USD`), backed by the $3/month key limit. Moving it into the database needs a migration and new grants, which is out of scope for a low item |
 | R3 (low): no length limits on extracted text arguments | **implemented (23 Nov)** | every free-text field is bounded in the schema and the parser; over-long values fall back to the rules reader (`tests/test_extraction_bounds.py`) |
 | R5 (info): a crashed process leaves its reservation counted for the day | **deferred, accepted (23 Nov)** | errs towards spending less; resets at 00:00 UTC |
