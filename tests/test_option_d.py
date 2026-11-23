@@ -367,3 +367,28 @@ def test_the_pipeline_activation_runs_end_to_end_through_the_data_api(dsn, tmp_p
             ge.activate_from_pipeline(args)
         with psycopg.connect(dsn) as c:
             assert c.execute("SELECT count(*) FROM setuhaul.deployment_manifests WHERE deployment_id=%s", (dep,)).fetchone()[0] == 0
+
+
+def test_a_console_confirm_works_with_the_deployed_api_logins_only(dsn):
+    """23 Nov 2026, live: every console Confirm returned 500 because the advisory feasibility re-check needs a
+    feasibility login the deployed api does not have (WORKLOAD_ROLES api = ingest, console). With exactly those logins
+    a real PENDING request must be confirmed, and the database still decides (a second decision is refused)."""
+    from datetime import datetime, timezone
+    from data_api_emulator import EmulatedRdsData
+    from setuhaul.api.security import Principal
+    from setuhaul.api.service import BookingService, ServiceError
+    from setuhaul.aws.data_api import DataApiDb
+    from test_approvals import JAI, pending
+    api_db = DataApiDb("arn:aws:rds:ap-southeast-2:000000000000:cluster:setuhaul", "setuhaul",
+                       {"ingest": "arn:x:ingest", "console": "arn:x:console"}, EmulatedRdsData(dsn))
+    svc = BookingService(api_db, lambda: datetime.now(timezone.utc), (JAI,), booking_enabled=True)
+    assert svc._has_login("feasibility") is False and svc._has_login("console") is True
+    with psycopg.connect(dsn, autocommit=True) as c:
+        _t, sub = pending(c)
+    appt = sub["appointment_id"] if isinstance(sub, dict) else json.loads(sub)["appointment_id"]
+    p = Principal(kind="staff", sub="t-api-planner", roles=frozenset({"planner"}), facilities=(JAI,))
+    out = svc.decide(p, appt, "CONFIRM", "console confirm", "k-" + uuid.uuid4().hex)
+    assert out["status"] == "CONFIRMED" and out["decided_by"] == "staff:t-api-planner"
+    with pytest.raises(ServiceError) as e:
+        svc.decide(p, appt, "REJECT", "second decision", "k-" + uuid.uuid4().hex)
+    assert e.value.code == "ALREADY_DECIDED"

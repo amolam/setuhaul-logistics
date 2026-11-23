@@ -169,6 +169,11 @@ class BookingService:
         return self.clock().astimezone(IST)
 
     # ---------------------------------------------------------------- shared helpers
+    def _has_login(self, role: str) -> bool:
+        """psycopg (local, tests): every role; the Data API backend: only the logins this workload was given."""
+        have = getattr(self.db, "secret_arns", None)
+        return have is None or role in have
+
     def _engine(self, scope: tuple[str, ...] | None = None) -> FeasibilityEngine:
         """Feasibility role, read-only transaction. Facility-wide facts the driver must never see stay inside the service."""
         with self.db.tx("feasibility", scope or self.facilities, readonly=True) as c:
@@ -861,8 +866,10 @@ class BookingService:
         if not row:
             raise ServiceError(404, "APPOINTMENT_UNKNOWN")
         sid, dock, fac, start, end, status = row
-        if decision == "CONFIRM" and status == "PENDING_CONFIRMATION":
-            # advisory (B-WF-2 §5): a clear early message; the database function re-proves every invariant itself
+        if decision == "CONFIRM" and status == "PENDING_CONFIRMATION" and self._has_login("feasibility"):
+            # advisory (B-WF-2 §5): a clear early message; the database function re-proves every invariant itself.
+            # The deployed api has no feasibility login (WORKLOAD_ROLES: ingest, console), so there it is skipped and
+            # decide_booking_request alone decides (Option D, 23 Nov 2026: every console Confirm failed with a 500).
             ok, why = self._engine((fac,) + tuple(x for x in self.facilities if x != fac)).is_feasible(
                 sid, Option(dock, start, end, (), False), self.now())
             if not ok:

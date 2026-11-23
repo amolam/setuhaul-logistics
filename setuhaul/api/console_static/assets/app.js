@@ -93,7 +93,7 @@ async function render(){
         <div class="row" style="margin-top:4px"><button class="ok" data-d="CONFIRM" data-a="${esc(x.appointment_id)}">Confirm</button>
         <button class="bad" data-d="REJECT" data-a="${esc(x.appointment_id)}">Reject</button>
         <button class="ghost" data-w="${esc(x.appointment_id)}">Withdraw</button></div></div>`).join("")
-        : `<div class="empty">No open requests. Booking execution is off in this pilot, so driver choices do not create requests.</div>`;
+        : `<div class="empty">No open requests. A request appears here when a driver confirms a slot (booking must be switched on).</div>`;
       detail.innerHTML = `<div class="empty">Decisions are checked by the server against your role and facility.</div>`;
     } else if(tab === "escalations"){
       const r = (await api("GET", "/console/escalations")).escalations;
