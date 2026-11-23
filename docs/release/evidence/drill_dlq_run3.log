@@ -1,0 +1,2 @@
+2026-11-23T01:54:50+00:00 STOP: on resume, something other than the tracked message is in flight {"ids": ["0bff4e2f-d993-4a24-93f6-385901d153fb", "cf6ed815-c893-4e39-a3b2-c4327d33929c"], "before": {"queue": {"visible": 0, "NotVisible": 1, "Delayed": 0}, "dlq": {"visible": 0, "NotVisible": 0, "Delayed": 0}, "inbound_receipts": [27, 135]}}
+exit=2

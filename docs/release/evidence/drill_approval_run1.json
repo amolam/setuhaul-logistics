@@ -1,0 +1,94 @@
+{
+ "requests": [
+  [
+   "e0a3c0bb-7d17-4181-9336-a64f0eb1f40f",
+   "SYN-STEP6-SHP-4AB620D0",
+   "APPROVED",
+   "staff:step6-drill-planner",
+   "2026-11-23 01:35:03.738954+00",
+   false,
+   "CONFIRMED",
+   true
+  ],
+  [
+   "ec99648f-e0ad-4c32-b0ee-02bfde2d8e8a",
+   "SYN-STEP6-SHP-ECCDE8C2",
+   "REJECTED",
+   "staff:step6-drill-planner",
+   "2026-11-23 01:35:15.931354+00",
+   false,
+   "REJECTED",
+   false
+  ],
+  [
+   "2c6b6e0f-a222-42c3-be5e-2099d7e87547",
+   "SYN-STEP6-SHP-9DEE8575",
+   "OPEN",
+   null,
+   "2026-11-23 01:35:29.317121+00",
+   false,
+   "PENDING_CONFIRMATION",
+   true
+  ]
+ ],
+ "audit": [
+  [
+   "SYN-STEP6-SHP-4AB620D0",
+   "agent",
+   "agent",
+   "HOLD_OPTION"
+  ],
+  [
+   "SYN-STEP6-SHP-4AB620D0",
+   "agent",
+   "agent",
+   "SUBMIT_BOOKING_REQUEST"
+  ],
+  [
+   "SYN-STEP6-SHP-ECCDE8C2",
+   "agent",
+   "agent",
+   "HOLD_OPTION"
+  ],
+  [
+   "SYN-STEP6-SHP-ECCDE8C2",
+   "agent",
+   "agent",
+   "SUBMIT_BOOKING_REQUEST"
+  ],
+  [
+   "SYN-STEP6-SHP-9DEE8575",
+   "agent",
+   "agent",
+   "HOLD_OPTION"
+  ],
+  [
+   "SYN-STEP6-SHP-9DEE8575",
+   "agent",
+   "agent",
+   "SUBMIT_BOOKING_REQUEST"
+  ],
+  [
+   "SYN-STEP6-SHP-4AB620D0",
+   "staff:step6-drill-planner",
+   "planner",
+   "APPROVAL_APPROVED"
+  ],
+  [
+   "SYN-STEP6-SHP-ECCDE8C2",
+   "staff:step6-drill-planner",
+   "planner",
+   "APPROVAL_REJECTED"
+  ]
+ ],
+ "outbox_pending": [
+  [
+   "ApprovalDecided",
+   "PENDING",
+   2
+  ]
+ ],
+ "non_synthetic_rows": [],
+ "executions": 0,
+ "relay_error": "AccessDeniedException: ...FnApprovalRelayServiceRole... is not authorized to perform: states:StartExecution on resource: arn:aws:states:ap-southeast-2:************:stateMachine:setuhaul-pilot-approval because no identity-based policy allows the states:StartExecution action"
+}

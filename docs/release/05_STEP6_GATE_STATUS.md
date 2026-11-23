@@ -9,7 +9,7 @@
 > | RECOVERY_WORKER | **PARTIAL.** Lease and fencing were not forced live. |
 > | WORKLOAD_IDENTITY | **PARTIAL.** Acceptance check 5 needs a second Cognito user. |
 > | AURORA | **PASS WITH PILOT EXCEPTION (T33-P)**, 23 Nov: 17.9 verified live and in CI. Production still needs 18.3+ (T33). |
-> | BOOKING_WORKFLOW | **BLOCKED.** A live run of the workflow needs the owner's approval. |
+> | BOOKING_WORKFLOW | **FAIL** (drill, 23 Nov): the deployed relay is not allowed to start executions (IAM grant on the alias ARN only). The fix is ready locally and not deployed. |
 > | OUTBOUND_DELIVERY | **BLOCKED.** It needs a Meta test number and approved templates. |
 >
 > **No gate has passed unconditionally, and no `deployment_evidence` row has been written.** The booking switch stays OFF.

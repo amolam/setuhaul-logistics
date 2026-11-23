@@ -240,7 +240,12 @@ class SetuHaulPilotStack(Stack):
                                                                          weight=100)])
         relay_fn = fn("approval-relay", "approval_relay_handler", "approval", timeout_s=60,
                       extra={"SETUHAUL_APPROVAL_STATE_MACHINE_ARN": alias.attr_arn})
-        relay_fn.add_to_role_policy(iam.PolicyStatement(actions=["states:StartExecution"], resources=[alias.attr_arn]))
+        # Step 6 drill (23 Nov 2026): starting an execution THROUGH the alias is authorised against the state machine's
+        # own ARN as well ("not authorized to perform: states:StartExecution on resource: ...stateMachine:<name>"), so
+        # granting only the alias ARN denied every start. The relay still calls the alias, so the published version
+        # runs; the machine ARN is the only other resource.
+        relay_fn.add_to_role_policy(iam.PolicyStatement(actions=["states:StartExecution"],
+                                                        resources=[alias.attr_arn, machine.state_machine_arn]))
         # The token task answers its own token; built from the fixed name, because a reference to the machine here
         # would be a cycle (the machine references this function).
         machine_arn = self.format_arn(service="states", resource="stateMachine",

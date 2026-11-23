@@ -21,7 +21,7 @@
 | **RECOVERY_WORKER** | PARTIAL | <ul><li>The rule `setuhaul-pilot-recovery-every-minute` is `rate(1 minute)`.</li><li>201 real scheduled runs in the last 3 days; the last at 18:22 UTC on 22 Nov.</li></ul> | <ul><li>Schedules are DISABLED while the pilot sleeps, a cost control.</li><li>Lease renewal and generation fencing were not forced live (that needs a deliberately stuck message on the real queue). They are proven locally in `tests/test_inbound_delivery.py`.</li><li>The dead-letter procedure has not been drilled.</li></ul> |
 | **WORKLOAD_IDENTITY** | PARTIAL | Acceptance checks 1 to 4 (`DEPLOYMENT_GATES.md` §"Workload identity acceptance"):<ul><li>Each of the 6 logins belongs to exactly one application role.</li><li>Only the console login can use `setuhaul_console`.</li><li>No login can use `setuhaul_rpc`, the database owner, superuser or BYPASSRLS.</li><li>In a real Data API transaction, a second `begin_staff_context` was refused with *"already set in this transaction"*. That shows the staff identity survives from one statement to the next.</li><li>Each function's IAM role can read exactly the database secrets of its configured roles, and no others.</li></ul> | <ul><li>Check 5 (an ordinary operations user cannot create an ops_lead context) needs a second Cognito user, which the owner creates. It is proven locally.</li><li>Live drift detection (AWS Config) is not deployed on the Free plan. The IAM policy hash is recorded instead.</li></ul> |
 | **AURORA** | **PASS WITH PILOT EXCEPTION (T33-P)**: not an unconditional pass | <ul><li>`aurora-postgresql 17.9`.</li><li>24 of 24 migrations recorded, every hash equal to the repository.</li><li>Both evidence triggers enabled.</li><li>The Data API works behind `Db.tx()`.</li><li>**Verified on 17.9 (23 Nov):**<ul><li>Migration 0025 applied on the live cluster as the non-superuser owner, then rolled back.</li><li>A real move succeeded.</li><li>The refusals held: re-applying a move, an unknown proposal, and the agent role.</li><li>RLS isolated by facility.</li><li>Five forbidden direct writes were refused with error 42501 (`evidence/pg17_migration_0025.json`, 11 of 11 checks).</li><li>The whole suite passed in CI on `postgres:17.9`: run 45091795877, 1,136 passed and 426 in Data API mode (`evidence/ci_pg17.json`).</li></ul></li></ul> | Production still needs 18.3+ (T33). The exception covers only the synthetic Free-plan pilot, and it is never written as a PASS evidence row. |
-| **BOOKING_WORKFLOW** | BLOCKED | <ul><li>The `live` alias routes 100% to published version 1.</li><li>The published definition equals the repository ASL, once the three function ARNs are substituted.</li><li>No execution has ever started.</li><li>Booking is false on every function.</li></ul> | Request, approve, reject and expiry against the real state machine need booking ON (Option D), which needs the owner's separate approval. They are proven locally. |
+| **BOOKING_WORKFLOW** | **FAIL (deployed IAM defect, found 23 Nov)** | Approved drill on synthetic requests (see the next section):<ul><li>No automatic approval: all three requests were PENDING.</li><li>The planner's decisions recorded correctly: APPROVED with the appointment CONFIRMED; REJECTED with the claim released.</li><li>Refusals held: the agent role (42501), another facility's planner, and a call with no staff identity.</li><li>Idempotent: the same decision key twice gave the same answer, and a second decision was refused.</li><li>The `live` alias routes to the published version, whose definition equals the repository's.</li></ul> | **The deployed relay cannot start any execution:** `AccessDeniedException ... states:StartExecution on resource ...:stateMachine:setuhaul-pilot-approval`. The role was granted the alias ARN only, and IAM also evaluates the state machine's own ARN. The fix is in `infra/setuhaul_stack.py` and is tested (`test_the_relay_may_start_executions_through_the_alias` fails on the old grant), but it is **not deployed**: that needs the owner's approval. After it is deployed, rerun the drill for the workflow-driven paths: wake-up after a decision, and expiry by timeout. |
 | **OUTBOUND_DELIVERY** | BLOCKED | The internal test sink only. Delivery and refusal were shown in the Option A run (`evidence/option_a.json`, A3 and A4). | A **Meta WhatsApp Cloud API test number**, **Meta-approved templates** (en, hi; Hinglish is its own gate) and a real, permitted test delivery. Real WhatsApp stays disabled until the owner provides these. |
 
 ## The database version: T33 and T33-P (owner approval, 23 Nov 2026)
@@ -59,3 +59,44 @@
 5. **A deployment with the booking switch on**, carrying the owner's written approval reference: `-c booking_approval=OWNER-APPROVAL-YYYYMMDD-<ref>`.
    - Without it, synthesis keeps booking OFF; CI never passes it (`tests/test_infra.py`).
    - Even with it, the workload functions refuse to start unless all six gates have current evidence for that exact deployment (`check_booking_preconditions`).
+
+## Live drills (owner-approved 23 Nov 2026; synthetic data; booking OFF throughout)
+
+### Approval workflow: `scripts/drill_approval_workflow.py`
+
+**Evidence:** `evidence/drill_approval_run1.log` and `evidence/drill_approval_run1.json`.
+
+Three synthetic requests were created:
+- IDs `SYN-STEP6-SHP-4AB620D0`, `…ECCDE8C2` and `…9DEE8575`, on dock D3 on 26 Nov at 09:00, 10:00 and 11:00 IST;
+- all `+999` phone numbers;
+- each made by the role that makes it in production: ingest (thread, driver reply, attestation), feasibility (option), agent (read-back, hold, submit).
+
+| Path | Who | Database result | Workflow result |
+|---|---|---|---|
+| Request (×3) | agent role | 3 PENDING requests: none automatically approved; claims held | **Not started:** the relay's `StartExecution` was denied (IAM defect above). **0 executions** |
+| Approve | `staff:step6-drill-planner`, role **planner** | Approval **APPROVED**, appointment **CONFIRMED**, claim kept; audited `APPROVAL_APPROVED` | No execution to wake; the `ApprovalDecided` event is waiting for the relay |
+| Reject | the same planner | Approval **REJECTED**, appointment **REJECTED**, claim **released**; audited `APPROVAL_REJECTED` | Same as approve |
+| Expiry | nobody | Still **OPEN** past its deadline, claim held, because expiry is driven by the workflow's timeout | **Not exercised:** no execution |
+| Refusals | agent role; a GGN planner; console with no staff identity | 42501; `APPOINTMENT_UNKNOWN`; refused | — |
+| Idempotency | the same planner | The same decision key twice gave the same response; a second decision with a new key was refused (`ALREADY_DECIDED`) | — |
+
+**Not completed:** the approval-workflow requirement in `DEPLOYMENT_GATES.md` is not met.
+
+**What the drill left on the pilot** (all synthetic):
+- one CONFIRMED synthetic appointment;
+- one rejected request;
+- one OPEN request past its deadline;
+- two `ApprovalDecided` events PENDING in the outbox.
+
+Nothing was cleaned up (no destructive cleanup). Once the IAM fix is deployed, the relay will start the open request's execution with a deadline already passed, so it will expire immediately through the normal path, and the two decided requests' executions will finish at once.
+
+### Dead-letter queue: `scripts/drill_dlq.py`
+
+See `evidence/drill_dlq_run2.json` and the runs' logs. One tagged message, `STEP6-DLQ-DRILL-8436a4759a40`, is not JSON and touches no business data:
+- It was sent at 01:28:14 UTC (SQS id `cf6ed815…`).
+- It failed **5 times** at the JSON parse (`JSONDecodeError`, 01:28–01:48), then was **dead-lettered**. The DLQ held exactly this message (tag matched, same id).
+- **Redrive** (`StartMessageMoveTask`, DLQ → source queue) at 01:53:27: **1 message moved**.
+- The redriven message got a **new SQS id, `0bff4e2f…`**, and reached the consumer again at 01:53:28. That one-second gap, its error type and the queue's send metrics (only 2 sends in the window: the original and the move) show it is the same message.
+- `inbound_receipts` write counters unchanged: **no business record touched**.
+
+**Not completed yet:** the second dead-lettering, the body-tag check in the DLQ, and removing that single message. The operator's AWS session expired twice during the drill; the message keeps retrying on its own meanwhile.

@@ -583,3 +583,20 @@ def test_facility_scope_comes_from_the_v2_trigger_and_admin_groups(t):
     assert groups == {"operations", "planner", "ops_lead", "facility-FAC-JAI-01", "facility-FAC-GGN-01"}
     assert not [s for s in _policy_resources(t, trig["LambdaArn"]["Fn::GetAtt"][0])
                 if "secretsmanager" in json.dumps(s) or "rds-data" in json.dumps(s)]       # no secret, no database
+
+
+def test_the_relay_may_start_executions_through_the_alias(t):
+    """Step 6 drill, 23 Nov 2026: with StartExecution granted on the alias ARN only, every start was denied on the
+    state machine's own ARN. Both must be granted; the relay still calls the alias (published version)."""
+    relay = next(p for n, p in functions(t).items() if n.endswith("approval-relay"))
+    role_ref = relay["Role"]["Fn::GetAtt"][0]
+    stmts = [st for pol in t.find_resources("AWS::IAM::Policy").values()
+             if any(r.get("Ref") == role_ref for r in pol["Properties"]["Roles"])
+             for st in pol["Properties"]["PolicyDocument"]["Statement"]]
+    start = [st for st in stmts if st["Action"] == "states:StartExecution"]
+    assert len(start) == 1
+    res = json.dumps(start[0]["Resource"])
+    alias = next(iter(t.find_resources("AWS::StepFunctions::StateMachineAlias")))
+    machine = next(iter(t.find_resources("AWS::StepFunctions::StateMachine")))
+    assert alias in res and machine in res and len(start[0]["Resource"]) == 2
+    assert alias in json.dumps(relay["Environment"]["Variables"]["SETUHAUL_APPROVAL_STATE_MACHINE_ARN"])
