@@ -748,6 +748,14 @@ class BookingService:
             return None
         return "test_sink" if provider_message_id.startswith("testsink.") else "provider"
 
+    def whoami(self, p: Principal) -> dict:
+        """Read only (Step 6 WORKLOAD_IDENTITY check 5): who the server says this person is, derived ONLY from the
+        verified Cognito token (groups -> roles, facility_scope claim), and which console actions that allows. Nothing
+        the browser sends can change it; the database receives the same roles in begin_staff_context."""
+        allowed = {**PERMISSIONS, **SCHEDULE_PERMISSIONS}
+        return {"principal": f"staff:{p.sub}", "roles": sorted(p.roles), "facilities": list(p.facilities),
+                "permissions": {a: bool(p.roles & r) for a, r in sorted(allowed.items())}}
+
     def list_threads(self, p: Principal, limit: int = 25, before: datetime | None = None) -> dict:
         """Conversations visible to this person (row-level security: only their facilities), newest activity first.
         Read only. Pages by the latest-message time (`before`); at most THREAD_PAGE_MAX per page."""

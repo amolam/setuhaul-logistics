@@ -335,6 +335,11 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
     def escalations(p: Principal = Depends(staff)):
         return {"escalations": svc.list_escalations(p)}
 
+    @app.get("/console/me")
+    def me(p: Principal = Depends(staff)):
+        """Read only: the roles, facilities and permitted actions the server derives from the verified token."""
+        return svc.whoami(p)
+
     @app.get("/console/threads")
     def threads(limit: int = Query(25, ge=1, le=50), before: datetime | None = None, p: Principal = Depends(staff)):
         """Read only: conversations in this person's facilities, newest activity first (paged by `before`)."""
