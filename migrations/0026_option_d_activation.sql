@@ -88,13 +88,14 @@ CREATE TRIGGER booking_kill_switch_single BEFORE INSERT OR DELETE OR TRUNCATE ON
   FOR EACH STATEMENT EXECUTE FUNCTION trg_kill_switch_single();
 
 CREATE FUNCTION booking_killed() RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER
-  SET search_path = setuhaul, pg_catalog AS $$ SELECT engaged FROM booking_kill_switch WHERE id = 1 $$;
+  SET search_path = setuhaul, pg_catalog, pg_temp AS $$ SELECT engaged FROM booking_kill_switch WHERE id = 1 $$;
 
-CREATE FUNCTION trg_refuse_booking_when_killed() RETURNS trigger LANGUAGE plpgsql
-  SET search_path = setuhaul, pg_catalog AS $$
+-- SECURITY DEFINER (owner setuhaul_rpc, below) so it can read the switch whoever writes the row; it changes nothing
+CREATE FUNCTION trg_refuse_booking_when_killed() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
+  SET search_path = setuhaul, pg_catalog, pg_temp AS $$
 DECLARE commit_new boolean;
 BEGIN
-  IF NOT booking_killed() THEN RETURN NEW; END IF;
+  IF NOT (SELECT engaged FROM booking_kill_switch WHERE id = 1) THEN RETURN NEW; END IF;
   IF TG_TABLE_NAME = 'dock_occupancy' THEN
     -- a new or re-activated claim on dock time for a truck, a changed time, or a hold becoming an appointment;
     -- operational blocks (BLOCK, FIXED) and releases (active -> false) are not booking commitments
@@ -137,14 +138,52 @@ BEGIN
   RETURN p_engaged;
 END $$;
 
--- read access for the start-up check and /health: the workloads that run with the booking switch on (api: ingest,
--- agent: agent) read the gate tables and the kill switch; none of them can write any of it
-GRANT SELECT ON deployment_evidence, deployment_manifests, deployment_exceptions, booking_kill_switch
-  TO setuhaul_system, setuhaul_ingest, setuhaul_agent;
-GRANT USAGE ON SCHEMA setuhaul_meta TO setuhaul_ingest, setuhaul_agent, setuhaul_deploy_evidence;
-GRANT SELECT ON setuhaul_meta.schema_migrations TO setuhaul_ingest, setuhaul_agent, setuhaul_deploy_evidence;
+-- ================================================================ 4. one read-only view of the gates
+-- The start-up check and /health need the gate rows, the database fingerprint inputs, the guard triggers, the kill
+-- switch and the newest manifest. Rather than table grants to the api (ingest) and agent logins, one read-only
+-- definer function returns exactly that; it changes nothing and returns no facility, driver or booking data.
+CREATE FUNCTION booking_gate_snapshot(p_environment text, p_deployment text)
+RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = setuhaul, pg_catalog, pg_temp AS $$
+  SELECT jsonb_build_object(
+    'database', current_database(),
+    'server_version_num', current_setting('server_version_num'),
+    'migrations', (SELECT coalesce(jsonb_agg(jsonb_build_array(version, sha256) ORDER BY version), '[]'::jsonb)
+                     FROM setuhaul_meta.schema_migrations),
+    'guards', (SELECT coalesce(jsonb_agg(jsonb_build_array(r.relname::text, t.tgname::text)), '[]'::jsonb)
+                 FROM pg_trigger t JOIN pg_class r ON r.oid = t.tgrelid JOIN pg_namespace s ON s.oid = r.relnamespace
+                WHERE s.nspname = 'setuhaul' AND t.tgenabled IN ('O','A') AND NOT t.tgisinternal),
+    'kill_switch', (SELECT engaged FROM booking_kill_switch WHERE id = 1),
+    'manifest', (SELECT jsonb_build_object('deployment_id', deployment_id, 'artifact_sha256', artifact_sha256,
+                                           'manifest', manifest)
+                   FROM deployment_manifests WHERE environment = p_environment ORDER BY manifest_id DESC LIMIT 1),
+    -- the same freshness rules as the evidence insert trigger (0014)
+    'evidence', (SELECT coalesce(jsonb_agg(jsonb_build_array(gate, fresh, config_fingerprint)), '[]'::jsonb) FROM (
+                   SELECT DISTINCT ON (gate) gate, config_fingerprint,
+                          expires_at > now() AND verified_at <= now() + interval '5 minutes'
+                            AND expires_at <= now() + evidence_max_validity(gate)
+                            AND expires_at <= verified_at + evidence_max_validity(gate) AS fresh
+                     FROM deployment_evidence WHERE environment = p_environment AND deployment_id = p_deployment
+                    ORDER BY gate, evidence_id DESC) e),
+    'exceptions', (SELECT coalesce(jsonb_agg(jsonb_build_array(gate, exception_code, expires_at > now(),
+                                                               config_fingerprint, approval_ref)), '[]'::jsonb) FROM (
+                     SELECT DISTINCT ON (gate) * FROM deployment_exceptions
+                      WHERE environment = p_environment AND deployment_id = p_deployment
+                      ORDER BY gate, exception_id DESC) x))
+$$;
+
+ALTER FUNCTION booking_killed() OWNER TO setuhaul_rpc;
+ALTER FUNCTION trg_refuse_booking_when_killed() OWNER TO setuhaul_rpc;
+ALTER FUNCTION set_booking_kill_switch(boolean, text, text) OWNER TO setuhaul_rpc;
+ALTER FUNCTION booking_gate_snapshot(text, text) OWNER TO setuhaul_rpc;
+GRANT SELECT, UPDATE ON booking_kill_switch TO setuhaul_rpc;
+GRANT SELECT ON deployment_evidence, deployment_manifests, deployment_exceptions TO setuhaul_rpc;
+GRANT USAGE ON SCHEMA setuhaul_meta TO setuhaul_rpc;
+GRANT SELECT ON setuhaul_meta.schema_migrations TO setuhaul_rpc;
+GRANT INSERT ON booking_events TO setuhaul_rpc;
+GRANT EXECUTE ON FUNCTION evidence_max_validity(text) TO setuhaul_rpc;
 
 REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA setuhaul FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION booking_killed() TO setuhaul_system, setuhaul_ingest, setuhaul_agent, setuhaul_console,
-  setuhaul_feasibility, setuhaul_rpc;
+GRANT EXECUTE ON FUNCTION booking_killed() TO setuhaul_console;
 GRANT EXECUTE ON FUNCTION set_booking_kill_switch(boolean, text, text) TO setuhaul_console;
+GRANT EXECUTE ON FUNCTION booking_gate_snapshot(text, text)
+  TO setuhaul_system, setuhaul_ingest, setuhaul_agent, setuhaul_deploy_evidence;

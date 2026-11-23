@@ -81,7 +81,7 @@ jobs:
           python -m pytest -q -p no:cacheprovider tests/test_api.py tests/test_db_requests.py tests/test_approvals.py
           tests/test_orchestrator.py tests/test_outbound.py tests/test_inbound_delivery.py tests/test_concurrency.py
           tests/test_data_api.py tests/test_aws.py tests/test_console_threads.py tests/test_move_appointment.py
-          tests/test_gate_evidence.py tests/test_scenario_run.py
+          tests/test_gate_evidence.py tests/test_scenario_run.py tests/test_option_d.py
       - name: Dependency audit
         run: python -m pip_audit -r requirements-aws.txt -r requirements-dev.txt -r requirements-infra.txt
 

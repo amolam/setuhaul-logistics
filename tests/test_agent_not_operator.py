@@ -24,7 +24,10 @@ AGENT_FUNCTIONS = {"hold_option", "submit_booking_request", "release_hold", "rec
                    "assert_turn_fence",         # 0012: read-only check that this worker still holds the turn
                    # 0023 (T52): the agent asks for a model-budget reservation and reports the outcome; the database
                    # decides against the cap. Neither touches booking, approval or capacity state.
-                   "reserve_model_call", "settle_model_call"}
+                   "reserve_model_call", "settle_model_call",
+                   # 0026 (Option D): read-only snapshot for the booking switch's start-up check (gate rows, guard
+                   # triggers, kill switch, recorded manifest); returns no facility, driver or booking data
+                   "booking_gate_snapshot"}
 # Never writable by the agent in any way.
 PROTECTED = {"dock_occupancy", "appointments", "approval_requests", "notifications", "facilities", "facility_config",
              "docks", "shipments", "appointment_slots", "dock_events", "drivers", "vehicles", "carriers",
@@ -118,7 +121,11 @@ def test_every_table_is_rls_forced_or_reasoned(conn):
              "model_budget_day", "model_usage",
              # 0024 (E4-01): Step Functions callback bookkeeping (approval id, token, attempts); no facility data,
              # no application role has any privilege on it, only the definer functions use it
-             "approval_callbacks"}
+             "approval_callbacks",
+             # 0026 (Option D): append-only manifests and owner-approved exceptions (no facility data; written only by
+             # the deploy-evidence login, read only through booking_gate_snapshot) and the single-row kill switch
+             # (changed only by set_booking_kill_switch or the owner)
+             "deployment_manifests", "deployment_exceptions", "booking_kill_switch"}
     bad = [r[0] for r in conn.execute("""SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
                                          WHERE n.nspname='setuhaul' AND c.relkind='r'
                                            AND NOT (c.relrowsecurity AND c.relforcerowsecurity)""") if r[0] not in allow]
@@ -150,7 +157,8 @@ def test_ingest_role_allowlist(conn):
                                          "published_at", "generation", "processing_owner", "processing_until",
                                          "processed_at", "deliveries"}}
     assert funcs == {"attest_confirmation", "thread_lock", "scope_allows", "driver_or_staff",
-                     "record_delivery_status"}   # 0017 (B-WF-3): provider receipts from the signed webhook
+                     "record_delivery_status",   # 0017 (B-WF-3): provider receipts from the signed webhook
+                     "booking_gate_snapshot"}    # 0026: read-only start-up check of the booking switch (the api)
 
 
 def test_feasibility_role_allowlist(conn):
@@ -184,8 +192,11 @@ def test_conversation_lock_uses_a_64_bit_key(conn):
 def test_deploy_evidence_role_can_only_insert_evidence(conn):
     """R2.0 S4-R2-05: the pipeline's role writes evidence and nothing else; no application role writes evidence."""
     tables, cols, funcs = _grants(conn, "setuhaul_deploy_evidence")
-    assert tables == {"INSERT": {"deployment_evidence"}, "SELECT": {"deployment_evidence"}} and cols == {}
-    assert funcs <= {"scope_allows", "driver_or_staff", "evidence_max_validity"}   # 0014: per-gate validity window
+    # 0026 (Option D): it also records the deployment manifest and the owner-approved exceptions, append-only
+    gate_tables = {"deployment_evidence", "deployment_manifests", "deployment_exceptions"}
+    assert tables == {"INSERT": gate_tables, "SELECT": gate_tables} and cols == {}
+    assert funcs <= {"scope_allows", "driver_or_staff", "evidence_max_validity",   # 0014: per-gate validity window
+                     "booking_gate_snapshot"}                                      # 0026: the database fingerprint
     r = conn.execute("SELECT rolsuper, rolbypassrls, rolcanlogin FROM pg_roles WHERE rolname='setuhaul_deploy_evidence'").fetchone()
     assert r == (False, False, False)
     n = conn.execute("""SELECT count(*) FROM pg_auth_members m JOIN pg_roles r ON r.oid = m.roleid

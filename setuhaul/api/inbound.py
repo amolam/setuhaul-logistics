@@ -179,12 +179,21 @@ def gate_role(db) -> str:
     raise BookingGateError("this workload has no database login that may read the deployment gates")
 
 
+def gate_snapshot(db, environment: str | None = None, deployment_id: str | None = None) -> dict:
+    """0026: everything the start-up check reads, through one read-only definer function (no table grants)."""
+    with db.tx(gate_role(db), readonly=True) as c:
+        raw = c.execute("SELECT booking_gate_snapshot(%s, %s)", (environment, deployment_id)).fetchone()[0]
+    return json.loads(raw) if isinstance(raw, str) else raw
+
+
+def snapshot_fingerprint(snap: dict) -> str:
+    return fingerprint({"database": snap["database"], "server_version_num": snap["server_version_num"],
+                        "migrations": [list(m) for m in snap["migrations"]]})
+
+
 def database_fingerprint(db) -> str:
     """What the AURORA evidence must have verified: this database, its server version and the exact migrations."""
-    with db.tx(gate_role(db), readonly=True) as c:
-        name, ver = c.execute("SELECT current_database(), current_setting('server_version_num')").fetchone()
-        migs = c.execute("SELECT version, sha256 FROM setuhaul_meta.schema_migrations ORDER BY version").fetchall()
-    return fingerprint({"database": name, "server_version_num": ver, "migrations": migs})
+    return snapshot_fingerprint(gate_snapshot(db))
 
 
 def load_manifest(path: str) -> dict:
@@ -234,17 +243,16 @@ def evidence_triggers_enabled(db) -> bool:
     """R2.1 §3: the append-only and freshness triggers stop ordinary DML only while they are enabled. An owner can
     disable them; the service refuses to start if any is missing or disabled. 0026 adds the manifest and exception
     tables' guards and the kill switch's triggers: a disabled kill-switch trigger would make the switch a dead letter."""
-    with db.tx(gate_role(db), readonly=True) as c:
-        rows = c.execute("""SELECT r.relname::text, t.tgname::text FROM pg_trigger t JOIN pg_class r ON r.oid = t.tgrelid
-                              JOIN pg_namespace s ON s.oid = r.relnamespace
-                             WHERE s.nspname = 'setuhaul' AND t.tgenabled IN ('O','A') AND NOT t.tgisinternal""").fetchall()
-    return GUARD_TRIGGERS <= {(r[0], r[1]) for r in rows}
+    return guards_enabled(gate_snapshot(db))
+
+
+def guards_enabled(snap: dict) -> bool:
+    return GUARD_TRIGGERS <= {(r[0], r[1]) for r in snap["guards"]}
 
 
 def booking_killed(db) -> bool:
     """The kill switch (0026). Read for /health; the database itself refuses commitments while it is engaged."""
-    with db.tx(gate_role(db), readonly=True) as c:
-        return bool(c.execute("SELECT engaged FROM booking_kill_switch WHERE id = 1").fetchone()[0])
+    return bool(gate_snapshot(db)["kill_switch"])
 
 
 def own_code_sha256(lambda_client=None, function_name: str | None = None) -> str:
@@ -262,13 +270,10 @@ def manifest_from_database(db, environment: str, code_sha256: str) -> dict:
     """0026: the newest manifest the pipeline recorded for this environment, accepted only if it is for the code that
     is running here and its id is the one its content gives. A deployment whose manifest was not recorded therefore
     finds the previous one, which names other code, and the switch stays closed."""
-    with db.tx(gate_role(db), readonly=True) as c:
-        row = c.execute("""SELECT deployment_id, artifact_sha256, manifest::text FROM deployment_manifests
-                            WHERE environment=%s ORDER BY manifest_id DESC LIMIT 1""", (environment,)).fetchone()
-    if row is None:
+    row = gate_snapshot(db, environment)["manifest"]
+    if not row:
         raise BookingGateError(f"no deployment manifest recorded for {environment}")
-    dep, art, raw = row
-    manifest = json.loads(raw) if isinstance(raw, str) else raw
+    dep, art, manifest = row["deployment_id"], row["artifact_sha256"], row["manifest"]
     if deployment_id_for(manifest) != dep:
         raise BookingGateError("the recorded manifest does not match its deployment id")
     if art != code_sha256:
@@ -296,23 +301,12 @@ def check_booking_preconditions(db, queue, lease_s: int, environment: str | None
         raise BookingGateError(f"SETUHAUL_DEPLOYMENT_ID {deployment_id} does not match the manifest ({derived})")
     deployment_id = derived
     queue.verify(lease_s)
-    if not evidence_triggers_enabled(db):
+    snap = gate_snapshot(db, environment, deployment_id)          # one read-only call (0026)
+    if not guards_enabled(snap):
         raise BookingGateError("deployment_evidence triggers are missing or disabled")
-    live = {"AWS_QUEUE": queue.fingerprint(), "AURORA": database_fingerprint(db), **manifest_fingerprints(manifest)}
-    with db.tx(gate_role(db), readonly=True) as c:
-        # the same freshness rules as the insert trigger (0014), so rows written before it get no more
-        rows = c.execute("""SELECT DISTINCT ON (gate) gate,
-                                   expires_at > now() AND verified_at <= now() + interval '5 minutes'
-                                     AND expires_at <= now() + setuhaul.evidence_max_validity(gate)
-                                     AND expires_at <= verified_at + setuhaul.evidence_max_validity(gate),
-                                   config_fingerprint
-                              FROM deployment_evidence WHERE environment=%s AND deployment_id=%s
-                             ORDER BY gate, evidence_id DESC""", (environment, deployment_id)).fetchall()
-        exc = c.execute("""SELECT DISTINCT ON (gate) gate, exception_code, expires_at > now(), config_fingerprint,
-                                  approval_ref
-                             FROM deployment_exceptions WHERE environment=%s AND deployment_id=%s
-                            ORDER BY gate, exception_id DESC""", (environment, deployment_id)).fetchall()
-        server_version = int(c.execute("SELECT current_setting('server_version_num')").fetchone()[0])
+    live = {"AWS_QUEUE": queue.fingerprint(), "AURORA": snapshot_fingerprint(snap), **manifest_fingerprints(manifest)}
+    rows, exc = [tuple(r) for r in snap["evidence"]], [tuple(r) for r in snap["exceptions"]]
+    server_version = int(snap["server_version_num"])
     latest = {g: (fresh, fp) for g, fresh, fp in rows}
     excepted = {g: (code, fresh, fp, ref) for g, code, fresh, fp, ref in exc}
     problems, by_exception = [], {}
