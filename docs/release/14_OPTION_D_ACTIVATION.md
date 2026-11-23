@@ -106,3 +106,18 @@ A synthetic driver (`SYN-DRV-2172ACB8`, shipment `SYN-SHP-2172ACB8`, +999 number
 - **Weekly renewal:** evidence for the operational gates and the exceptions lasts 7 days. After that the api and agent **refuse to start** (fail closed). That stops the console and driver chat, not just booking. Re-collect the gates and re-run `activate-booking` before then (by **30 Nov 2026**).
 - **Retained synthetic records (not cleaned up):** the confirmed smoke booking `APT-01c31ce0…`, the two smoke drivers, the first smoke run's driver, and all earlier Step 6 drill records.
 - **Model use:** the smoke test's extraction fell back to the rules reader on at least one turn (`extractor=rules-fallback` in the agent log). The booking path does not depend on the model.
+
+## Follow-up fix, same day (23 Nov 2026)
+
+The owner's own hands-on test found that **every console Confirm returned HTTP 500**. The advisory feasibility re-check
+in `BookingService.decide` needs a `feasibility` database login, which the deployed api does not have (WORKLOAD_ROLES api
+= ingest, console). The smoke test and drills decided through the database roles directly, so they never exercised that
+path.
+
+**Fix (`8fe6935`):** where the workload has no feasibility login, the advisory check is skipped, and
+`decide_booking_request` still re-proves every booking rule. No permission was widened. A regression test uses exactly
+the deployed api's logins; it fails without the fix and passes with it.
+
+**Redeployed** through `activate-booking` run 45137914143; the evidence was re-recorded for the new build, and `/health`
+reports booking ON with the kill switch disengaged. The console's outdated "booking execution is off" text was also
+replaced.
