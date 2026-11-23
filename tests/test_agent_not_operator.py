@@ -204,7 +204,8 @@ def test_deploy_evidence_role_can_only_insert_evidence(conn):
     gate_tables = {"deployment_evidence", "deployment_manifests", "deployment_exceptions"}
     assert tables == {"INSERT": gate_tables, "SELECT": gate_tables} and cols == {}
     assert funcs <= {"scope_allows", "driver_or_staff", "evidence_max_validity",   # 0014: per-gate validity window
-                     "booking_gate_snapshot"}                                      # 0026: the database fingerprint
+                     "booking_gate_snapshot",                                      # 0026: the database fingerprint
+                     "approval_execution_evidence"}                                # 0029: renewal, read-only, scoped
     r = conn.execute("SELECT rolsuper, rolbypassrls, rolcanlogin FROM pg_roles WHERE rolname='setuhaul_deploy_evidence'").fetchone()
     assert r == (False, False, False)
     n = conn.execute("""SELECT count(*) FROM pg_auth_members m JOIN pg_roles r ON r.oid = m.roleid
