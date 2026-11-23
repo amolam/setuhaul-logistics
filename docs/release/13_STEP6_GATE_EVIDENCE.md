@@ -1,4 +1,17 @@
-# 13 — Step 6: release-gate evidence from the deployed pilot (22 Nov 2026; AURORA updated 23 Nov under T33-P)
+# 13 — Step 6: release-gate evidence from the deployed pilot (22–23 Nov 2026)
+
+> **Current result (23 Nov 2026, after the owner-approved drills and deployments):**
+>
+> | Gate | Result |
+> |---|---|
+> | BOOKING_WORKFLOW | **PASS** |
+> | AURORA | **PASS WITH PILOT EXCEPTION (T33-P)** |
+> | AWS_QUEUE | PARTIAL: the DLQ-depth alarm is not demonstrated |
+> | RECOVERY_WORKER | PARTIAL: lease and fencing not forced live |
+> | WORKLOAD_IDENTITY | PARTIAL: check 5 (needs a second staff user); no drift detection on the Free plan |
+> | OUTBOUND_DELIVERY | BLOCKED: Meta test number and templates |
+>
+> Booking (Option D) stays **OFF**. No `deployment_evidence` row has been written: the pipeline step that writes them is not built.
 
 **What this is:** a read-only check of the six gates in `docs/operations/DEPLOYMENT_GATES.md`, run against the deployed synthetic pilot.
 - **Stack:** `SetuHaulPilot`, deployed from `eaad598`. The code running is identical to `release/fde-sydney-pilot` at `9d2145c`.
@@ -21,7 +34,7 @@
 | **RECOVERY_WORKER** | PARTIAL | <ul><li>`rate(1 minute)`.</li><li>201 real scheduled runs in 3 days.</li><li>**DLQ handling procedure drilled live** (inspect, redrive, remove one message; see AWS_QUEUE).</li></ul> | <ul><li>Schedules are DISABLED while the pilot sleeps.</li><li>Lease renewal and generation fencing were not forced live (that needs a deliberately stuck message on the real queue). They are proven locally.</li></ul> |
 | **WORKLOAD_IDENTITY** | PARTIAL | Acceptance checks 1 to 4 (`DEPLOYMENT_GATES.md` §"Workload identity acceptance"):<ul><li>Each of the 6 logins belongs to exactly one application role.</li><li>Only the console login can use `setuhaul_console`.</li><li>No login can use `setuhaul_rpc`, the database owner, superuser or BYPASSRLS.</li><li>In a real Data API transaction, a second `begin_staff_context` was refused with *"already set in this transaction"*. That shows the staff identity survives from one statement to the next.</li><li>Each function's IAM role can read exactly the database secrets of its configured roles, and no others.</li></ul> | <ul><li>Check 5 (an ordinary operations user cannot create an ops_lead context) needs a second Cognito user, which the owner creates. It is proven locally.</li><li>Live drift detection (AWS Config) is not deployed on the Free plan. The IAM policy hash is recorded instead.</li></ul> |
 | **AURORA** | **PASS WITH PILOT EXCEPTION (T33-P)**: not an unconditional pass | <ul><li>`aurora-postgresql 17.9`.</li><li>24 of 24 migrations recorded, every hash equal to the repository.</li><li>Both evidence triggers enabled.</li><li>The Data API works behind `Db.tx()`.</li><li>**Verified on 17.9 (23 Nov):**<ul><li>Migration 0025 applied on the live cluster as the non-superuser owner, then rolled back.</li><li>A real move succeeded.</li><li>The refusals held: re-applying a move, an unknown proposal, and the agent role.</li><li>RLS isolated by facility.</li><li>Five forbidden direct writes were refused with error 42501 (`evidence/pg17_migration_0025.json`, 11 of 11 checks).</li><li>The whole suite passed in CI on `postgres:17.9`: run 45091795877, 1,136 passed and 426 in Data API mode (`evidence/ci_pg17.json`).</li></ul></li></ul> | Production still needs 18.3+ (T33). The exception covers only the synthetic Free-plan pilot, and it is never written as a PASS evidence row. |
-| **BOOKING_WORKFLOW** | **FAIL** (after the 23 Nov deployment) | <ul><li>No automatic approval.</li><li>Planner decisions are recorded and audited.</li><li>Refusals and idempotency hold.</li><li>**The relay now starts executions:** the IAM fix was deployed in run 45102351722.</li><li>Decided requests stay unchanged when their executions run.</li></ul> | **The deployed token and expiry task functions crash with `KeyError: SETUHAUL_APPROVAL_STATE_MACHINE_ARN`:** no execution can wait for a decision or expire, and all 3 executions failed. The fix and its regression test are ready locally and **not deployed** (owner approval). Afterwards: redrive the 3 failed executions, then run drill 2 (start, approve, reject, duplicate decision, audit, timeout expiry). |
+| **BOOKING_WORKFLOW** | **PASS** (23 Nov) | Live on the deployed state machine (drill 2, 10 of 10):<ul><li>Each request starts one execution, through the relay.</li><li>No automatic approval.</li><li>A planner approves (CONFIRMED) or rejects (claim released).</li><li>A request with no decision expires by the state machine's timeout (`ExpireApproval`, `system:expiry`).</li><li>A duplicate decision is idempotent; a second decision is refused.</li><li>Refusals hold: the agent role, another facility, no staff identity.</li><li>One audit record and one test-sink notice per outcome.</li><li>The `live` alias routes to the published version, whose definition equals the repository's.</li><li>The 3 executions that failed on the defect were redriven safely.</li><li>The failed-execution alarm fired on the real failures.</li></ul> | Two defects were found and fixed on the way, both deployed: the relay's IAM grant, and the task functions requiring the state machine ARN. The requests were made through the production database roles because booking is OFF. |
 | **OUTBOUND_DELIVERY** | BLOCKED | The internal test sink only. Delivery and refusal were shown in the Option A run (`evidence/option_a.json`, A3 and A4). | A **Meta WhatsApp Cloud API test number**, **Meta-approved templates** (en, hi; Hinglish is its own gate) and a real, permitted test delivery. Real WhatsApp stays disabled until the owner provides these. |
 
 ## The database version: T33 and T33-P (owner approval, 23 Nov 2026)
@@ -151,3 +164,34 @@ One tagged message, `STEP6-DLQ-DRILL-8436a4759a40`, was tracked; it is not JSON 
 - No manual cleanup.
 
 Deploying the fix and redriving need the owner's approval.
+
+## Task-function fix, redrive and approval drill 2 (23 Nov 2026, under the owner's standing approval)
+
+**The fix:** code only, `20180e7`. CI passed on `postgres:17.9` (run 45104618495): 1,139 passed and 1 skipped; Data API mode 428 passed. The template diff against the live stack was **code only**: no resource, IAM or output change.
+
+**Deploy:** run 45105667259 from `release/fde-sydney-pilot` at `20180e7`; test, synth and deploy all passed. Afterwards, 29 of 29 deploy checks pass.
+
+**Redrive of the 3 executions that failed on the defect** (`evidence/redrive_20261123.json`, 6 of 6):
+- All three were redriven once and SUCCEEDED.
+- The APPROVED and REJECTED requests are unchanged (same `decided_by`, `decided_at`, appointment and claim).
+- The overdue OPEN request was **EXPIRED by `system:expiry`** through `expire_approval`, and its claim released.
+- One decision record per request in the audit trail.
+- Driver notices `booking_approved`, `booking_rejected` and `booking_expired` were SENT to the **test sink**.
+
+**Approval drill 2** (`evidence/drill_approval_run2.json`, 10 of 10; three new `SYN-STEP6` requests 5 days ahead):
+
+| Path | Execution states | Database result | Decided by |
+|---|---|---|---|
+| Request (×3) | started by the deployed relay; a second relay run started none | 3 PENDING; OPEN with a task token (**no automatic approval**) | agent role (request) |
+| Approve | NotifyApprovers → WaitForDecision → **Done** | APPROVED; appointment CONFIRMED; claim kept | `staff:step6-drill-planner` (**planner**) |
+| Reject | NotifyApprovers → WaitForDecision → **Done** | REJECTED; appointment REJECTED; claim released | same planner |
+| Expiry | NotifyApprovers → WaitForDecision → **ExpireApproval** → Done (state machine timeout) | EXPIRED; claim released | `system:expiry` (**system**) |
+| Duplicate decision | — | The same key twice gives the same decision; a second decision with a new key is refused (`ALREADY_DECIDED`) | — |
+| Refusals | — | Agent role: 42501. GGN planner: `APPOINTMENT_UNKNOWN`. No staff identity: `UNTRUSTED_CONTEXT` | — |
+| Notices | — | One per outcome, all to the **test sink** | — |
+
+**Monitoring:** the `ApprovalFailed` (ExecutionsFailed) alarm and the token and expiry functions' error alarms **fired on the real failures** (OK→ALARM about 03:05 UTC) and returned to OK after the fix.
+
+**A first attempt at drill 2** reused run 1's slot (D3, 26 Nov 09:00). That slot still holds run 1's CONFIRMED booking, so the database refused the hold with `ex_one_truck_per_dock`: the no-double-booking constraint working live (`evidence/drill_approval_run2_attempt1.log`). The rerun used free slots.
+
+**Note on how the requests were made:** they were created through the production database roles (agent, ingest, feasibility), because the booking switch is OFF and the agent API refuses booking tools. The workflow, relay, task functions, decisions and expiry are the deployed ones.

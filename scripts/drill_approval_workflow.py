@@ -83,6 +83,8 @@ def invoke(lam, name):
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=str(ROOT / "docs" / "release" / "evidence" / "drill_approval.json"))
+    ap.add_argument("--day-offset", type=int, default=3,
+                    help="days ahead for the drill slots; earlier drills' confirmed slots stay booked (no double booking)")
     a = ap.parse_args()
     out = {o["OutputKey"]: o["OutputValue"] for o in c("cloudformation").describe_stacks(StackName=STACK)["Stacks"][0]["Outputs"]}
     logins = json.loads(out["LoginSecretArns"])
@@ -111,7 +113,7 @@ def main() -> int:
         return 2
 
     # ---- 1. three synthetic requests, made by the roles that make them in production
-    day = (datetime.now(IST) + timedelta(days=3)).replace(minute=0, second=0, microsecond=0)
+    day = (datetime.now(IST) + timedelta(days=a.day_offset)).replace(minute=0, second=0, microsecond=0)
     reqs = {}
     for path, hour in (("APPROVE", 9), ("REJECT", 10), ("EXPIRE", 11)):
         u = uuid.uuid4().hex[:8].upper()

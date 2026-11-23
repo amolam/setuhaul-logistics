@@ -1,0 +1,142 @@
+{
+ "collected_utc": "2026-11-23T03:36:11+00:00",
+ "status_before": {
+  "APPROVE": "FAILED",
+  "REJECT": "FAILED",
+  "EXPIRE": "FAILED"
+ },
+ "status_after": {
+  "APPROVE": "SUCCEEDED",
+  "REJECT": "SUCCEEDED",
+  "EXPIRE": "SUCCEEDED"
+ },
+ "redrive_count": {
+  "APPROVE": 1,
+  "REJECT": 1,
+  "EXPIRE": 1
+ },
+ "outbound": {
+  "enqueued": 3,
+  "claimed": 3
+ },
+ "before": {
+  "requests": [
+   [
+    "2c6b6e0f-a222-42c3-be5e-2099d7e87547",
+    "OPEN",
+    null,
+    null,
+    "PENDING_CONFIRMATION",
+    true
+   ],
+   [
+    "e0a3c0bb-7d17-4181-9336-a64f0eb1f40f",
+    "APPROVED",
+    "staff:step6-drill-planner",
+    "2026-11-23 01:33:35.925375+00",
+    "CONFIRMED",
+    true
+   ],
+   [
+    "ec99648f-e0ad-4c32-b0ee-02bfde2d8e8a",
+    "REJECTED",
+    "staff:step6-drill-planner",
+    "2026-11-23 01:33:39.346492+00",
+    "REJECTED",
+    false
+   ]
+  ],
+  "audit": [
+   [
+    "SYN-STEP6-SHP-4AB620D0",
+    "staff:step6-drill-planner",
+    "planner",
+    "APPROVAL_APPROVED"
+   ],
+   [
+    "SYN-STEP6-SHP-ECCDE8C2",
+    "staff:step6-drill-planner",
+    "planner",
+    "APPROVAL_REJECTED"
+   ]
+  ],
+  "notifications": []
+ },
+ "after": {
+  "requests": [
+   [
+    "2c6b6e0f-a222-42c3-be5e-2099d7e87547",
+    "EXPIRED",
+    "system:expiry",
+    "2026-11-23 03:35:49.640877+00",
+    "EXPIRED",
+    false
+   ],
+   [
+    "e0a3c0bb-7d17-4181-9336-a64f0eb1f40f",
+    "APPROVED",
+    "staff:step6-drill-planner",
+    "2026-11-23 01:33:35.925375+00",
+    "CONFIRMED",
+    true
+   ],
+   [
+    "ec99648f-e0ad-4c32-b0ee-02bfde2d8e8a",
+    "REJECTED",
+    "staff:step6-drill-planner",
+    "2026-11-23 01:33:39.346492+00",
+    "REJECTED",
+    false
+   ]
+  ],
+  "audit": [
+   [
+    "SYN-STEP6-SHP-4AB620D0",
+    "staff:step6-drill-planner",
+    "planner",
+    "APPROVAL_APPROVED"
+   ],
+   [
+    "SYN-STEP6-SHP-ECCDE8C2",
+    "staff:step6-drill-planner",
+    "planner",
+    "APPROVAL_REJECTED"
+   ],
+   [
+    "SYN-STEP6-SHP-9DEE8575",
+    "system:expiry",
+    "system",
+    "APPROVAL_EXPIRED"
+   ]
+  ],
+  "notifications": [
+   [
+    "SYN-STEP6-SHP-4AB620D0",
+    "booking_approved",
+    "SENT",
+    "testsink."
+   ],
+   [
+    "SYN-STEP6-SHP-ECCDE8C2",
+    "booking_rejected",
+    "SENT",
+    "testsink."
+   ],
+   [
+    "SYN-STEP6-SHP-9DEE8575",
+    "booking_expired",
+    "SENT",
+    "testsink."
+   ]
+  ]
+ },
+ "checks": {
+  "all three executions were FAILED and were redriven once": true,
+  "all three executions SUCCEEDED after the redrive": true,
+  "decided requests unchanged (status, decided_by, decided_at, appointment, claim)": true,
+  "the overdue request EXPIRED through expire_approval, its claim released": true,
+  "one decision record per request in the audit trail (no duplicates)": true,
+  "driver notices only to the internal test sink": true
+ },
+ "all_pass": true
+}

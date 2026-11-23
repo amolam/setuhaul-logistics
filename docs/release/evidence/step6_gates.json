@@ -1,5 +1,5 @@
 {
- "collected_utc": "2026-11-23T03:12:20+00:00",
+ "collected_utc": "2026-11-23T03:46:29+00:00",
  "stack": "SetuHaulPilot",
  "region": "ap-southeast-2",
  "booking_enabled": false,
@@ -357,7 +357,7 @@
       "ingest",
       "system"
      ],
-     "code_sha256": "IgQBsnvLWISwEplQXqB5KqUlZgPYW5GTPaP8samPLZE="
+     "code_sha256": "xMbL8foBJr/dHMnU+ZQHp8ad9m3SA8W9Ambg9vpjTYE="
     },
     "recovery_invocations_last_3_days": 201,
     "last_invocation_utc": "2026-11-22T18:22:25.509000+00:00"
@@ -382,46 +382,126 @@
     "tracing": true,
     "live_definition_sha256": "d5d970c03393afa647027e6f43c5c37dbfcb46cea9731b4b3b9b67181c45f908",
     "repo_definition_sha256": "d5d970c03393afa647027e6f43c5c37dbfcb46cea9731b4b3b9b67181c45f908",
-    "executions": 3,
+    "executions": 6,
     "execution_status": {
-     "2c6b6e0f": "FAILED",
-     "ec99648f": "FAILED",
-     "e0a3c0bb": "FAILED"
+     "d1836d8e": "SUCCEEDED",
+     "f0f94898": "SUCCEEDED",
+     "68340642": "SUCCEEDED",
+     "2c6b6e0f": "SUCCEEDED",
+     "e0a3c0bb": "SUCCEEDED",
+     "ec99648f": "SUCCEEDED"
     },
-    "approval_drill": {
-     "run1_executions_started": 0,
-     "run1_relay_error": "AccessDeniedException: ...FnApprovalRelayServiceRole... is not authorized to perform: states:StartExecution on resource: arn:aws:states:ap-southeast-2:************:stateMachine:setuhaul-pilot-approval because no identity-based policy allows the states:StartExecution action",
-     "pending_processed": {
-      "checks": {
-       "the relay now starts executions (no AccessDenied)": true,
-       "one execution per pending request, all SUCCEEDED": false,
-       "decided requests unchanged (status, decided_by, decided_at)": true,
-       "decided executions did not take the expiry path": false,
-       "the overdue OPEN request expired through the workflow timeout": false,
-       "the second relay run did nothing": true,
-       "each ApprovalDecided event consumed, once per consumer": true,
-       "no request decided twice (one decision event each in the audit trail)": true
+    "approval_drill_2": {
+     "checks": {
+      "no automatic approval: all three requests waited, OPEN with a task token": true,
+      "request: one execution per request, started by the deployed relay; a second relay run started none": true,
+      "approve: planner decision -> approval APPROVED, appointment CONFIRMED, claim kept, execution succeeded": true,
+      "reject: planner decision -> approval REJECTED, appointment REJECTED, claim released, execution succeeded": true,
+      "expiry: no decision -> the state machine's timeout ran ExpireApproval, request EXPIRED, claim released": true,
+      "refused: agent role, another facility's planner, no staff identity, and a second decision": true,
+      "idempotent: the same decision key twice returns the same decision": true,
+      "no duplicate business action: one decided event per decided request, at most one callback each": true,
+      "driver notices only to the internal test sink (no WhatsApp)": true,
+      "booking switch still false on every function; all data synthetic": true
+     },
+     "paths": {
+      "APPROVE": {
+       "execution": {
+        "status": "SUCCEEDED",
+        "states": [
+         "NotifyApprovers",
+         "WaitForDecision",
+         "Done"
+        ],
+        "executions_named_for_this_request": 1
+       },
+       "approval": {
+        "status": "APPROVED",
+        "decided_by": "staff:step6-drill-planner",
+        "decided": true,
+        "kind": "STANDARD",
+        "decided_role": "planner"
+       },
+       "appointment": {
+        "status": "CONFIRMED",
+        "is_current": true,
+        "claim_active": true
+       }
       },
-      "status": {
-       "APPROVE": "FAILED",
-       "REJECT": "FAILED",
-       "EXPIRE": "FAILED"
+      "REJECT": {
+       "execution": {
+        "status": "SUCCEEDED",
+        "states": [
+         "NotifyApprovers",
+         "WaitForDecision",
+         "Done"
+        ],
+        "executions_named_for_this_request": 1
+       },
+       "approval": {
+        "status": "REJECTED",
+        "decided_by": "staff:step6-drill-planner",
+        "decided": true,
+        "kind": "STANDARD",
+        "decided_role": "planner"
+       },
+       "appointment": {
+        "status": "REJECTED",
+        "is_current": false,
+        "claim_active": false
+       }
+      },
+      "EXPIRE": {
+       "execution": {
+        "status": "SUCCEEDED",
+        "states": [
+         "NotifyApprovers",
+         "WaitForDecision",
+         "ExpireApproval",
+         "Done"
+        ],
+        "executions_named_for_this_request": 1
+       },
+       "approval": {
+        "status": "EXPIRED",
+        "decided_by": "system:expiry",
+        "decided": true,
+        "kind": "STANDARD",
+        "decided_role": "system"
+       },
+       "appointment": {
+        "status": "EXPIRED",
+        "is_current": false,
+        "claim_active": false
+       }
       }
-     }
+     },
+     "redrive_of_failed_executions": {
+      "all three executions were FAILED and were redriven once": true,
+      "all three executions SUCCEEDED after the redrive": true,
+      "decided requests unchanged (status, decided_by, decided_at, appointment, claim)": true,
+      "the overdue request EXPIRED through expire_approval, its claim released": true,
+      "one decision record per request in the audit trail (no duplicates)": true,
+      "driver notices only to the internal test sink": true
+     },
+     "approval_failed_alarm_went_to_alarm_at": [
+      "2026-11-23T08:35:26.716000+05:30"
+     ]
     }
    },
    "checks": {
     "live alias 'live' routes 100% to one published version": true,
     "published definition equals the repository ASL": true,
     "every execution is an owner-approved Step 6 drill request (SYN-STEP6-*)": true,
-    "no execution has failed": false,
+    "no execution has failed": true,
     "booking switch false on every function": true,
-    "the deployed relay can start executions": true
+    "the deployed relay can start executions": true,
+    "drill 2 (live): request, approve, reject, duplicate decision, refusals, audit, timeout expiry": true,
+    "the 3 executions that failed on the defect were redriven and completed safely": true,
+    "monitoring: the failed-execution alarm fired on real failures (23 Nov)": true
    },
-   "not_shown": [
-    "drill 2 after the task-function fix is deployed: start, approve, reject, duplicate decision, audit, timeout expiry; and a redrive of the 3 failed executions"
-   ],
-   "status": "FAIL"
+   "not_shown": [],
+   "status": "PASS"
   },
   "OUTBOUND_DELIVERY": {
    "evidence": {

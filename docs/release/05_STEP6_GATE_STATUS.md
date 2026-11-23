@@ -9,10 +9,10 @@
 > | RECOVERY_WORKER | **PARTIAL.** The DLQ procedure was drilled on 23 Nov. Lease and fencing were not forced live. |
 > | WORKLOAD_IDENTITY | **PARTIAL.** Acceptance check 5 needs a second Cognito user. |
 > | AURORA | **PASS WITH PILOT EXCEPTION (T33-P)**, 23 Nov: 17.9 verified live and in CI. Production still needs 18.3+ (T33). |
-> | BOOKING_WORKFLOW | **FAIL** (23 Nov, after deploying the IAM fix): the relay now starts executions, but the token and expiry task functions crash (missing ARN). The second fix is ready locally and not deployed. |
+> | BOOKING_WORKFLOW | **PASS** (23 Nov): drill 2 live, 10 of 10 (request, approve, reject, duplicate, refusals, audit, timeout expiry); the failed runs were redriven safely; the alarm was proven. |
 > | OUTBOUND_DELIVERY | **BLOCKED.** It needs a Meta test number and approved templates. |
 >
-> **No gate has passed unconditionally, and no `deployment_evidence` row has been written.** The booking switch stays OFF.
+> **BOOKING_WORKFLOW passed on 23 Nov; no other gate has passed unconditionally. No `deployment_evidence` row has been written.** The booking switch stays OFF.
 >
 > The text below is the original plan of 21 Nov, kept as written.
 

@@ -7,7 +7,7 @@
 >   - Synthetic data, booking switch OFF, internal test sink, hosted staff console.
 >   - Evidence: `12_CONSOLE_PILOT_REPORT.md` and `evidence/deploy_check.json` (29 of 29 checks).
 > - **Challenge completion work: implemented and tested locally, not deployed.** On branch `phase-f/challenge-completion`: the facility scheduling tool and `move_appointment` (migration 0025), the Option D switch and the gate-evidence tool, the Break and Defend deliverables (`docs/challenge/`), and the follow-ups. Test results: `docs/challenge/TEST_REPORT.md`.
-> - **Step 6:** measured live. AURORA is PASS WITH PILOT EXCEPTION (T33-P); **no gate has passed unconditionally** (`13_STEP6_GATE_EVIDENCE.md`).
+> - **Step 6:** measured live. BOOKING_WORKFLOW **PASS**; AURORA PASS WITH PILOT EXCEPTION (T33-P); the others PARTIAL or BLOCKED (`13_STEP6_GATE_EVIDENCE.md`). Deployed on 23 Nov: migration 0025, the relay IAM fix and the task-function fix (`release/fde-sydney-pilot` at `20180e7`).
 >
 > The tables below are the 21–22 Nov plan, with their status columns updated.
 
@@ -18,7 +18,7 @@
 | C Tests and quality gates | Done; the latest consolidated run is in `docs/challenge/TEST_REPORT.md` |
 | D Security and GitHub readiness | Done: private repository `amolam/setuhaul-logistics`, tag `v0.1.0-fde-pilot` (`02_SECURITY_SCAN.md`, `03_GITHUB_RELEASE_CHECKLIST.md`) |
 | E AWS Sydney pilot | **Option A deployed and verified** (`10_EXPRESS_AURORA.md`, `11_STAFF_CONSOLE.md`, `12_CONSOLE_PILOT_REPORT.md`). Option D is built and OFF |
-| F Step 6 acceptance | **Measured live, with the drills of 23 Nov:** AURORA PASS WITH PILOT EXCEPTION (T33-P); 3 PARTIAL; BOOKING_WORKFLOW **FAIL** (relay IAM defect, fix not deployed); OUTBOUND_DELIVERY BLOCKED. No unconditional pass (`13_STEP6_GATE_EVIDENCE.md`) |
+| F Step 6 acceptance | **Measured live (22–23 Nov):** BOOKING_WORKFLOW **PASS**; AURORA PASS WITH PILOT EXCEPTION (T33-P); AWS_QUEUE, RECOVERY_WORKER and WORKLOAD_IDENTITY PARTIAL; OUTBOUND_DELIVERY BLOCKED (`13_STEP6_GATE_EVIDENCE.md`) |
 | G Monitoring, cost, operations | Done as a guide; `/health`; pilot wake and sleep; pause evidence from RDS events (`06_PILOT_OPERATIONS_GUIDE.md`) |
 
 ## The twelve deliverables
@@ -79,7 +79,7 @@ Since the restructure (`git diff --name-only 77e82cc HEAD`): `README.md`; `.env.
 
 | Item | Kind | Note |
 |---|---|---|
-| Step 6 gates (23 Nov, after the owner-approved drills): AURORA PASS WITH PILOT EXCEPTION (T33-P); AWS_QUEUE, RECOVERY_WORKER and WORKLOAD_IDENTITY PARTIAL; **BOOKING_WORKFLOW FAIL** (the deployed relay is denied `states:StartExecution`; the fix is ready locally, not deployed); OUTBOUND_DELIVERY BLOCKED | blocking for booking | owner: deploy the relay IAM fix and rerun the workflow drill; a longer DLQ drill for the depth alarm; a second Cognito user; a Meta test number and templates; whether T33-P may count for Option D (`13_STEP6_GATE_EVIDENCE.md`) |
+| Step 6 gates (23 Nov): BOOKING_WORKFLOW PASS; AURORA PASS WITH PILOT EXCEPTION (T33-P); AWS_QUEUE, RECOVERY_WORKER and WORKLOAD_IDENTITY PARTIAL; OUTBOUND_DELIVERY BLOCKED | blocking for booking | owner: a longer DLQ drill for the depth alarm; a forced lease-loss drill; a second Cognito user; drift detection (Free plan); a Meta test number and templates; whether T33-P may count for Option D (`13_STEP6_GATE_EVIDENCE.md`) |
 | R2 (low): spending cap and cost are supplied by the calling code | **deferred (23 Nov)** | the cap comes from the deployment configuration (`SETUHAUL_LLM_DAILY_BUDGET_USD`), backed by the $3/month key limit. Moving it into the database needs a migration and new grants, which is out of scope for a low item |
 | R3 (low): no length limits on extracted text arguments | **implemented (23 Nov)** | every free-text field is bounded in the schema and the parser; over-long values fall back to the rules reader (`tests/test_extraction_bounds.py`) |
 | R5 (info): a crashed process leaves its reservation counted for the day | **deferred, accepted (23 Nov)** | errs towards spending less; resets at 00:00 UTC |
@@ -98,6 +98,6 @@ Since the restructure (`git diff --name-only 77e82cc HEAD`): `README.md`; `.env.
 | Merge Phase B into `main` and cut `release/fde-sydney-pilot` | Done (22 Nov) |
 | Push to a **private** GitHub repository and tag `v0.1.0-fde-pilot` | Done (22 Nov) |
 | Deploy the AWS Sydney pilot (Option A) | **Done (22 Nov)**, after the owner's approval |
-| Deploy the 23 Nov challenge-completion work | **NO-GO until the owner reviews it.** Migration 0025 is not on AWS yet |
+| Deploy the 23 Nov challenge-completion work | **Done (23 Nov, owner-approved):** `20180e7`, including migration 0025, the relay IAM fix and the task-function fix; booking OFF |
 | Claim step 6 acceptance | **NO-GO**: no gate has passed unconditionally; AURORA holds a pilot-only exception (`13_STEP6_GATE_EVIDENCE.md`) |
 | Turn on `SETUHAUL_BOOKING_ENABLED` (Option D) | **NO-GO** until all six gates pass and the owner gives written approval (`-c booking_approval=OWNER-APPROVAL-…`) |

@@ -74,7 +74,7 @@ The details are in `docs/challenge/INTEGRITY_PROOF.md`. The wider attack and fai
 
 ## Open risks and decisions for you
 
-1. **Release checks:** the live tests on 23 Nov showed that re-sending a stuck message works. They also found that the cloud approval workflow cannot start, because of a missing permission. The fix is ready, but deploying it needs your approval, and then the test must be run again. After that come the Meta test number and templates. The database-version exception was approved on 23 Nov.
+1. **Release checks:** the live tests on 23 Nov showed that re-sending a stuck message works and that the cloud approval workflow works end to end: request, approve, reject, a duplicate click, and expiry when nobody answers. Two technical faults were found and fixed along the way. Still open: proving the dead-letter alarm fires, a forced worker-failure test, a second staff login for one identity check, and the Meta test number and templates. The database-version exception was approved on 23 Nov.
 2. **Automatic confirmation:** any rule that confirms without a person (for example, low-risk night arrivals at Gurugram) needs your written policy. None is switched on.
 3. **"Talk to a person" button:** deferred at your request. Drivers can still reach a coordinator through the safety words and the escalation path.
 4. **Peak capacity:** before any automatic rule relies on "how busy is the dock", peak occupancy should be measured against usable capacity (review item R3 Q3).

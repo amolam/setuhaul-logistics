@@ -188,10 +188,10 @@ def status_slide(prs):
             ["Recovery worker", "PARTIAL", "forced lease-loss test"],
             ["Workload identity", "PARTIAL", "check 5: second staff user"],
             ["Database", "PASS (pilot exc.)", "T33-P: 17.9 pilot only; prod needs 18.3+"],
-            ["Approval workflow", "FAIL", "IAM fixed; task fix not deployed"],
+            ["Approval workflow", "PASS", "drilled live 23 Nov; 2 fixes deployed"],
             ["Outbound delivery", "BLOCKED", "Meta test number + templates"]]
     table(s, 3.65, 1.1, 5.85, rows, [2.45, 1.15, 2.25], size=10, status_col=1, name="Gate table")
-    text(s, 3.65, 3.25, 5.85, 1.4, "No gate has passed unconditionally, so no evidence row was written and booking cannot start. "
+    text(s, 3.65, 3.25, 5.85, 1.4, "Booking stays OFF until all six gates pass and the owner approves in writing. "
          "Real WhatsApp and production stay off.", size=11, color="muted", name="Gate note")
     return s
 

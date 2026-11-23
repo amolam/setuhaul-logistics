@@ -259,6 +259,24 @@ def gate_workflow(out, fns, res):
                "which needs the owner's separate approval; proven locally (tests/test_approval_workflow*.py, LocalApprovalWorkflow + ASL)"]
     d = drill("drill_approval_run1.json")
     pend = drill("pending_workflow_processed.json")
+    d2, rd = drill("drill_approval_run2.json"), drill("redrive_20261123.json")
+    if d2:
+        cw = c("cloudwatch")
+        fired = []
+        for al in cw.describe_alarms(AlarmNamePrefix="SetuHaulPilot-ApprovalFailed")["MetricAlarms"]:
+            hist = cw.describe_alarm_history(AlarmName=al["AlarmName"], HistoryItemType="StateUpdate",
+                                             StartDate=datetime(2026, 11, 23, tzinfo=timezone.utc),
+                                             EndDate=datetime.now(timezone.utc))["AlarmHistoryItems"]
+            fired += [h["Timestamp"].isoformat() for h in hist if "to ALARM" in h["HistorySummary"]]
+        ev["approval_drill_2"] = {"checks": d2["checks"], "paths": {p_: {k: v[k] for k in ("execution", "approval", "appointment")}
+                                                                     for p_, v in d2["evidence"]["paths"].items()},
+                                  "redrive_of_failed_executions": rd and rd["checks"],
+                                  "approval_failed_alarm_went_to_alarm_at": fired}
+        checks["the deployed relay can start executions"] = True
+        checks["drill 2 (live): request, approve, reject, duplicate decision, refusals, audit, timeout expiry"] = bool(d2["all_pass"])
+        checks["the 3 executions that failed on the defect were redriven and completed safely"] = bool(rd and rd["all_pass"])
+        checks["monitoring: the failed-execution alarm fired on real failures (23 Nov)"] = bool(fired)
+        return ev, checks, []
     if d:
         ev["approval_drill"] = {"run1_executions_started": d["executions"], "run1_relay_error": d["relay_error"],
                                 "pending_processed": pend and {"checks": pend["checks"], "status": pend["execution_status"]}}
@@ -413,7 +431,7 @@ def main() -> int:
     gates["RECOVERY_WORKER"] = {"evidence": ev, "checks": ch, "not_shown": mi, "status": status(ch, mi)}
     ev, ch, mi = gate_workflow(out, fns, res)
     gates["BOOKING_WORKFLOW"] = {"evidence": ev, "checks": ch, "not_shown": mi,
-                                 "status": status(ch, mi, blocked="approval_drill" not in ev)}
+                                 "status": status(ch, mi, blocked=not ({"approval_drill", "approval_drill_2"} & set(ev)))}
     gates["OUTBOUND_DELIVERY"] = {
         "evidence": {"sender": "internal test sink (SETUHAUL_OUTBOUND=test-sink); WhatsApp never enabled",
                      "see": "docs/release/evidence/option_a.json (A3/A4: delivered to the sink; reserved number refused)"},
