@@ -12,7 +12,7 @@
 > | BOOKING_WORKFLOW | **PASS** (23 Nov): drill 2 live, 10 of 10 (request, approve, reject, duplicate, refusals, audit, timeout expiry); the failed runs were redriven safely; the alarm was proven. |
 > | OUTBOUND_DELIVERY | **BLOCKED.** It needs a Meta test number and approved templates. |
 >
-> **BOOKING_WORKFLOW, AWS_QUEUE and RECOVERY_WORKER passed on 23 Nov; AURORA passes only with the pilot exception. No `deployment_evidence` row has been written.** The booking switch stays OFF.
+> **BOOKING_WORKFLOW, AWS_QUEUE and RECOVERY_WORKER passed on 23 Nov; AURORA passes only with the pilot exception.** The owner accepted three pilot exceptions and approved Option D: booking is ON on the synthetic pilot (`14_OPTION_D_ACTIVATION.md`).
 >
 > The text below is the original plan of 21 Nov, kept as written.
 

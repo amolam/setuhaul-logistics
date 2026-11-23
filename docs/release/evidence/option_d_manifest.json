@@ -1,0 +1,45 @@
+{
+  "environment": "pilot-ap-southeast-2",
+  "gates": {
+    "BOOKING_WORKFLOW": {
+      "definition_sha256": "766bc69495cb9fa2b27b624192222d2e817ae924994ca00643c8db13e08f957b",
+      "state_machine_arn": "arn:aws:states:ap-southeast-2:668310558428:stateMachine:setuhaul-pilot-approval:live",
+      "state_machine_version": "arn:aws:states:ap-southeast-2:668310558428:stateMachine:setuhaul-pilot-approval:1"
+    },
+    "OUTBOUND_DELIVERY": {
+      "artifact_sha256": "e4028c5f3207f2e2a14d80382af0998cfa4e7fbae9239b76fd747506c7c0e11f",
+      "delivery_policy_version": "B-WF-3/0017",
+      "provider_config_sha256": "27a29f583cc09c30c296d8e60d631b4cff0f04e05e30d436c02d72907854e0ac"
+    },
+    "RECOVERY_WORKER": {
+      "artifact_sha256": "e4028c5f3207f2e2a14d80382af0998cfa4e7fbae9239b76fd747506c7c0e11f",
+      "config_version": "e45f0a2b45674584",
+      "queue_visibility_timeout_s": 300,
+      "schedule": "rate(1 minute)"
+    },
+    "WORKLOAD_IDENTITY": {
+      "iam_policies_sha256": "2a8c442fb24a39ea8f254eea10119a21f72df1664c5d15b55bcaf6d7fa90b160",
+      "role_mapping": {
+        "agent": [
+          "agent",
+          "feasibility",
+          "ingest"
+        ],
+        "api": [
+          "ingest",
+          "console"
+        ],
+        "approval": [
+          "system"
+        ],
+        "outbound": [
+          "system"
+        ],
+        "recovery": [
+          "system",
+          "ingest"
+        ]
+      }
+    }
+  }
+}

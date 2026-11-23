@@ -11,7 +11,7 @@
 > | WORKLOAD_IDENTITY | PARTIAL: all 5 acceptance checks pass live; only drift detection (AWS Config) is missing on the Free plan |
 > | OUTBOUND_DELIVERY | BLOCKED: Meta test number and templates |
 >
-> Booking (Option D) stays **OFF**. No `deployment_evidence` row has been written: the pipeline step that writes them is not built.
+> **Option D is ACTIVE on the synthetic pilot (23 Nov 2026)**: the owner accepted T33-P, no drift detection and Meta deferred as pilot exceptions; activation recorded PASS evidence for three gates and the three exceptions (`14_OPTION_D_ACTIVATION.md`).
 
 **What this is:** a read-only check of the six gates in `docs/operations/DEPLOYMENT_GATES.md`, run against the deployed synthetic pilot.
 - **Stack:** `SetuHaulPilot`, deployed from `eaad598`. The code running is identical to `release/fde-sydney-pilot` at `9d2145c`.

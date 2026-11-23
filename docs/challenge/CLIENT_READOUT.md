@@ -60,7 +60,7 @@ The details are in `docs/challenge/INTEGRITY_PROOF.md`. The wider attack and fai
 | | Status |
 |---|---|
 | **Option A pilot** on AWS Sydney | **Live, synthetic data only.** <ul><li>Drivers' messages are read, options are offered, and replies go to an internal test inbox, not to WhatsApp.</li><li>The staff console works, with sign-in and two-step verification.</li></ul> |
-| **Option D: booking requests and approvals** | **Built and tested, but switched OFF.** It turns on only after all six release checks pass on AWS, and with your written approval. |
+| **Option D: booking requests and approvals** | **Switched ON on the test pilot (23 Nov 2026), with your written approval.** A synthetic driver booked a slot through WhatsApp-style chat, a planner approved it and the booking was confirmed; a duplicate message, a double booking and an unauthorised approval were all refused. An emergency stop switch blocks new bookings at once. Still synthetic data only, no real WhatsApp. |
 | Real WhatsApp messages | **Off.** This needs a Meta test number and Meta-approved message templates. |
 | Production use | **Refused** by the system itself until a separate decision is made. |
 

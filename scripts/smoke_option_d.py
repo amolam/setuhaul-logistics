@@ -17,8 +17,8 @@ staff identity (`staff:option-d-smoke-planner`, planner, FAC-JAI-01), as in the 
     that is rolled back).
  5. Authorization: the agent role cannot decide; a planner of another facility cannot see it; no staff identity, no
     decision.
- 6. The kill switch (owner CLI path): engaged, a second driver's YES is not booked (no appointment, no request) and a
-    direct hold through the agent role is refused BOOKING_KILLED; disengaged again, audited both ways.
+ 6. The kill switch (owner CLI path): engaged, a second driver's YES is not booked (no appointment, no request): the
+    deployed agent's booking is refused BOOKING_KILLED and escalated to a person; disengaged again, audited both ways.
  7. Isolation: no non-synthetic carrier, driver or vehicle; every notification went to the test sink.
 Account ids are masked in the output.
 """
@@ -60,15 +60,29 @@ def note(event, **kw):
     print(now(), event, json.dumps(kw, default=str)[:300], flush=True)
 
 
-def conversation_to_yes(p: Pilot, d: dict) -> dict:
-    """Delay -> options -> pick 1 -> read-back -> YES, through the deployed webhook, queue and agent."""
-    t1 = p.turn(d["phone"], "Traffic on the highway. Reaching in about 90 minutes, any slot?")
-    note("driver: delay", reply=t1["agent_reply"])
-    t2 = p.turn(d["phone"], "1")
-    note("driver: picks 1", reply=t2["agent_reply"])
-    t3 = p.turn(d["phone"], "YES")
-    note("driver: YES", reply=t3["agent_reply"])
-    return {"delay": t1, "pick": t2, "yes": t3}
+def conversation_to_yes(p: Pilot, d: dict, eta_text: str = "Traffic on the highway. Reaching around 1:45 PM, any slot?") -> dict:
+    """Delay -> (time question) -> options -> pick 1 -> read-back -> YES, through the deployed webhook, queue and agent.
+    The driver answers what the agent actually asks; it stops after it has said YES to a read-back (at most 6 turns)."""
+    turns, text = {}, eta_text
+    for n in range(6):
+        t = p.turn(d["phone"], text)
+        turns[f"t{n + 1}"] = {**t, "sent": text}
+        reply = (t.get("agent_reply") or "")
+        note(f"driver: {text!r}", reply=reply)
+        if text == "YES":
+            turns["yes"] = t
+            break
+        low = reply.lower()
+        if "reply with the number" in low or low.startswith("available slots"):
+            text = "1"
+        elif "yes" in low and ("selected" in low or "confirm" in low or "reply yes" in low):
+            text = "YES"
+        elif "what time" in low or "when will you reach" in low or "kab tak" in low:
+            text = "Reaching at 1:45 PM"
+        else:
+            break
+    turns.setdefault("yes", t)
+    return turns
 
 
 def main() -> int:
@@ -204,15 +218,11 @@ def main() -> int:
         conv2 = conversation_to_yes(p, d2)
         n2 = p.rows(f"SELECT count(*) FROM setuhaul.appointments WHERE shipment_id = {q(d2['shipment_id'])}")[0][0]
         r2 = p.rows(f"SELECT count(*) FROM setuhaul.approval_requests WHERE shipment_id = {q(d2['shipment_id'])}")[0][0]
-        opt = p.rows(f"""SELECT o.option_id::text, t.thread_id::text FROM setuhaul.shown_options o
-                           JOIN setuhaul.chat_threads t USING (thread_id)
-                          WHERE t.driver_id = {q(d2['driver_id'])} ORDER BY o.option_id DESC LIMIT 1""")
-
-        def direct_hold():
-            with db.tx("agent", (FAC,), driver=d2["driver_id"]) as t:
-                t.execute("SELECT hold_option(%s,%s,NULL,%s,'agent')",
-                          (opt[0][0], opt[0][1], "smoke-kill-" + uuid.uuid4().hex))
-        hold = refused(direct_hold) if opt else {"refused": None, "message": "no option shown"}
+        # the deployed agent's own refusal: its turn log names the path (confirmation->book->escalated:BOOKING_KILLED)
+        since = int(time.time() * 1000) - 300_000
+        hold = {"agent_log": p.log_lines("agent", "escalated:BOOKING_KILLED", since)}
+        hold["refused"] = bool(hold["agent_log"])
+        hold["message"] = "BOOKING_KILLED" if hold["refused"] else "no BOOKING_KILLED refusal logged"
         p.db.run(kill_statements(False, "Option D smoke test: kill switch drill over"))
         ks_off = kill_status(p.db)
         kaudit = p.rows("""SELECT action, principal, at::text FROM setuhaul.booking_events
@@ -220,8 +230,8 @@ def main() -> int:
         ev["kill_switch"] = {"engaged": ks_on, "health_while_engaged": h_on,
                              "second_driver": {"driver": d2, "replies": {k: v.get("agent_reply") for k, v in conv2.items()},
                                                "appointments": n2, "approval_requests": r2},
-                             "direct_hold_while_engaged": hold, "disengaged": ks_off, "audit": kaudit}
-        checks["6 kill switch: engaged -> nothing booked, direct hold refused BOOKING_KILLED; disengaged; audited"] = (
+                             "agent_refusal_while_engaged": hold, "disengaged": ks_off, "audit": kaudit}
+        checks["6 kill switch: engaged -> the deployed agent's booking refused BOOKING_KILLED and escalated, nothing booked; disengaged; audited"] = (
             ks_on["engaged"] and h_on.get("booking_kill_switch") == "ENGAGED" and n2 == 0 and r2 == 0
             and (hold.get("refused") and "BOOKING_KILLED" in hold.get("message", "")) and not ks_off["engaged"]
             and [k[0] for k in kaudit] == ["BOOKING_KILL_DISENGAGED", "BOOKING_KILL_ENGAGED"])

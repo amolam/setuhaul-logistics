@@ -1,0 +1,14 @@
+{
+ "deployment_id": "m-5bb1fd39371dec9621df873b22cdf5a9d7f2e339",
+ "evidence": [
+  "AWS_QUEUE",
+  "BOOKING_WORKFLOW",
+  "RECOVERY_WORKER"
+ ],
+ "exceptions": {
+  "AURORA": "T33-P",
+  "WORKLOAD_IDENTITY": "NO-LIVE-DRIFT-DETECTION",
+  "OUTBOUND_DELIVERY": "META-DEFERRED-TEST-SINK-ONLY"
+ },
+ "approval_ref": "OWNER-APPROVAL-20261123-OPTION-D"
+}
