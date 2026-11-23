@@ -14,6 +14,7 @@ import httpx
 import psycopg
 import pytest
 
+from setuhaul.agent.errors import normalize
 from setuhaul.agent.extraction import Extraction
 from setuhaul.agent.metering import ModelBudget, Reservation
 from setuhaul.agent.models import BedrockModel, FakeModel, ModelError, model_for, with_retry
@@ -178,7 +179,7 @@ def test_an_answer_from_any_other_provider_is_refused():
     m, _ = model(Script(ok_reply(provider="Anthropic")))
     with pytest.raises(ModelError) as e:
         m.extract("x")
-    assert e.value.category == "provider_mismatch"
+    assert (e.value.category, e.value.detail) == ("UNKNOWN_PROVIDER_ERROR", "provider_mismatch")
 
 
 # ================================================================ failures, retries and their accounting
@@ -210,7 +211,7 @@ def test_failures_are_bounded_final_and_categorised(items, category, requests, w
     else:
         with pytest.raises(ModelError) as e:
             m.extract("x")
-        assert e.value.category == category and e.value.retryable is False
+        assert (e.value.category, e.value.detail) == (normalize(category), category) and e.value.retryable is False
     assert len(s.requests) == requests and slept == waits
 
 
@@ -250,7 +251,7 @@ def test_no_paid_request_is_sent_without_a_reservation(meter, category):
     m, _ = model(s, meter)
     with pytest.raises(ModelError) as e:
         m.extract("x")
-    assert e.value.category == category and s.requests == []
+    assert (e.value.category, e.value.detail) == (normalize(category), category) and s.requests == []
 
 
 def test_a_ledger_failure_is_logged_with_what_failed_and_nothing_sent(caplog):
@@ -266,7 +267,7 @@ def test_a_ledger_failure_is_logged_with_what_failed_and_nothing_sent(caplog):
     m, _ = model(s, Refusing())
     with pytest.raises(ModelError) as e:
         m.extract("x")
-    assert e.value.category == "meter_error" and s.requests == []
+    assert (e.value.category, e.value.detail) == ("BUDGET_CONFIGURATION_ERROR", "meter_error") and s.requests == []
     line = next(r.getMessage() for r in caplog.records if "usage ledger unavailable" in r.getMessage())
     assert "DataApiDatabaseError" in line and "sqlstate=42501" in line and "permission denied" in line
     assert KEY not in caplog.text
@@ -412,7 +413,7 @@ def test_an_exhausted_budget_records_the_refusal_and_sends_nothing(dsn):
     m, _ = model(s, b)
     with pytest.raises(ModelError) as e:
         m.extract("x")
-    assert e.value.category == "budget_exhausted" and s.requests == []
+    assert (e.value.category, e.value.detail) == ("BUDGET_EXCEEDED", "budget_exhausted") and s.requests == []
 
 
 def test_each_utc_day_has_its_own_budget(dsn):
@@ -441,7 +442,7 @@ def test_any_provider_failure_ends_in_the_rules_reader_and_booking_still_works(a
     model = FakeModel(extractions=[ModelError(category, category, retryable=False), exd()])
     r = Orchestrator(app.state.service, app.state.sessions, model).handle(
         d.say(f"Traffic. Reaching around {in_90()}. Any slot?"))
-    assert r.extractor == "rules-fallback" and r.fallback_reason == category
+    assert r.extractor == "rules-fallback" and (r.fallback_reason, r.fallback_detail) == (normalize(category), category)
     assert len(model.calls) == 1                                            # not retried, no second provider
     assert r.reply.startswith("Available slots") and len(options_of(app, d)) >= 1
 
@@ -452,7 +453,8 @@ def test_an_answer_outside_the_schema_ends_in_the_rules_reader(app, client, dsn)
     model = FakeModel(extractions=[{**ARGS, "approve_booking": True}])     # an extra key is off-contract
     r = Orchestrator(app.state.service, app.state.sessions, model).handle(
         d.say(f"Traffic. Reaching around {in_90()}. Any slot?"))
-    assert r.extractor == "rules-fallback" and r.fallback_reason == "invalid_schema"
+    assert r.extractor == "rules-fallback" and (r.fallback_reason, r.fallback_detail) == ("UNKNOWN_PROVIDER_ERROR",
+                                                                                          "invalid_schema")
 
 
 # ================================================================ R1: malformed answers, field by field (review of 59032f6)
@@ -480,7 +482,7 @@ def test_a_malformed_answer_is_a_classified_model_error_and_the_attempt_is_settl
     m, _ = model(Script(httpx.Response(200, json=body)), meter)
     with pytest.raises(ModelError) as e:
         m.extract("x")
-    assert (e.value.category, e.value.retryable) == ("malformed", False)
+    assert (e.value.category, e.value.detail, e.value.retryable) == ("UNKNOWN_PROVIDER_ERROR", "malformed", False)
     assert len(meter.settled) == 1                                          # settled once, whatever the shape
 
 
@@ -490,7 +492,8 @@ def test_a_malformed_answer_ends_in_the_rules_reader_through_the_orchestrator(ap
     d = Driver(client, phone)
     m, _ = model(Script(httpx.Response(200, json=body)), FakeMeter())
     r = Orchestrator(app.state.service, app.state.sessions, m).handle(d.say(f"Traffic. Reaching around {in_90()}. Any slot?"))
-    assert r.extractor == "rules-fallback" and r.fallback_reason == "malformed"
+    assert r.extractor == "rules-fallback" and (r.fallback_reason, r.fallback_detail) == ("UNKNOWN_PROVIDER_ERROR",
+                                                                                          "malformed")
     assert r.reply.startswith("Available slots") and len(options_of(app, d)) >= 1     # booking flow unaffected
 
 
@@ -505,7 +508,9 @@ def test_malformed_usage_metadata_is_unknown_never_trusted(usage):
     _, kw = meter.settled[0]
     assert kw["ok"] is True and kw["cost_usd"] is None                      # unknown cost: the reservation is kept
     assert kw["input_tokens"] in (None, 900) and kw["output_tokens"] in (None, 80)
-    assert isinstance(tr.input_tokens, int) and isinstance(tr.cache_read_tokens, int)
+    # G.1: the trace reports exactly what the ledger stores: a type-checked count, or None when unknown (no made-up 0)
+    assert (tr.input_tokens, tr.output_tokens) == (kw["input_tokens"], kw["output_tokens"])
+    assert tr.cache_read_tokens is None or (isinstance(tr.cache_read_tokens, int) and tr.cache_read_tokens >= 0)
 
 
 @pytest.mark.parametrize("cost,charged", [("0.001", None), (-1, None), (True, None), ([0.1], None), ({"usd": 1}, None),
@@ -530,7 +535,7 @@ def test_provider_metadata_must_name_the_pinned_provider_exactly(provider, categ
     m, _ = model(Script(httpx.Response(200, json=body)), meter)
     with pytest.raises(ModelError) as e:
         m.extract("x")
-    assert e.value.category == category
+    assert (e.value.category, e.value.detail) == (normalize(category), category)
     _, kw = meter.settled[0]
     assert kw["ok"] is False and kw["cost_usd"] == 0.001                    # billed: the real cost is still recorded
 
@@ -550,14 +555,15 @@ def test_a_403_is_credits_only_when_it_names_a_spending_limit(message, category,
     m, _ = model(s)
     with pytest.raises(ModelError) as e:
         m.extract("x")
-    assert e.value.category == category and len(s.requests) == 1 and "ALERT" in caplog.text
+    assert (e.value.category, e.value.detail) == (normalize(category), category) and len(s.requests) == 1 \
+        and "ALERT" in caplog.text
 
 
 def test_a_403_body_that_is_not_json_is_auth():
     m, _ = model(Script(httpx.Response(403, content=b"<html>forbidden")))
     with pytest.raises(ModelError) as e:
         m.extract("x")
-    assert e.value.category == "auth"
+    assert (e.value.category, e.value.detail) == ("PROVIDER_AUTH_ERROR", "auth")
 
 
 # ================================================================ programming errors are not hidden
@@ -590,10 +596,10 @@ def test_an_unusable_answer_is_charged_its_real_cost_but_settled_as_an_error(cho
     m, _ = model(Script(unusable_reply(choices)), meter)
     with pytest.raises(ModelError) as e:
         m.extract("x")
-    assert (e.value.category, e.value.retryable) == ("malformed", False)
+    assert (e.value.category, e.value.detail, e.value.retryable) == ("UNKNOWN_PROVIDER_ERROR", "malformed", False)
     assert len(meter.reserved) == 1 and len(meter.settled) == 1             # one attempt, settled exactly once
     kw = meter.settled[0][1]
-    assert (kw["ok"], kw["error"], kw["sent"]) == (False, "malformed", True)
+    assert (kw["ok"], kw["error"], kw["sent"]) == (False, "UNKNOWN_PROVIDER_ERROR", True)   # G.1: the category
     assert (kw["cost_usd"], kw["input_tokens"], kw["output_tokens"], kw["actual_provider"], kw["generation_id"]) == \
            (0.0012, 900, 80, "Amazon Bedrock", "gen-9")
 
@@ -611,7 +617,7 @@ def test_an_empty_phrasing_reply_is_settled_as_an_error():
     m, _ = model(Script(unusable_reply([{"message": {"content": "  "}}])), meter, phrase_model="anthropic/claude-sonnet-5")
     with pytest.raises(ModelError) as e:
         m.phrase("facts")
-    assert e.value.category == "malformed"
+    assert (e.value.category, e.value.detail) == ("UNKNOWN_PROVIDER_ERROR", "malformed")
     assert len(meter.settled) == 1 and (meter.settled[0][1]["ok"], meter.settled[0][1]["cost_usd"]) == (False, 0.0012)
 
 
@@ -638,11 +644,11 @@ def test_an_unusable_answer_is_recorded_in_the_ledger_as_an_error_with_its_real_
     m, _ = model(Script(unusable_reply([{"message": {"content": "no tool call"}}])), b)
     with pytest.raises(ModelError) as e:
         m.extract("x")
-    assert e.value.category == "malformed"
+    assert (e.value.category, e.value.detail) == ("UNKNOWN_PROVIDER_ERROR", "malformed")
     assert len(b.reservations) == 1 and b.settle_calls == 1
     row = _row(dsn, b.reservations[0].request_id)
     assert (row["status"], row["error_category"], row["cost_source"], row["cost_usd"], row["input_tokens"],
-            row["output_tokens"], row["generation_id"]) == ("ERROR", "malformed", "provider", Decimal("0.0012"), 900, 80,
+            row["output_tokens"], row["generation_id"]) == ("ERROR", "UNKNOWN_PROVIDER_ERROR", "provider", Decimal("0.0012"), 900, 80,
                                                             "gen-9")
     assert _day(dsn) == (spent + Decimal("0.0012"), reserved)               # charged once, reservation released
     with psycopg.connect(dsn) as c:                                         # one ledger row for the whole call
@@ -658,7 +664,7 @@ def test_a_failed_settlement_neither_double_charges_nor_hides_the_original_error
     m, _ = model(Script(reply()), b)
     with pytest.raises(ModelError) as e:
         m.extract("x")
-    assert e.value.category == category                                     # the answer's error, not the database's
+    assert (e.value.category, e.value.detail) == (normalize(category), category)   # the answer's error, not the db's
     assert len(b.reservations) == 1 and b.settle_calls == 1                 # no second attempt, no second settle
     r = b.reservations[0]
     row = _row(dsn, r.request_id)
@@ -682,6 +688,7 @@ def test_an_unusable_answer_through_the_orchestrator_gives_the_rules_reader_repl
     meter = FakeMeter()
     m, _ = model(Script(unusable_reply(choices)), meter)
     r = Orchestrator(app.state.service, app.state.sessions, m).handle(d.say(f"Traffic. Reaching around {in_90()}. Any slot?"))
-    assert r.extractor == "rules-fallback" and r.fallback_reason == "malformed"
+    assert r.extractor == "rules-fallback" and (r.fallback_reason, r.fallback_detail) == ("UNKNOWN_PROVIDER_ERROR",
+                                                                                          "malformed")
     assert r.reply.startswith("Available slots") and len(options_of(app, d)) >= 1
     assert len(meter.settled) == 1 and meter.settled[0][1]["ok"] is False

@@ -107,12 +107,37 @@ def api_handler(event, context):
 # ---------------------------------------------------------------- E2: workers
 @lru_cache(maxsize=1)
 def _orchestrator():
-    from ..agent.models import model_for
+    from ..agent.models import DeferredModel, model_for
     from ..agent.orchestrator import Orchestrator
+    from ..observability import tracing
+    from ..observability.langsmith import tracer_from_env
     app = runtime()
     lease = int(os.environ.get("SETUHAUL_PROCESSING_LEASE_S", "120"))
-    model = model_for(dict(os.environ), db=app.state.service.db)     # fails closed on any configuration problem
+    env, db = dict(os.environ), app.state.service.db
+    # G.1 (G3-C2): a missing, empty or unreadable OpenRouter secret, or a budget-configuration problem, no longer stops
+    # every turn: the agent answers with the rules reader, records the category, and re-tries building the client at
+    # most every 5 minutes. A refused environment, data class, provider or model still fails closed here.
+    model = DeferredModel(lambda: model_for(env, db=db),
+                          retry_after_s=float(os.environ.get("SETUHAUL_MODEL_RETRY_S", "300"))).prime()
+    if model.error is not None:
+        log.error("ALERT model client not started (%s %s): the rules reader answers until it can be built",
+                  model.error.category, model.error.detail)
+    elif model.client is None:                                      # no model configured (provider none): as before
+        model = None                                                # G.1 fix: never wrap "no model" in a client
+    tracing.install(tracer_from_env(env))                           # off unless SETUHAUL_LANGSMITH_TRACING=on
     return Orchestrator(app.state.service, app.state.sessions, model, lease_s=lease)
+
+
+def _flush_traces() -> None:
+    """After the batch has been processed and its outcome decided: post queued traces, bounded. Never raises."""
+    try:
+        from ..observability import tracing
+        t = tracing.tracer()
+        if t.enabled:
+            stats = t.flush(float(os.environ.get("SETUHAUL_TRACE_FLUSH_S", "0.5")))
+            log.info("trace export %s", {k: stats[k] for k in ("exported", "dropped", "export_errors", "pending")})
+    except Exception as e:                                          # noqa: BLE001 — tracing is non-critical
+        log.warning("trace flush failed (%s)", type(e).__name__)
 
 
 def agent_handler(event, context, sqs=None):
@@ -134,13 +159,18 @@ def agent_handler(event, context, sqs=None):
         orch.on_heartbeat = extend
         try:
             res = orch.handle(json.loads(rec["body"]))
-            log.info("agent turn message=%s path=%s extractor=%s", rec.get("messageId"),
-                     None if res is None else "->".join(res.path), getattr(res, "extractor", None))
+            log.info("agent turn message=%s path=%s extractor=%s fallback=%s correlation_id=%s turn_ref=%s "
+                     "ingest_correlation_id=%s",
+                     rec.get("messageId"), None if res is None else "->".join(res.path),
+                     getattr(res, "extractor", None), getattr(res, "fallback_reason", None),
+                     getattr(res, "correlation_id", None), getattr(res, "turn_ref", None),
+                     getattr(res, "ingest_correlation_id", None))
         except Exception:                                          # logged with its type; redelivered by SQS
             log.exception("agent turn failed for SQS message %s", rec.get("messageId"))
             failures.append({"itemIdentifier": rec["messageId"]})
         finally:
             orch.on_heartbeat = None
+    _flush_traces()                                                # after every outcome above is final
     return {"batchItemFailures": failures}
 
 

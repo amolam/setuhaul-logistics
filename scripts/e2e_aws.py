@@ -28,6 +28,7 @@ import sys
 import time
 import uuid
 from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 
 import boto3
@@ -202,15 +203,25 @@ def a5(p: Pilot) -> dict:
 
 
 def a6(p: Pilot) -> dict:
+    """G.1: the drill used to leave the UTC day's counter at the cap, so every real call that day was refused (seen on
+    22 Nov 2026: 8 refusals at $0). It now gives back exactly what it seeded once the scenario has run."""
+    today = "(clock_timestamp() AT TIME ZONE 'UTC')::date"
+    before = p.rows(f"SELECT coalesce((SELECT spent_usd FROM setuhaul.model_budget_day WHERE day = {today}), 0)::text")
+    seeded = max(Decimal("0.25") - Decimal(str(before[0][0] if before else 0)), Decimal(0))
     p.db.run(["SET LOCAL search_path = setuhaul",
               "INSERT INTO model_budget_day (day, environment) VALUES ((clock_timestamp() AT TIME ZONE 'UTC')::date, "
               "'pilot-ap-southeast-2') ON CONFLICT (day) DO NOTHING",
               "UPDATE model_budget_day SET spent_usd = greatest(spent_usd, 0.25) "
               "WHERE day = (clock_timestamp() AT TIME ZONE 'UTC')::date"])
-    d = p.add_driver(eta_min=60)
-    t = p.turn(d["phone"], "Traffic, reaching 2 hours late")
-    usage = p.rows("""SELECT status, coalesce(error_category,''), coalesce(cost_usd, 0) FROM setuhaul.model_usage
-                       WHERE created_at > now() - interval '3 minutes' ORDER BY created_at DESC LIMIT 3""")
+    try:
+        d = p.add_driver(eta_min=60)
+        t = p.turn(d["phone"], "Traffic, reaching 2 hours late")
+        usage = p.rows("""SELECT status, coalesce(error_category,''), coalesce(cost_usd, 0) FROM setuhaul.model_usage
+                           WHERE created_at > now() - interval '3 minutes' ORDER BY created_at DESC LIMIT 3""")
+    finally:
+        if seeded > 0:                                    # only the drill's own amount, never real spend
+            p.db.run(["SET LOCAL search_path = setuhaul",
+                      f"UPDATE model_budget_day SET spent_usd = greatest(spent_usd - {seeded}, 0) WHERE day = {today}"])
     return result("A6", "daily model budget spent: no paid call, the rules reader answers", t["message_id"],
                   {**d, **t, "model_usage_recent": usage}, {
                       "reply stored": t["agent_reply"],

@@ -38,12 +38,17 @@ KEY_FROM_ENV_ENVIRONMENTS = frozenset({"dev", "eval", "ci"})                  # 
 class ModelError(Exception):
     """Any model failure (timeout, throttling, refusal, schema, budget). The orchestrator falls back to code paths.
 
-    `category` names the failure for logs and the turn result; `retryable` tells `with_retry` whether one more attempt
-    is safe. Clients that retry on their own (OpenRouter) raise retryable=False once they have done so."""
+    `category` is one of the sixteen structured categories (setuhaul/agent/errors.py, Phase G.1); an older
+    fine-grained name passed here is normalised to its category and kept as `detail` (logs and traces only).
+    `retryable` tells `with_retry` whether one more attempt is safe. Clients that retry on their own (OpenRouter) raise
+    retryable=False once they have done so."""
 
-    def __init__(self, message: str, category: str = "model_error", retryable: bool = True):
+    def __init__(self, message: str, category: str = "model_error", retryable: bool = True, detail: str | None = None):
         super().__init__(message)
-        self.category, self.retryable = category, retryable
+        from .errors import CATEGORIES, normalize
+        self.category = normalize(category)
+        self.detail = detail if detail is not None else (None if category in CATEGORIES else category)
+        self.retryable = retryable
 
 
 def assert_allowed_profile(model_id: str, region: str) -> None:
@@ -76,9 +81,10 @@ class Trace:
     region: str
     prompt_version: str = PROMPT_VERSION
     schema_version: str | None = None
-    input_tokens: int = 0
-    output_tokens: int = 0
-    cache_read_tokens: int = 0
+    # G.1: None = the provider reported no usage (a failed or refused call). Never a fabricated zero.
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    cache_read_tokens: int | None = None
     latency_ms: int = 0
     outcome: str = "ok"
     # T52 usage tracking (OpenRouter): never any prompt or driver text
@@ -144,10 +150,10 @@ class BedrockModel:
             r = self.client.converse(modelId=model_id, **kw)
         except Exception as e:                                       # botocore errors, timeouts, throttling
             tr.outcome, tr.latency_ms = f"error:{type(e).__name__}", int((time.monotonic() - t0) * 1000)
-            raise ModelError(str(e)) from e
+            raise ModelError(str(e)[:300], _bedrock_category(e), detail=type(e).__name__) from e
         u = r.get("usage", {})
-        tr.input_tokens, tr.output_tokens = u.get("inputTokens", 0), u.get("outputTokens", 0)
-        tr.cache_read_tokens = u.get("cacheReadInputTokens", 0)
+        tr.input_tokens, tr.output_tokens = u.get("inputTokens"), u.get("outputTokens")
+        tr.cache_read_tokens = u.get("cacheReadInputTokens")
         tr.latency_ms = r.get("metrics", {}).get("latencyMs", int((time.monotonic() - t0) * 1000))
         if r.get("stopReason") in ("guardrail_intervened", "content_filtered"):
             tr.outcome = r["stopReason"]
@@ -222,6 +228,68 @@ def model_for(env: dict | None = None, *, db: Any = None, secrets_client: Any = 
                             timeout_s=10, client=bedrock_client)
     raise ModelError(f"CONFIG: SETUHAUL_MODEL_PROVIDER must be openrouter or bedrock, got {provider or 'nothing'!r}",
                      "config", False)
+
+
+def _bedrock_category(e: Exception) -> str:
+    from .errors import (MODEL_NOT_FOUND, NETWORK_ERROR, PROVIDER_AUTH_ERROR, PROVIDER_RATE_LIMIT, PROVIDER_SERVER_ERROR,
+                         REQUEST_TIMEOUT, INVALID_REQUEST, UNKNOWN_PROVIDER_ERROR)
+    code = str(((getattr(e, "response", None) or {}).get("Error") or {}).get("Code") or type(e).__name__)
+    return {"ThrottlingException": PROVIDER_RATE_LIMIT, "AccessDeniedException": PROVIDER_AUTH_ERROR,
+            "UnrecognizedClientException": PROVIDER_AUTH_ERROR, "ResourceNotFoundException": MODEL_NOT_FOUND,
+            "ValidationException": INVALID_REQUEST, "ModelTimeoutException": REQUEST_TIMEOUT,
+            "ReadTimeoutError": REQUEST_TIMEOUT, "ConnectTimeoutError": NETWORK_ERROR,
+            "EndpointConnectionError": NETWORK_ERROR, "InternalServerException": PROVIDER_SERVER_ERROR,
+            "ServiceUnavailableException": PROVIDER_SERVER_ERROR}.get(code, UNKNOWN_PROVIDER_ERROR)
+
+
+class DeferredModel:
+    """G.1 (G3-C2): a model client that may not exist yet. Built from `factory` on first use; when the factory fails
+    for a secret or budget-configuration reason, every call raises that ModelError at once (no request is sent: the
+    turn uses the rules reader and records the category: "never started"), and the factory is tried again at most every
+    `retry_after_s` seconds, so a key the owner sets later is picked up without a redeploy. Any other factory failure
+    (a refused environment, data class or model) is not deferred: it is raised to the caller as before (fail closed)."""
+
+    def __init__(self, factory: Callable[[], ModelClient], retry_after_s: float = 300.0,
+                 clock: Callable[[], float] = time.monotonic):
+        self.factory, self.retry_after_s, self.clock = factory, retry_after_s, clock
+        self.client: ModelClient | None = None
+        self.error: ModelError | None = None
+        self._tried_at: float | None = None
+
+    def _get(self) -> ModelClient:
+        from .errors import outcome_class
+        if self.client is not None:
+            return self.client
+        now = self.clock()
+        if self.error is not None and self._tried_at is not None and now - self._tried_at < self.retry_after_s:
+            raise ModelError(str(self.error), self.error.category, False, detail="not_started")
+        self._tried_at = now
+        try:
+            self.client = self.factory()
+            self.error = None
+        except ModelError as e:
+            if outcome_class(e.category) != "NOT_STARTED":
+                raise
+            self.error = e
+            raise ModelError(str(e), e.category, False, detail="not_started") from None
+        if self.client is None:          # "no model configured": callers pass None instead (lambdas); never crash here
+            raise ModelError("no model client is configured", "UNKNOWN_PROVIDER_ERROR", False, detail="not_configured")
+        return self.client
+
+    def prime(self) -> "DeferredModel":
+        """Try once now (cold start). A deferrable failure is kept, logged by the caller; anything else is raised."""
+        try:
+            self._get()
+        except ModelError as e:
+            if e.detail not in ("not_started", "not_configured"):
+                raise
+        return self
+
+    def extract(self, user_block: str) -> tuple[dict, Trace]:
+        return self._get().extract(user_block)
+
+    def phrase(self, facts_block: str, correction: str | None = None) -> tuple[str, Trace]:
+        return self._get().phrase(facts_block, correction)
 
 
 def with_retry(fn: Callable[[], Any], attempts: int = 2) -> Any:

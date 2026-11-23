@@ -1,0 +1,37 @@
+{"id": "D01", "category": "deadline", "say": "Need to finish unloading by 5 pm", "expect": {"intent": ["ASK_OPTIONS", "REPORT_DELAY"], "latest_finish_local": "17:00", "latest_finish_kind": "UNLOAD_END", "declared_eta_local": null, "earliest_start_local": null}}
+{"id": "D02", "category": "deadline", "say": "Need to finish by 5 pm", "expect": {"intent": ["ASK_OPTIONS", "REPORT_DELAY"], "latest_finish_local": "17:00", "declared_eta_local": null, "earliest_start_local": null}}
+{"id": "D03", "category": "deadline", "say": "Unloading should be completed before 5", "expect": {"intent": ["ASK_OPTIONS", "REPORT_DELAY"], "latest_finish_local": "17:00", "latest_finish_kind": "UNLOAD_END", "declared_eta_local": null}}
+{"id": "D04", "category": "deadline", "say": "Must finish loading by 17:00", "expect": {"intent": ["ASK_OPTIONS", "REPORT_DELAY"], "latest_finish_local": "17:00", "latest_finish_kind": "UNLOAD_END", "declared_eta_local": null}}
+{"id": "D05", "category": "deadline", "say": "Can you complete unloading by 5:30 PM?", "expect": {"intent": ["ASK_OPTIONS", "REPORT_DELAY"], "latest_finish_local": "17:30", "latest_finish_kind": "UNLOAD_END", "declared_eta_local": null}}
+{"id": "D06", "category": "deadline", "say": "We need to be done by 4 pm", "expect": {"intent": ["ASK_OPTIONS", "REPORT_DELAY"], "latest_finish_local": "16:00", "declared_eta_local": null, "earliest_start_local": null}}
+{"id": "D07", "category": "deadline", "say": "Finish before facility closing", "expect": {"intent": ["ASK_OPTIONS"], "latest_finish_local": null, "declared_eta_local": null}}
+{"id": "D08", "category": "hindi_hinglish", "say": "5 baje tak unloading khatam karni hai", "expect": {"intent": ["ASK_OPTIONS", "REPORT_DELAY"], "latest_finish_local": "17:00", "latest_finish_kind": "UNLOAD_END", "declared_eta_local": null}}
+{"id": "D09", "category": "deadline", "say": "I will reach by 3 pm and need to finish unloading by 6 pm", "expect": {"intent": ["REPORT_DELAY", "ASK_OPTIONS"], "declared_eta_local": "15:00", "latest_finish_local": "18:00", "latest_finish_kind": "UNLOAD_END"}}
+{"id": "DN1", "category": "deadline", "negative": true, "say": "Reaching by 5 pm", "expect": {"intent": ["REPORT_DELAY"], "declared_eta_local": "17:00", "latest_finish_local": null}}
+{"id": "DN2", "category": "deadline", "negative": true, "say": "Can I get a slot after 5 pm?", "expect": {"intent": ["ASK_OPTIONS"], "earliest_start_local": "17:00", "latest_finish_local": null}}
+{"id": "DN3", "category": "deadline", "negative": true, "say": "The office closes at 5, I will be late", "expect": {"intent": ["REPORT_DELAY"], "latest_finish_local": null}}
+{"id": "R01", "category": "arrival", "say": "pahunch gaya hoon gate pe", "expect": {"intent": ["EARLY_ARRIVAL", "CHECK_STATUS"], "declared_eta_local": null}}
+{"id": "R02", "category": "arrival", "say": "I have reached the gate", "expect": {"intent": ["EARLY_ARRIVAL", "CHECK_STATUS"]}}
+{"id": "R03", "category": "arrival", "say": "I am at the gate", "expect": {"intent": ["EARLY_ARRIVAL", "CHECK_STATUS"]}}
+{"id": "R04", "category": "hindi_hinglish", "say": "Truck gate pe aa gaya", "expect": {"intent": ["EARLY_ARRIVAL", "CHECK_STATUS"]}}
+{"id": "R05", "category": "hindi_hinglish", "say": "Main gate par pahunch gaya", "expect": {"intent": ["EARLY_ARRIVAL", "CHECK_STATUS"]}}
+{"id": "R06", "category": "hindi_hinglish", "say": "Pahunch gaya hoon", "expect": {"intent": ["EARLY_ARRIVAL", "CHECK_STATUS"]}}
+{"id": "R07", "category": "hindi_hinglish", "say": "Gate pe khada hoon", "expect": {"intent": ["EARLY_ARRIVAL", "CHECK_STATUS"]}}
+{"id": "R08", "category": "hindi_hinglish", "say": "Truck facility ke bahar hai", "expect": {"intent": ["EARLY_ARRIVAL", "CHECK_STATUS"]}}
+{"id": "R09", "category": "hindi_hinglish", "say": "Haan ji, gate pe hoon", "expect": {"intent": ["EARLY_ARRIVAL", "CHECK_STATUS"]}}
+{"id": "RN1", "category": "arrival", "negative": true, "say": "abhi nahi pahuncha, 1 ghanta lagega", "expect": {"intent": ["REPORT_DELAY"], "not_intent": ["EARLY_ARRIVAL"]}}
+{"id": "RN2", "category": "arrival", "negative": true, "say": "Gate pe 5 baje pahunchunga", "expect": {"intent": ["REPORT_DELAY"], "not_intent": ["EARLY_ARRIVAL"]}}
+{"id": "RN3", "category": "arrival", "negative": true, "say": "I will be at the gate by 5 pm", "expect": {"intent": ["REPORT_DELAY"], "declared_eta_local": "17:00", "not_intent": ["EARLY_ARRIVAL"]}}
+{"id": "RN4", "category": "arrival", "negative": true, "say": "Jaipur pahunch gaya hoon, 2 ghante lagenge", "expect": {"intent": ["REPORT_DELAY"], "not_intent": ["EARLY_ARRIVAL"]}}
+{"id": "RN5", "category": "arrival", "negative": true, "say": "Kya gate pe aa gaya?", "expect": {"not_intent": ["EARLY_ARRIVAL"]}}
+{"id": "RN6", "category": "arrival", "negative": true, "say": "Not at the gate yet, stuck in traffic", "expect": {"intent": ["REPORT_DELAY"], "not_intent": ["EARLY_ARRIVAL"]}}
+{"id": "RN7", "category": "arrival", "negative": true, "say": "reached Chomu, 3 hours more", "expect": {"intent": ["REPORT_DELAY"], "not_intent": ["EARLY_ARRIVAL"]}}
+{"id": "RN8", "category": "arrival", "negative": true, "say": "message aa gaya, thank you", "expect": {"not_intent": ["EARLY_ARRIVAL", "REPORT_DELAY"]}}
+{"id": "RN9", "category": "arrival", "negative": true, "say": "Gate band hai kya abhi?", "expect": {"not_intent": ["EARLY_ARRIVAL", "REPORT_DELAY"]}}
+{"id": "E01", "category": "eta_delay", "say": "Running 2 hours late due to traffic", "expect": {"intent": ["REPORT_DELAY"], "declared_delay_min": 120}}
+{"id": "E02", "category": "eta_delay", "say": "reaching by 4:30 pm", "expect": {"intent": ["REPORT_DELAY"], "declared_eta_local": "16:30"}}
+{"id": "E03", "category": "eta_delay", "say": "Big jam near Chomu, I will be late.", "expect": {"intent": ["REPORT_DELAY"], "declared_eta_local": null}}
+{"id": "E04", "category": "hindi_hinglish", "say": "shaam 6 baje pahunchunga", "expect": {"intent": ["REPORT_DELAY"], "declared_eta_local": "18:00"}}
+{"id": "E05", "category": "intent", "say": "Is my slot confirmed?", "expect": {"intent": ["CHECK_STATUS"]}}
+{"id": "E06", "category": "intent", "say": "Cancel my delivery please", "expect": {"intent": ["CANCEL"]}}
+{"id": "E07", "category": "intent", "say": "Truck reached early, can I unload now?", "expect": {"intent": ["EARLY_ARRIVAL"]}}

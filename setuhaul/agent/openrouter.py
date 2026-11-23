@@ -29,6 +29,9 @@ from typing import Any, Callable
 
 import psycopg
 
+from .errors import (BUDGET_CONFIGURATION_ERROR, BUDGET_EXCEEDED, EMPTY_SECRET, INVALID_REQUEST, MISSING_SECRET,
+                     PROVIDER_AUTH_ERROR, SECRET_RETRIEVAL_ERROR, UNKNOWN_PROVIDER_ERROR, classify_http,
+                     classify_secret_error, classify_transport, key_shape)
 from .extraction import RECORD_DRIVER_REPORT, SCHEMA_VERSION
 from .metering import ModelBudget
 from .models import KEY_FROM_ENV_ENVIRONMENTS, ModelError, Trace
@@ -51,44 +54,63 @@ MIN_RESERVATION = Decimal("0.001")
 CONNECT_TIMEOUT_S, READ_TIMEOUT_S, MAX_RETRY_WAIT_S = 3.0, 10.0, 2.0
 REJECTED_BEFORE_INFERENCE = {400, 401, 402, 403, 404, 429, 503}   # OpenRouter does not bill these
 # R4: OpenRouter answers 403 both for permissions and when a key, workspace or guardrail spending limit is spent; the
-# latter's message names the limit ("... limit ... $X of $Y used"). Only that wording is classified as `credits`.
-_CREDIT_LIMIT_403 = re.compile(r"\b(limit|budget|credits?)\b|\$\s*\d", re.I)
+# latter's message names the limit. errors.classify_http tells them apart (detail `credits` vs `auth`).
+# G.1 (G3-C3): after a PROVIDER_AUTH_ERROR the key is re-read from Secrets Manager before the NEXT call, at most once
+# per KEY_REFRESH_S, so a key the owner puts in the secret is used without a redeploy. The failed call itself is never
+# repeated (no extra model call).
+KEY_REFRESH_S = 300.0
 
 
 def load_openrouter_key(env: dict, environment: str, secrets_client: Any = None) -> str:
     """staging/pilot: AWS Secrets Manager only (SETUHAUL_OPENROUTER_SECRET_ID). dev/eval/ci: OPENROUTER_API_KEY, or the
-    secret. The key is returned to the client and never logged or put in an error message."""
+    secret. The key is returned to the client and never logged or put in an error message; neither is the secret's
+    ARN (it carries the account id). Failures are MISSING_SECRET / EMPTY_SECRET / SECRET_ACCESS_DENIED /
+    SECRET_RETRIEVAL_ERROR (G.1)."""
+    return load_openrouter_key_meta(env, environment, secrets_client)[0]
+
+
+def load_openrouter_key_meta(env: dict, environment: str, secrets_client: Any = None) -> tuple[str, dict]:
+    """The key and safe metadata about it: where it came from, the secret version id and the key's shape
+    (`openrouter_format` / `unrecognized_format`), never the value, its length or a prefix."""
     secret_id = (env.get("SETUHAUL_OPENROUTER_SECRET_ID") or "").strip()
     if environment in KEY_FROM_ENV_ENVIRONMENTS:
         key = (env.get("OPENROUTER_API_KEY") or "").strip()
         if key:
-            return key
+            return key, {"source": "environment", "version_id": None, "shape": key_shape(key)}
         if not secret_id:
-            raise ModelError("CONFIG: OPENROUTER_API_KEY or SETUHAUL_OPENROUTER_SECRET_ID is required", "config", False)
+            raise ModelError("OPENROUTER_API_KEY or SETUHAUL_OPENROUTER_SECRET_ID is required", MISSING_SECRET, False,
+                             detail="not_configured")
     else:
         if env.get("OPENROUTER_API_KEY"):
-            raise ModelError(f"CONFIG: OPENROUTER_API_KEY is not accepted in {environment}; use Secrets Manager "
-                             "(SETUHAUL_OPENROUTER_SECRET_ID)", "config", False)
+            raise ModelError(f"OPENROUTER_API_KEY is not accepted in {environment}; use Secrets Manager "
+                             "(SETUHAUL_OPENROUTER_SECRET_ID)", INVALID_REQUEST, False, detail="key_in_environment")
         if not secret_id:
-            raise ModelError(f"CONFIG: SETUHAUL_OPENROUTER_SECRET_ID is required in {environment}", "config", False)
+            raise ModelError(f"SETUHAUL_OPENROUTER_SECRET_ID is required in {environment}", MISSING_SECRET, False,
+                             detail="not_configured")
     try:
         if secrets_client is None:
             import boto3
             secrets_client = boto3.client("secretsmanager",
                                           region_name=env.get("SETUHAUL_AWS_REGION") or "ap-southeast-2")
-        raw = secrets_client.get_secret_value(SecretId=secret_id)["SecretString"]
-    except Exception as e:                                        # the message never includes the secret value
-        raise ModelError(f"CONFIG: could not read secret {secret_id} ({type(e).__name__})", "config", False) from None
+        resp = secrets_client.get_secret_value(SecretId=secret_id)
+    except Exception as e:                                        # the message never includes the secret value or ARN
+        cat = classify_secret_error(e)
+        raise ModelError(f"could not read the OpenRouter secret ({type(e).__name__})", cat, False,
+                         detail=type(e).__name__) from None
+    raw = resp.get("SecretString") if isinstance(resp, dict) else None
+    if not isinstance(raw, str):
+        raise ModelError("the OpenRouter secret has no SecretString", SECRET_RETRIEVAL_ERROR, False, detail="binary")
     key = raw.strip()
     if key.startswith("{"):
         try:
             doc = json.loads(key)
             key = (doc.get("api_key") or doc.get("OPENROUTER_API_KEY") or "").strip()
         except (json.JSONDecodeError, AttributeError):
-            key = ""
+            raise ModelError("the OpenRouter secret is not readable JSON", SECRET_RETRIEVAL_ERROR, False,
+                             detail="bad_json") from None
     if not key:
-        raise ModelError(f"CONFIG: secret {secret_id} holds no OpenRouter key", "config", False)
-    return key
+        raise ModelError("the secret holds no OpenRouter key", EMPTY_SECRET, False, detail="empty")
+    return key, {"source": "secrets_manager", "version_id": resp.get("VersionId"), "shape": key_shape(key)}
 
 
 class OpenRouterModel:
@@ -97,19 +119,39 @@ class OpenRouterModel:
     def __init__(self, api_key: str, *, extract_model: str = HAIKU_OR, phrase_model: str | None = None,
                  provider: str = DEFAULT_PROVIDER, meter: ModelBudget | None = None, client: Any = None,
                  connect_timeout_s: float = CONNECT_TIMEOUT_S, read_timeout_s: float = READ_TIMEOUT_S,
-                 sleep: Callable[[float], None] = time.sleep, max_retry_wait_s: float = MAX_RETRY_WAIT_S):
+                 sleep: Callable[[float], None] = time.sleep, max_retry_wait_s: float = MAX_RETRY_WAIT_S,
+                 key_loader: Callable[[], str] | None = None, key_refresh_s: float = KEY_REFRESH_S,
+                 clock: Callable[[], float] = time.monotonic):
         if not api_key:
-            raise ModelError("CONFIG: no OpenRouter API key", "config", False)
+            raise ModelError("no OpenRouter API key", EMPTY_SECRET, False, detail="empty")
         if provider not in VERIFIED_ZDR_ROUTES:
-            raise ModelError(f"CONFIG: provider {provider!r} is not a verified ZDR route {sorted(VERIFIED_ZDR_ROUTES)}",
-                             "config", False)
+            raise ModelError(f"provider {provider!r} is not a verified ZDR route {sorted(VERIFIED_ZDR_ROUTES)}",
+                             INVALID_REQUEST, False, detail="config:provider")
         import httpx
         self.extract_model, self.phrase_model, self.provider = extract_model, phrase_model, provider
         self.provider_name = VERIFIED_ZDR_ROUTES[provider]
         self.meter, self.sleep, self.max_retry_wait_s = meter, sleep, max_retry_wait_s
         self.client = client or httpx.Client(timeout=httpx.Timeout(read_timeout_s, connect=connect_timeout_s,
                                                                    write=5.0, pool=connect_timeout_s))
+        self._set_key(api_key)
+        self.key_loader, self.key_refresh_s, self.clock = key_loader, key_refresh_s, clock
+        self._auth_failed_at: float | None = None
+        self._key_loaded_at = clock()
+
+    def _set_key(self, api_key: str) -> None:
         self._headers = {"Authorization": f"Bearer {api_key}", "X-Title": "setuhaul"}
+
+    def _maybe_refresh_key(self) -> None:
+        """After a provider auth failure, re-read the key (bounded: once per key_refresh_s). A failed re-read raises
+        the secret's category before any request is sent; a successful one only swaps the header."""
+        if self.key_loader is None or self._auth_failed_at is None:
+            return
+        if self.clock() - self._key_loaded_at < self.key_refresh_s:
+            return
+        self._key_loaded_at = self.clock()
+        self._set_key(self.key_loader())                 # ModelError(secret category) propagates: nothing was sent
+        self._auth_failed_at = None
+        log.info("model_call key re-read from Secrets Manager after an auth failure")
 
     # ---------------------------------------------------------------- the request
     def routing(self) -> dict:
@@ -131,6 +173,7 @@ class OpenRouterModel:
         tr = Trace(purpose, model_id, f"openrouter:{self.provider}",
                    schema_version=SCHEMA_VERSION if purpose == "extract" else None)
         tr.call_id, tr.requested_provider = str(call_id), self.provider
+        self._maybe_refresh_key()                                 # G.1: before anything is reserved or sent
         for attempt in (1, 2):
             tr.attempts = attempt
             res = None
@@ -144,12 +187,14 @@ class OpenRouterModel:
                     # what failed, never what was sent: class, SQLSTATE and the server's primary message only
                     log.warning("usage ledger unavailable: %s sqlstate=%s message=%s", type(e).__name__,
                                 getattr(e, "sqlstate", None), str(getattr(diag, "message_primary", "") or "")[:200])
-                    raise ModelError(f"usage ledger unavailable ({type(e).__name__})", "meter_error", False) from None
+                    raise ModelError(f"usage ledger unavailable ({type(e).__name__})", BUDGET_CONFIGURATION_ERROR,
+                                     False, detail="meter_error") from None
                 if res.status != "RESERVED":
                     tr.outcome = f"error:{res.status.lower()}"
-                    raise ModelError(f"model call not sent: {res.status}", res.status.lower(), False)
+                    cat = BUDGET_EXCEEDED if res.status == "BUDGET_EXHAUSTED" else BUDGET_CONFIGURATION_ERROR
+                    raise ModelError(f"model call not sent: {res.status}", cat, False, detail=res.status.lower())
             t0 = time.monotonic()
-            retry, sent, category, status, data, headers = False, True, None, None, None, {}
+            retry, sent, category, detail, status, data, headers = False, True, None, None, None, None, {}
             try:
                 r = self.client.post(OPENROUTER_URL, headers=self._headers, json=body)
                 status, headers = r.status_code, r.headers
@@ -157,59 +202,44 @@ class OpenRouterModel:
                     data = r.json()
                 except ValueError:
                     data = None
-            except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout) as e:
-                sent, category, retry = False, ("connect_timeout" if isinstance(e, httpx.ConnectTimeout)
-                                                else "connect_error"), True
-            except httpx.TimeoutException:
-                category = "read_timeout"                         # may have been processed and billed: never retried
-            except httpx.TransportError:
-                category = "transport_error"                      # ambiguous once the request was written
+            except httpx.TransportError as e:                     # connect/DNS/TLS/timeout/protocol (G.1 taxonomy)
+                category, detail, sent, retry = classify_transport(e)
             latency = int((time.monotonic() - t0) * 1000)
             tr.latency_ms = latency
             wait = 0.0
             if category is None:
                 if status == 200 and isinstance(data, dict) and "error" not in data:
                     category = None
-                elif status == 429:
-                    category = "rate_limited"
-                    wait = _retry_after(headers)
-                    retry = wait <= self.max_retry_wait_s
-                elif status == 403 and _CREDIT_LIMIT_403.search(_error_message(data)):
-                    category = "credits"                          # R4: a spent key/workspace/guardrail limit
-                elif status in (401, 403):
-                    category = "auth"
-                elif status == 402:
-                    category = "credits"
-                elif status == 503:
-                    category = "provider_unavailable"             # no endpoint meets the pinned/ZDR rules: no re-route
-                elif status in (500, 502):
-                    category, retry = "server_error", True
-                elif status in (408, 504):
-                    category = "upstream_timeout"                 # ambiguous: not retried
                 elif status == 200:
-                    category = "malformed"
+                    category, detail = UNKNOWN_PROVIDER_ERROR, "malformed"
                 else:
-                    category = "bad_request"
+                    category, detail = classify_http(status, _error_message(data))
+                    if detail == "rate_limited":
+                        wait = _retry_after(headers)
+                        retry = wait <= self.max_retry_wait_s
+                    elif detail == "server_error":
+                        retry = True                              # 500/502 once; 503 (pinned route unavailable) never
             # R1: every metadata field is type-checked; a wrong type is treated as unknown, never trusted.
             meta = _metadata(data)
             cost = meta["cost"]                                   # None = unknown: the whole reservation is kept
             if category is not None and status in REJECTED_BEFORE_INFERENCE and cost is None:
                 cost = 0                                           # rejected by OpenRouter before any inference
             if category is None and meta["provider"] is None:
-                category = "malformed"                             # the serving provider cannot be verified
+                category, detail = UNKNOWN_PROVIDER_ERROR, "malformed"   # the serving provider cannot be verified
             elif category is None and meta["provider"] != self.provider_name:
-                category = "provider_mismatch"                     # served by a route we did not pin: refuse it
+                category, detail = UNKNOWN_PROVIDER_ERROR, "provider_mismatch"   # a route we did not pin: refuse it
             actual = meta["provider"]
             result, unusable = None, None
             if category is None:
-                # The model answered: its usage is real whether or not the answer can be used.
-                tr.input_tokens, tr.output_tokens = meta["input_tokens"] or 0, meta["output_tokens"] or 0
-                tr.cache_read_tokens = meta["cached_tokens"] or 0
+                # The model answered: its usage is real whether or not the answer can be used. Reported usage only:
+                # a missing count stays None (unknown), never a made-up zero (G.1).
+                tr.input_tokens, tr.output_tokens = meta["input_tokens"], meta["output_tokens"]
+                tr.cache_read_tokens = meta["cached_tokens"]
                 tr.cost_usd, tr.region, tr.actual_provider = cost, f"openrouter:{actual}", actual
                 try:
                     result = parse(data, tr)
                 except ModelError as e:                            # unusable answer: settled as ERROR, then raised
-                    unusable, category = e, e.category
+                    unusable, category, detail = e, e.category, e.detail
             if res is not None:
                 try:
                     self.meter.settle(res, ok=category is None, sent=sent, actual_provider=actual,
@@ -219,22 +249,24 @@ class OpenRouterModel:
                 except psycopg.Error as e:                        # the ledger keeps the reservation (conservative)
                     log.error("model_call settle failed call=%s attempt=%s (%s)", call_id, attempt, type(e).__name__)
             log.info("model_call call=%s attempt=%s purpose=%s model=%s requested=%s actual=%s status=%s category=%s "
-                     "latency_ms=%s in=%s out=%s cost=%s", call_id, attempt, purpose, model_id, self.provider, actual,
-                     status, category, latency, meta["input_tokens"], meta["output_tokens"], cost)
+                     "detail=%s latency_ms=%s in=%s out=%s cost=%s", call_id, attempt, purpose, model_id, self.provider,
+                     actual, status, category, detail, latency, meta["input_tokens"], meta["output_tokens"], cost)
             if unusable is not None:
                 raise unusable                                     # never retried: the model was paid for once
             if category is None:
                 return result, tr
-            if category in ("auth", "credits"):
-                log.error("ALERT model_call %s: OpenRouter refused the key or its credit (status %s)", category, status)
+            if category == PROVIDER_AUTH_ERROR:
+                self._auth_failed_at = self.clock()               # G.1: re-read the key before the next call
+                log.error("ALERT model_call %s (%s): OpenRouter refused the key or its credit (status %s)",
+                          category, detail, status)
             if retry and attempt == 1:
                 if wait:
                     self.sleep(wait)
                 continue
             tr.outcome = f"error:{category}"
-            detail = _error_message(data)[:200]
-            raise ModelError(f"OpenRouter {category} (status {status}) {detail}".strip(), category, False)
-        raise ModelError("unreachable", "model_error", False)     # pragma: no cover
+            msg = _error_message(data)[:200]
+            raise ModelError(f"OpenRouter {category} (status {status}) {msg}".strip(), category, False, detail=detail)
+        raise ModelError("unreachable", UNKNOWN_PROVIDER_ERROR, False)     # pragma: no cover
 
     # ---------------------------------------------------------------- the two purposes
     def extract(self, user_block: str) -> tuple[dict, Trace]:
@@ -358,24 +390,33 @@ def openrouter_from_env(env: dict, environment: str, *, db: Any = None, secrets_
     model = (env.get("SETUHAUL_OR_EXTRACT_MODEL") or HAIKU_OR).strip()
     provider = (env.get("SETUHAUL_OR_PROVIDER") or DEFAULT_PROVIDER).strip()
     if pilot and model not in PILOT_MODELS:
-        raise ModelError(f"CONFIG: model {model!r} is not approved for {environment} {sorted(PILOT_MODELS)}", "config", False)
+        raise ModelError(f"CONFIG: model {model!r} is not approved for {environment} {sorted(PILOT_MODELS)}",
+                         INVALID_REQUEST, False, detail="config:model_not_approved")
     if provider not in VERIFIED_ZDR_ROUTES:
         raise ModelError(f"CONFIG: provider {provider!r} is not a verified ZDR route {sorted(VERIFIED_ZDR_ROUTES)}",
-                         "config", False)
+                         INVALID_REQUEST, False, detail="config:provider")
     meter = None
     cap = (env.get("SETUHAUL_LLM_DAILY_BUDGET_USD") or "").strip()
     if pilot or cap:
         if db is None:
-            raise ModelError(f"CONFIG: the usage ledger (database) is required in {environment}", "config", False)
+            raise ModelError(f"CONFIG: the usage ledger (database) is required in {environment}",
+                             BUDGET_CONFIGURATION_ERROR, False, detail="no_ledger")
         try:
             cap_d = Decimal(cap)
         except Exception:
-            raise ModelError("CONFIG: SETUHAUL_LLM_DAILY_BUDGET_USD must be set to a number of US dollars", "config",
-                             False) from None
-        if cap_d <= 0:
-            raise ModelError("CONFIG: SETUHAUL_LLM_DAILY_BUDGET_USD must be positive", "config", False)
+            raise ModelError("CONFIG: SETUHAUL_LLM_DAILY_BUDGET_USD must be set to a number of US dollars",
+                             BUDGET_CONFIGURATION_ERROR, False, detail="cap_not_a_number") from None
+        if not cap_d.is_finite() or cap_d <= 0:
+            raise ModelError("CONFIG: SETUHAUL_LLM_DAILY_BUDGET_USD must be positive", BUDGET_CONFIGURATION_ERROR,
+                             False, detail="cap_not_positive")
         meter = ModelBudget(db, environment, cap_d)
-    key = load_openrouter_key(env, environment, secrets_client)
+    key, meta = load_openrouter_key_meta(env, environment, secrets_client)
+    # safe diagnosis (G.1): where the key came from, its secret version and shape; never the value
+    log.info("openrouter key loaded source=%s version=%s shape=%s", meta["source"], meta["version_id"], meta["shape"])
+    if meta["shape"] != "openrouter_format":
+        log.warning("ALERT openrouter key shape=%s: the secret does not look like an OpenRouter key (OpenRouter keys "
+                    "start with the public prefix sk-or-); calls will likely fail with PROVIDER_AUTH_ERROR", meta["shape"])
     phrase = None if pilot else (env.get("SETUHAUL_OR_PHRASE_MODEL") or SONNET_OR)
+    loader = (lambda: load_openrouter_key(env, environment, secrets_client)) if meta["source"] == "secrets_manager" else None
     return OpenRouterModel(key, extract_model=model, phrase_model=phrase, provider=provider, meter=meter,
-                           client=http_client)
+                           client=http_client, key_loader=loader)

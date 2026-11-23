@@ -27,11 +27,35 @@ from ..api.db import CORRELATION_ID, TURN_FENCE
 from ..api.security import Principal, SessionTokens
 from ..api.service import BookingService
 from ..domain.booking import classify_confirmation
+from ..observability import tracing
+from ..ops import telemetry
 from . import replies, rules_extractor
+from .errors import outcome_class
 from .extraction import SAFE_PLACE, Checked, Extraction, check, kind_stated
 from .models import ModelClient, ModelError, Trace, with_retry
 
 log = logging.getLogger("setuhaul.agent")
+TURN_NS = uuid.UUID("5e7a3f1c-0d6e-4b55-9a7e-2f1d8c4b6a10")      # G.1: turn_ref = uuid5(TURN_NS, corr:message:generation)
+# What an extraction span may export (structured fields only; the driver's words are never in a span unless
+# SETUHAUL_TRACE_CONTENT=on, and then only after redaction).
+_TRACE_FIELDS = ("intent", "delay_kind", "declared_eta_local", "declared_eta_range_local", "declared_delay_min",
+                 "earliest_start_local", "latest_finish_local", "latest_finish_kind", "exception_type", "vehicle_fixed",
+                 "safety_concern", "explicit_confirmation", "language")
+_TOOL_OUT_KEYS = ("code", "verdict", "status", "escalation_id", "appointment_id", "approval_id", "shipment_id",
+                  "appointment_at_risk", "optimization_status", "solver_status")
+
+
+def _valid_uuid(v) -> str | None:
+    try:
+        return str(uuid.UUID(str(v)))
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
+def _ref(v) -> str | None:
+    """A non-reversible reference to an internal id (conversation ref in traces): never the id itself."""
+    import hashlib
+    return hashlib.sha256(f"setuhaul-ref:{v}".encode()).hexdigest()[:16] if v else None
 IST = timezone(timedelta(hours=5, minutes=30))
 ESCALATION_REASON = {           # requires_human.reason_code → escalation reason the agent may use
     "CONTRADICTORY_DATA": "CONTRADICTORY_DATA", "NO_FEASIBLE_SLOT": "NO_FEASIBLE_SLOT", "SAFETY": "SAFETY",
@@ -53,9 +77,12 @@ class TurnResult:
     extractor: str = "model"                                    # model | rules-fallback
     escalation_id: str | None = None
     extraction: dict | None = None                              # what the model said, after merging earlier turns
-    fallback_reason: str | None = None                          # why the rules reader was used (T52: budget, timeout...)
+    fallback_reason: str | None = None                          # G.1: one of the 16 categories (errors.py)
+    fallback_detail: str | None = None                          # the fine-grained reason (logs and traces only)
     # Phase G3: measured per turn, recorded without any driver data (agent_turn_metrics, structured logs)
     correlation_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    turn_ref: str | None = None                                 # G.1: this turn's id = its LangSmith trace id
+    ingest_correlation_id: str | None = None                    # G.1: the webhook request's id (API log lines)
     facility_id: str | None = None
     tool_calls: list[dict] = field(default_factory=list)      # {"tool", "status", "ms"} only
     turn_ms: int = 0
@@ -108,11 +135,28 @@ class Orchestrator:
                     log.exception("lease renewal failed for message %s", mid)
         hb = threading.Thread(target=heartbeat, daemon=True)
         token = TURN_FENCE.set((mid, owner, gen))
-        corr = CORRELATION_ID.set(str(uuid.uuid4()))                    # Phase G3: one id per turn, logs + metrics
+        # G.1: the webhook request's correlation id travels on the queue event (`ingest_correlation_id`). The turn keeps
+        # ONE id of its own (Phase G invariant: turn metrics, optimizer run, tool events, logs and the trace share it):
+        # turn_ref = uuid5(ingest id, message, delivery generation), unique even when one webhook carries several
+        # messages or a message is redelivered. Every agent log line and the trace carry both ids, so the API's request
+        # log joins to the agent's turn. A missing or malformed ingest id gets a new one.
+        corr_id = _valid_uuid(event.get("correlation_id")) or str(uuid.uuid4())
+        turn_ref = str(uuid.uuid5(TURN_NS, f"{corr_id}:{mid}:{gen}"))
+        corr = CORRELATION_ID.set(turn_ref)
         hb.start()
         t0 = time.perf_counter()
         try:
-            res = self._turn(p, event)
+            with tracing.tracer().turn(turn_ref, "agent_turn",
+                                       inputs={"message_ref": _ref(mid), "generation": gen,
+                                               "attestation_status": event.get("attestation_status")},
+                                       metadata=self._trace_meta(corr_id, turn_ref, event)) as root:
+                res = self._turn(p, {**event, "_turn_ref": turn_ref, "_ingest_correlation_id": corr_id})
+                if res is not None:
+                    tracing.safe(lambda: root.end({"path": res.path[:20], "extractor": res.extractor,
+                                            "fallback_reason": res.fallback_reason, "escalated": bool(res.escalation_id),
+                                            "tools": [f"{t}:{s}" for t, s in res.tools][:20]}))
+                    tracing.safe(lambda: root.set(facility_id=res.facility_id, fallback_reason=res.fallback_reason,
+                                 error_category=res.fallback_reason))
             if res is not None:                                       # a turn with nothing to do returns None
                 res.turn_ms = int((time.perf_counter() - t0) * 1000)
             if not self.svc.finish_turn(p, mid, owner, gen):            # R2.0 S4-R2-01: not a successful turn
@@ -132,15 +176,39 @@ class Orchestrator:
             self.svc.record_turn_metrics(res)                           # Phase G3: best effort, never fails the turn
         return res
 
+    def _trace_meta(self, corr_id: str, turn_ref: str, event: dict) -> dict:
+        from .models import DeferredModel
+        m = self.model
+        inner = (m.client or m) if isinstance(m, DeferredModel) else m  # DeferredModel wraps the real client
+        return {"correlation_id": turn_ref, "ingest_correlation_id": corr_id, "turn_ref": turn_ref, "conversation_ref": _ref(event.get("thread_id")),
+                "provider": getattr(inner, "provider", None) or (type(inner).__name__ if inner else "none"),
+                "model": getattr(inner, "extract_model", None)}
+
     def _turn(self, p, event: dict) -> TurnResult:
         turn = int(event["message_id"])
         res = TurnResult(reply=None, correlation_id=CORRELATION_ID.get() or str(uuid.uuid4()))
+        res.turn_ref = event.get("_turn_ref")
+        res.ingest_correlation_id = event.get("_ingest_correlation_id")
 
         def tool(name, **args):
             t = time.perf_counter()
-            r = self.svc.call_tool(p, name, turn, args)
+            with tracing.span(name, "tool", inputs=args) as sp:
+                r = self.svc.call_tool(p, name, turn, args)
+                ms = int((time.perf_counter() - t) * 1000)
+                d = r.get("data") or {}
+                rh = (r.get("requires_human") or {}).get("reason_code")
+                tracing.safe(lambda: sp.end({"status": r["status"], "requires_human": rh,
+                                      **{k: d[k] for k in _TOOL_OUT_KEYS if k in d and not isinstance(d[k], (dict, list))},
+                                      "options": len(d["options"]) if isinstance(d.get("options"), list) else None}))
+                tracing.safe(lambda: sp.set(tool=name, success=r["status"] in ("OK", "NEEDS_INFO"), latency_ms=ms,
+                             policy_outcome=rh))
             res.tools.append((name, r["status"]))
-            res.tool_calls.append({"tool": name, "status": r["status"], "ms": int((time.perf_counter() - t) * 1000)})
+            res.tool_calls.append({"tool": name, "status": r["status"], "ms": ms})
+            # G.1 correlation: one structured line per tool call, ids only (booking and approval ids included)
+            tracing.safe(lambda: telemetry.emit("agent.tool", res.correlation_id, turn_ref=res.turn_ref,
+                         ingest_correlation_id=res.ingest_correlation_id, tool=name,
+                         status=r["status"], ms=ms, requires_human=rh,
+                         **{k: str(d[k]) for k in ("appointment_id", "approval_id", "escalation_id") if d.get(k)}))
             return r
 
         ctx = tool("get_driver_context")
@@ -188,7 +256,11 @@ class Orchestrator:
         # unexpired options, so the pick ("1", "dock 2 wala") matched nothing and the turn ended in "did not understand".
         res.expired_pick = (flow["state"] == "OPTIONS_SHOWN" and not shown
                             and (ex.intent == "BOOK" or ex.selected_option_id is not None or _bare_number(text) is not None))
-        chk = check(ex, self.clock(), self._base_eta(data, ex.shipment_ref_mentioned), text, shown)
+        with tracing.span("parameter_check", "chain") as sc:
+            chk = check(ex, self.clock(), self._base_eta(data, ex.shipment_ref_mentioned), text, shown)
+            tracing.safe(lambda: sc.end({"missing": chk.missing, "problems": chk.problems, "safety": chk.safety,
+                                  "declared_eta": chk.declared_eta, "latest_finish": chk.latest_finish,
+                                  "earliest_start": chk.earliest_start, "breakdown": chk.breakdown}))
         if verdict == "YES":                                         # "yes, around 11:00": the computed time stands
             chk.declared_eta, chk.eta_precision = datetime.fromisoformat(stored["candidate_eta"]), "VAGUE"
             chk.missing = [m for m in chk.missing if m not in ("declared_eta_local", "delay_kind")]
@@ -202,10 +274,15 @@ class Orchestrator:
         if chk.safety and tf:                                        # forget facts before a person takes the thread
             self._forget(p, turn)
         if res.reply is None:
-            res.reply = self._decide(p, chk, flow, data, lang, tool, res, turn)
+            with tracing.span("decide", "chain", inputs={"state": flow["state"], "intent": chk.intent}) as sd:
+                res.reply = self._decide(p, chk, flow, data, lang, tool, res, turn)
+                tracing.safe(lambda: sd.end({"path": res.path[:20], "escalation": bool(res.escalation_id)}))
         self._remember(p, turn, ex, chk, res)
-        if res.reply:                                                # S4-08: one reply per message and generation
-            self.svc.record_reply(p, res.reply, reply_to=turn, generation=int(event.get("generation", 0)))
+        with tracing.span("final_response", "chain") as sr:
+            if res.reply:                                            # S4-08: one reply per message and generation
+                self.svc.record_reply(p, res.reply, reply_to=turn, generation=int(event.get("generation", 0)))
+            tracing.safe(lambda: sr.end({"replied": bool(res.reply), "language": lang, "reply_chars": len(res.reply or ""),
+                                  "template": next((x for x in reversed(res.path)), None), "reply": res.reply}))
         return res
 
     def _forget(self, p: Principal, turn: int) -> None:
@@ -278,21 +355,45 @@ class Orchestrator:
 
     # ---------------------------------------------------------------- understanding
     def _extract(self, text: str, data: dict, res: TurnResult) -> Extraction:
+        with tracing.span("intent_extraction", "chain", inputs={"text": text}) as sx:
+            ex = self._extract_inner(text, data, res)
+            tracing.safe(lambda: sx.end({"extractor": res.extractor, "fallback_reason": res.fallback_reason,
+                                  **{k: getattr(ex, k) for k in _TRACE_FIELDS},
+                                  "shipment_ref_mentioned": bool(ex.shipment_ref_mentioned),
+                                  "option_selected": bool(ex.selected_option_id)}))
+            return ex
+
+    def _extract_inner(self, text: str, data: dict, res: TurnResult) -> Extraction:
         flow = data["flow"]
         if self.model is not None:
-            try:
-                raw, tr = with_retry(lambda: self.model.extract(self._user_block(text, data)))
-                res.traces.append(tr)
-                return Extraction(**raw)
-            except (ModelError, ValidationError, TypeError) as e:          # model down or off-contract → rules
-                res.fallback_reason = getattr(e, "category", None) or (
-                    "invalid_schema" if isinstance(e, (ValidationError, TypeError)) else "model_error")
-                log.warning("extraction fell back to rules (%s)", res.fallback_reason)
+            with tracing.span("model_call", "llm", inputs={"purpose": "extract", "text": text}) as sm:
+                try:
+                    raw, tr = with_retry(lambda: self.model.extract(self._user_block(text, data)))
+                    res.traces.append(tr)
+                    out = Extraction(**raw)
+                    # usage and cost only when the provider reported them (never estimated here)
+                    tracing.safe(lambda: sm.set(ls_provider=tr.requested_provider or tr.region, ls_model_name=tr.model_id,
+                                 latency_ms=tr.latency_ms, attempts=tr.attempts, prompt_version=tr.prompt_version))
+                    tracing.safe(lambda: sm.end({"intent": out.intent, "usage_metadata": {
+                        k: v for k, v in (("input_tokens", tr.input_tokens), ("output_tokens", tr.output_tokens))
+                        if v is not None} or None, "cost_usd": tr.cost_usd}))
+                    return out
+                except (ModelError, ValidationError, TypeError) as e:          # model down or off-contract → rules
+                    if isinstance(e, ModelError):
+                        res.fallback_reason, res.fallback_detail = e.category, e.detail
+                    else:
+                        res.fallback_reason, res.fallback_detail = "UNKNOWN_PROVIDER_ERROR", "invalid_schema"
+                    tracing.safe(lambda: sm.set(error_category=res.fallback_reason, error_detail=res.fallback_detail,
+                                 outcome_class=outcome_class(res.fallback_reason)))
+                    tracing.safe(lambda: sm.end(None, f"{res.fallback_reason} ({res.fallback_detail})"))
+                    log.warning("extraction fell back to rules (%s %s)", res.fallback_reason, res.fallback_detail)
         res.extractor = "rules-fallback" if self.model is not None else "rules"
         tf = data.get("turn_facts") if flow["state"] != "HUMAN" else None
-        return rules_extractor.extract(text, [o["option_id"] for o in flow["options"]],
-                                       awaiting_confirmation=flow["state"] == "SELECTED",
-                                       asked=tf.get("asked") if tf else None)      # H-1: bare time answers
+        with tracing.span("rules_reader", "chain", inputs={"text": text},
+                          metadata={"fallback": self.model is not None, "fallback_reason": res.fallback_reason}):
+            return rules_extractor.extract(text, [o["option_id"] for o in flow["options"]],
+                                           awaiting_confirmation=flow["state"] == "SELECTED",
+                                           asked=tf.get("asked") if tf else None)      # H-1: bare time answers
 
     def _user_block(self, text: str, data: dict) -> str:
         """Per-turn context for the extractor. No phone numbers, no coordinates, no other drivers."""
