@@ -1,5 +1,5 @@
 {
- "collected_utc": "2026-11-23T03:46:29+00:00",
+ "collected_utc": "2026-11-23T04:48:08+00:00",
  "stack": "SetuHaulPilot",
  "region": "ap-southeast-2",
  "booking_enabled": false,
@@ -157,6 +157,43 @@
      "second_begin": "BAD_STAFF_CONTEXT: already set in this transaction",
      "rolled_back": true
     },
+    "check5": {
+     "collected_utc": "2026-11-23",
+     "user": "pilot-operations",
+     "status_at_creation": "FORCE_CHANGE_PASSWORD (temporary password e-mailed by Cognito; never seen by the operator)",
+     "groups": [
+      "facility-FAC-JAI-01",
+      "operations"
+     ],
+     "pool": {
+      "mfa": "ON",
+      "admin_only_sign_up": true
+     },
+     "pretoken_trigger_live": {
+      "input_groups": [
+       "operations",
+       "facility-FAC-JAI-01"
+      ],
+      "hostile_client_metadata": {
+       "role": "ops_lead",
+       "groups": "ops_lead,planner"
+      },
+      "output": {
+       "accessTokenGeneration": {
+        "claimsToAddOrOverride": {
+         "facility_scope": "FAC-JAI-01"
+        }
+       },
+       "idTokenGeneration": {
+        "claimsToAddOrOverride": {
+         "facility_scope": "FAC-JAI-01"
+        }
+       }
+      },
+      "group_override": null,
+      "reading": "the deployed trigger adds only facility_scope from facility-* groups; it never adds or changes role groups, and client metadata is ignored"
+     }
+    },
     "iam_policies_sha256": "06094ff65c3b95f70d2f6a387b65d935befb38b64dfa98ae4b2a261e10b166e6"
    },
    "checks": {
@@ -168,7 +205,7 @@
     "no function's IAM role can read more DB secrets than its configured roles": true
    },
    "not_shown": [
-    "5 'an ordinary operations user cannot create an ops_lead context' needs a second Cognito user in the operations group (the owner creates it; Claude never handles passwords or MFA); proven locally (tests/test_api.py staff group tests, setuhaul/aws/pretoken.py tests)",
+    "5 'an ordinary operations user cannot create an ops_lead context': the second Cognito user exists (pilot-operations, groups operations + facility) and the deployed pre-token trigger was shown not to add or change role groups; the end-to-end sign-in by the owner is still to be recorded",
     "live drift detection (AWS Config) is not deployed on the Free-plan pilot; the IAM policy hash is recorded here instead"
    ],
    "status": "PARTIAL"
@@ -289,8 +326,8 @@
      ]
     },
     "last_48h": {
-     "messages_sent": 29,
-     "messages_deleted": 27,
+     "messages_sent": 31,
+     "messages_deleted": 28,
      "dlq_messages_sent": 0
     },
     "dlq_drill": {
@@ -308,6 +345,26 @@
       "QueueOldestMessage alarm (age > 300 s)": "fired during the drill: OK->ALARM 01:35:18 and 02:00:18 UTC",
       "DlqNotEmpty alarm (visible > 0, 5-min max)": "did NOT fire: the DLQ metric recorded no non-zero point; the message stayed in the DLQ only seconds/minutes before redrive or removal. Not demonstrated."
      }
+    },
+    "dlq_alarm_drill": {
+     "checks": {
+      "clean start (both queues empty, alarm OK)": true,
+      "the tracked message was dead-lettered after consumer failures at the JSON parse": true,
+      "the DLQ held exactly the tracked message": true,
+      "the DlqNotEmpty alarm went to ALARM while the message was in the DLQ": true,
+      "only the tracked message was removed": true,
+      "the alarm returned to OK and both queues are empty": true
+     },
+     "history": [
+      [
+       "2026-11-23T10:13:36.676000+05:30",
+       "Alarm updated from ALARM to OK"
+      ],
+      [
+       "2026-11-23T10:05:36.676000+05:30",
+       "Alarm updated from OK to ALARM"
+      ]
+     ]
     }
    },
    "checks": {
@@ -322,12 +379,11 @@
     "receivers are only the agent function": true,
     "messages flowed through the real queue (last 48 h)": true,
     "DLQ empty": true,
-    "redrive procedure tested live (owner-approved drill, 23 Nov)": true
+    "redrive procedure tested live (owner-approved drill, 23 Nov)": true,
+    "DLQ-depth alarm fired on a held DLQ message and returned to OK (owner-approved drill, 23 Nov)": true
    },
-   "not_shown": [
-    "DLQ-depth monitoring not demonstrated: the DlqNotEmpty alarm (5-minute maximum) never saw the drill message, which sat in the DLQ only seconds/minutes; the oldest-message alarm did fire"
-   ],
-   "status": "PARTIAL"
+   "not_shown": [],
+   "status": "PASS"
   },
   "RECOVERY_WORKER": {
    "evidence": {
@@ -359,19 +415,33 @@
      ],
      "code_sha256": "xMbL8foBJr/dHMnU+ZQHp8ad9m3SA8W9Ambg9vpjTYE="
     },
-    "recovery_invocations_last_3_days": 201,
-    "last_invocation_utc": "2026-11-22T18:22:25.509000+00:00"
+    "recovery_invocations_last_3_days": 202,
+    "last_invocation_utc": "2026-11-23T04:05:49.032000+00:00",
+    "lease_loss_drill": {
+     "checks": {
+      "clean start: empty queue, no other unprocessed receipt, all data synthetic": true,
+      "W1 passed the fence while its lease was live": true,
+      "after lease expiry W1's renewal was refused (an expired lease is never revived)": true,
+      "after lease expiry W1 was fenced out (TURN_FENCED)": true,
+      "after lease expiry W1 could not mark the message processed": true,
+      "the deployed recovery function re-published exactly this message to the real queue": true,
+      "the deployed agent took over the lease and finished the turn": true,
+      "exactly one agent reply for the message (no duplicate)": true,
+      "W1 still fenced out after the takeover": true,
+      "any driver notice went to the internal test sink only": true,
+      "queue empty afterwards": true
+     }
+    },
+    "schedules_disabled_while_sleeping": true
    },
    "checks": {
     "recovery schedule exists, every minute": true,
     "recovery worker has run on the real schedule": true,
-    "DLQ handling procedure drilled live: inspect, redrive, remove one message (23 Nov)": true
+    "DLQ handling procedure drilled live: inspect, redrive, remove one message (23 Nov)": true,
+    "forced lease loss live: expired lease refused renew/finish (TURN_FENCED), the deployed recovery worker re-drove the turn, one reply (23 Nov)": true
    },
-   "not_shown": [
-    "schedules are DISABLED while the pilot sleeps (cost control); evidence is from the last wake period",
-    "lease renewal and generation fencing were not forced live (it needs a deliberately stuck message on the real queue); they are proven locally (tests/test_inbound_delivery.py)"
-   ],
-   "status": "PARTIAL"
+   "not_shown": [],
+   "status": "PASS"
   },
   "BOOKING_WORKFLOW": {
    "evidence": {

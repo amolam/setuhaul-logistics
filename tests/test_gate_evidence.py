@@ -77,15 +77,20 @@ def test_application_roles_cannot_write_evidence(dsn):
                     write(c, rows[:1])
 
 
-def test_the_live_pilot_report_yields_no_evidence_row():
-    """The 23 Nov 2026 report from the deployed pilot: no gate is PASS, so nothing may be written."""
+def test_the_live_pilot_report_yields_rows_only_for_exact_passes():
+    """The report from the deployed pilot: only a gate whose status is exactly PASS (no failing check, nothing not
+    shown) may become a row; every other gate, including AURORA's pilot exception, is refused."""
     path = ROOT / "docs" / "release" / "evidence" / "step6_gates.json"
     if not path.exists():
         pytest.skip("no live report in this checkout")
     live = json.loads(path.read_text(encoding="utf-8"))
     rows, refused = rows_from_report(live, manifest(), "test-env", "s3://e/r.json", path.read_bytes(),
                                      {g: "0" * 64 for g in REQUIRED_GATES})
-    assert rows == [] and set(refused) == set(REQUIRED_GATES)
+    passed = {g for g, v in live["gates"].items()
+              if v.get("status") == "PASS" and all(v.get("checks", {}).values()) and not v.get("not_shown")}
+    assert {r["gate"] for r in rows} == passed
+    assert set(refused) == set(REQUIRED_GATES) - passed
+    assert "AURORA" in refused and "OUTBOUND_DELIVERY" in refused
 
 
 def test_a_pilot_exception_is_never_written_as_gate_evidence():

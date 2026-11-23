@@ -1,0 +1,119 @@
+{
+ "collected_utc": "2026-11-23T04:44:11+00:00",
+ "evidence": {
+  "alarm": "SetuHaulPilot-DlqNotEmpty1C59537F",
+  "alarm_state_before": "OK",
+  "before": {
+   "queue": {
+    "visible": 0,
+    "NotVisible": 0,
+    "Delayed": 0
+   },
+   "dlq": {
+    "visible": 0,
+    "NotVisible": 0,
+    "Delayed": 0
+   }
+  },
+  "message": {
+   "tag": "STEP6-DLQ-ALARM-a31ac65f4cc8",
+   "message_id": "77899a37-0350-4fcd-9f26-f581b5696462",
+   "sent_at": "2026-11-23T04:07:10+00:00"
+  },
+  "dead_lettered": {
+   "in_dlq": true,
+   "at": "2026-11-23T04:32:21+00:00",
+   "consumer_failures": 5,
+   "error_types": [
+    "JSONDecodeError"
+   ],
+   "tag_matches": true,
+   "other_messages": 0
+  },
+  "alarm_fired": {
+   "state": "ALARM",
+   "at": "2026-11-23T04:36:06+00:00",
+   "fired": true
+  },
+  "tracked_message_removed": true,
+  "alarm_history": [
+   [
+    "2026-11-23T10:13:36.676000+05:30",
+    "Alarm updated from ALARM to OK"
+   ],
+   [
+    "2026-11-23T10:05:36.676000+05:30",
+    "Alarm updated from OK to ALARM"
+   ]
+  ],
+  "after": {
+   "queue": {
+    "visible": 0,
+    "NotVisible": 0,
+    "Delayed": 0
+   },
+   "dlq": {
+    "visible": 0,
+    "NotVisible": 0,
+    "Delayed": 0
+   },
+   "alarm": "OK"
+  }
+ },
+ "checks": {
+  "clean start (both queues empty, alarm OK)": true,
+  "the tracked message was dead-lettered after consumer failures at the JSON parse": true,
+  "the DLQ held exactly the tracked message": true,
+  "the DlqNotEmpty alarm went to ALARM while the message was in the DLQ": true,
+  "only the tracked message was removed": true,
+  "the alarm returned to OK and both queues are empty": true
+ },
+ "all_pass": true,
+ "log": [
+  {
+   "t": "2026-11-23T04:07:09+00:00",
+   "event": "before",
+   "queue": {
+    "visible": 0,
+    "NotVisible": 0,
+    "Delayed": 0
+   },
+   "dlq": {
+    "visible": 0,
+    "NotVisible": 0,
+    "Delayed": 0
+   },
+   "alarm": "OK"
+  },
+  {
+   "t": "2026-11-23T04:07:10+00:00",
+   "event": "sent",
+   "tag": "STEP6-DLQ-ALARM-a31ac65f4cc8",
+   "message_id": "77899a37-0350-4fcd-9f26-f581b5696462",
+   "sent_at": "2026-11-23T04:07:10+00:00"
+  },
+  {
+   "t": "2026-11-23T04:32:21+00:00",
+   "event": "dead-lettered",
+   "in_dlq": true,
+   "at": "2026-11-23T04:32:21+00:00",
+   "consumer_failures": 5,
+   "error_types": [
+    "JSONDecodeError"
+   ],
+   "tag_matches": true,
+   "other_messages": 0
+  },
+  {
+   "t": "2026-11-23T04:36:06+00:00",
+   "event": "alarm",
+   "state": "ALARM",
+   "at": "2026-11-23T04:36:06+00:00",
+   "fired": true
+  },
+  {
+   "t": "2026-11-23T04:36:09+00:00",
+   "event": "removed only the tracked message"
+  }
+ ]
+}

@@ -1,0 +1,37 @@
+{
+ "collected_utc": "2026-11-23",
+ "user": "pilot-operations",
+ "status_at_creation": "FORCE_CHANGE_PASSWORD (temporary password e-mailed by Cognito; never seen by the operator)",
+ "groups": [
+  "facility-FAC-JAI-01",
+  "operations"
+ ],
+ "pool": {
+  "mfa": "ON",
+  "admin_only_sign_up": true
+ },
+ "pretoken_trigger_live": {
+  "input_groups": [
+   "operations",
+   "facility-FAC-JAI-01"
+  ],
+  "hostile_client_metadata": {
+   "role": "ops_lead",
+   "groups": "ops_lead,planner"
+  },
+  "output": {
+   "accessTokenGeneration": {
+    "claimsToAddOrOverride": {
+     "facility_scope": "FAC-JAI-01"
+    }
+   },
+   "idTokenGeneration": {
+    "claimsToAddOrOverride": {
+     "facility_scope": "FAC-JAI-01"
+    }
+   }
+  },
+  "group_override": null,
+  "reading": "the deployed trigger adds only facility_scope from facility-* groups; it never adds or changes role groups, and client metadata is ignored"
+ }
+}

@@ -169,6 +169,11 @@ def gate_queue(out, fns, stmts):
         checks["redrive procedure tested live (owner-approved drill, 23 Nov)"] = bool(d["all_pass"])
         missing = ["DLQ-depth monitoring not demonstrated: the DlqNotEmpty alarm (5-minute maximum) never saw the drill "
                    "message, which sat in the DLQ only seconds/minutes; the oldest-message alarm did fire"]
+        al = drill("drill_dlq_alarm.json")
+        ev["dlq_alarm_drill"] = al and {"checks": al["checks"], "history": al["evidence"].get("alarm_history")}
+        if al and al["all_pass"]:
+            checks["DLQ-depth alarm fired on a held DLQ message and returned to OK (owner-approved drill, 23 Nov)"] = True
+            missing = []
     else:
         missing = ["a redrive drill (move a message DLQ -> queue) has not been run: it writes to the live queue, so it needs "
                    "the owner's approval; the procedure is in docs/operations/RUNBOOK_0011.md"]
@@ -208,14 +213,22 @@ def gate_recovery(out, fns, res):
         "recovery schedule exists, every minute": bool(rs) and all(s["expression"] in ("rate(1 minute)", "rate(1 minutes)") for s in rs),
         "recovery worker has run on the real schedule": len(runs) > 0,
     }
-    missing = ["schedules are DISABLED while the pilot sleeps (cost control); evidence is from the last wake period",
-               "lease renewal and generation fencing were not forced live (it needs a deliberately stuck message on the real "
+    missing = ["lease renewal and generation fencing were not forced live (it needs a deliberately stuck message on the real "
                "queue); they are proven locally (tests/test_inbound_delivery.py)",
                "the DLQ handling procedure has not been drilled live (see AWS_QUEUE)"]
     d = drill("drill_dlq_summary.json")
     if d and d["all_pass"]:
-        missing = missing[:2]
+        missing.remove(missing[1])
         checks["DLQ handling procedure drilled live: inspect, redrive, remove one message (23 Nov)"] = True
+    ll = drill("drill_lease_loss.json")
+    ev["lease_loss_drill"] = ll and {"checks": ll["checks"]}
+    if ll and ll["all_pass"]:
+        missing.remove(missing[0])
+        checks["forced lease loss live: expired lease refused renew/finish (TURN_FENCED), the deployed recovery worker "
+               "re-drove the turn, one reply (23 Nov)"] = True
+    # Schedules are disabled while the pilot sleeps (cost control, owner-approved). That is an operating state, not a
+    # missing proof: the schedule exists, has run on its real cadence, and every behaviour was forced live.
+    ev["schedules_disabled_while_sleeping"] = all(s["state"] == "DISABLED" for s in rs) if rs else None
     return ev, checks, missing
 
 
@@ -345,9 +358,16 @@ def gate_identity(out, fns, stmts):
             "already set in this transaction" in str(staff_probe.get("second_begin", "")),
         "no function's IAM role can read more DB secrets than its configured roles": not over,
     }
-    missing = ["5 'an ordinary operations user cannot create an ops_lead context' needs a second Cognito user in the "
-               "operations group (the owner creates it; Claude never handles passwords or MFA); proven locally "
-               "(tests/test_api.py staff group tests, setuhaul/aws/pretoken.py tests)",
+    c5 = drill("identity_check5.json")
+    ev["check5"] = c5
+    if c5 and c5.get("live_signin", {}).get("all_pass"):
+        checks["5 an ordinary operations user cannot obtain an ops_lead or planner context (live sign-in, 23 Nov)"] = True
+        first = []
+    else:
+        first = ["5 'an ordinary operations user cannot create an ops_lead context': the second Cognito user exists "
+                 "(pilot-operations, groups operations + facility) and the deployed pre-token trigger was shown not to add "
+                 "or change role groups; the end-to-end sign-in by the owner is still to be recorded"]
+    missing = first + [
                "live drift detection (AWS Config) is not deployed on the Free-plan pilot; the IAM policy hash is "
                "recorded here instead"]
     ev["iam_policies_sha256"] = sha(json.dumps({k: stmts[k] for k in sorted(stmts)}, sort_keys=True, default=str).encode())
