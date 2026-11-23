@@ -69,6 +69,12 @@ function showApp(){
   const groups = (c["cognito:groups"] || []).filter(g => !g.startsWith("facility-"));
   $("#who").textContent = `${c.username || ""} · ${groups.join(", ") || "no staff role"} · ${c.facility_scope || "no facility"}`;
   $("#signin").hidden = true; $("#app").hidden = false; $("#signout").hidden = false;
+  // what the SERVER derives from the verified token (roles, facilities, permitted actions): the browser cannot change it
+  api("GET", "/console/me").then(me => {
+    const denied = Object.entries(me.permissions).filter(([, ok]) => !ok).map(([a]) => a);
+    $("#who").textContent = `${c.username || ""} · server roles: ${me.roles.join(", ") || "none"} · ${me.facilities.join(", ")}`;
+    $("#who").title = "Not permitted: " + (denied.join(", ") || "nothing");
+  }).catch(() => {});
   render();
 }
 function setTab(t){ tab = t; selected = null; nextBefore = null; threads = [];
@@ -87,7 +93,7 @@ async function render(){
         <div class="row" style="margin-top:4px"><button class="ok" data-d="CONFIRM" data-a="${esc(x.appointment_id)}">Confirm</button>
         <button class="bad" data-d="REJECT" data-a="${esc(x.appointment_id)}">Reject</button>
         <button class="ghost" data-w="${esc(x.appointment_id)}">Withdraw</button></div></div>`).join("")
-        : `<div class="empty">No open requests. Booking execution is off in this pilot, so driver choices do not create requests.</div>`;
+        : `<div class="empty">No open requests. A request appears here when a driver confirms a slot (booking must be switched on).</div>`;
       detail.innerHTML = `<div class="empty">Decisions are checked by the server against your role and facility.</div>`;
     } else if(tab === "escalations"){
       const r = (await api("GET", "/console/escalations")).escalations;
@@ -109,6 +115,20 @@ async function render(){
         const r = await api("POST", `/console/docks/${encodeURIComponent($("#bdock").value)}/blocks`, {event_id:"DE-" + key().slice(0, 8),
           start:new Date($("#bstart").value).toISOString(), end:new Date($("#bend").value).toISOString(), type:$("#btype").value, reason:$("#breason").value});
         toast("Dock blocked: " + JSON.stringify(r)) } catch(e){ toast("Not done: " + e.message) } };
+      detail.insertAdjacentHTML("beforeend", `<h2 style="margin-top:18px">Facility schedule proposal</h2>
+        <p class="muted">Read only: the scheduling tool's proposed order for the whole facility. A proposal, never a booking.
+        Planner or ops_lead only; checked by the server.</p>
+        <div class="row"><select id="sfac" style="width:auto"><option>FAC-JAI-01</option><option>FAC-GGN-01</option></select>
+        <button id="sched">Show proposal</button></div><div id="schedout"></div>`);
+      $("#sched").onclick = async () => { const out = $("#schedout");
+        try {
+          const r = await api("GET", `/console/facilities/${encodeURIComponent($("#sfac").value)}/schedule-proposal`);
+          out.innerHTML = `<p class="muted">${esc(r.status)} · ${esc(r.note || "")} · ${r.assignments.length} trucks</p>` +
+            `<table><tr><th>#</th><th>Shipment</th><th>Action</th><th>Dock</th><th>Start</th><th>Why</th></tr>` +
+            r.assignments.map(x => `<tr><td>${x.seq}</td><td class="mono">${esc(x.shipment_id)}</td><td>${esc(x.action)}</td>
+              <td>${esc(x.dock_code)}</td><td>${when(x.start)}</td><td class="muted">${esc(x.reason)}</td></tr>`).join("") + `</table>` +
+            (r.unscheduled.length ? `<p class="muted">To a person: ${r.unscheduled.map(u => esc(u.shipment_id) + " (" + esc(u.reason_code) + ")").join(", ")}</p>` : "");
+        } catch(e){ out.innerHTML = `<div class="empty err">Refused by the server: ${esc(e.message)}</div>` } };
     }
   } catch(e){ if(e.message !== "signed out" && e.message !== "401") list.innerHTML = `<div class="empty err">Could not load: ${esc(e.message)}</div>` }
 }
@@ -141,7 +161,9 @@ async function openThread(id){
       <dt>Facility</dt><dd>${esc(t.facility_id)}</dd><dt>Conversation</dt><dd>${esc(t.status)}${t.human_active ? " · a person has it since " + when(t.human_active_since) : " · the agent has it"}</dd>
       <dt>Flow state</dt><dd>${esc(f.state)}${f.appointment_id ? " · appointment " + esc(f.appointment_id) : " · no appointment"}</dd></dl>
     <h3>Messages (masked)</h3>
-    <div class="chat">${b.messages.map(m => `<div class="b ${m.sender === "DRIVER" ? "in" : m.sender === "AGENT" ? "out" : "sys"}">${esc(m.body_masked)}<small>${esc(m.sender)} · ${when(m.at)}</small></div>`).join("") || `<div class="empty">No messages.</div>`}</div>
+    <div class="chat">${b.messages.map(m => m.read_back_record
+        ? `<div class="b sys" title="Stored so the driver's YES can be checked against exactly this wording; the driver receives the reply below, once">${esc(m.body_masked)}<small>READ-BACK RECORD (not sent) · ${when(m.at)}</small></div>`
+        : `<div class="b ${m.sender === "DRIVER" ? "in" : m.sender === "AGENT" ? "out" : "sys"}">${esc(m.body_masked)}<small>${esc(m.sender)} · ${when(m.at)}</small></div>`).join("") || `<div class="empty">No messages.</div>`}</div>
     <h3>What the reader recorded</h3>
     ${facts ? `<dl class="kv">${facts}</dl>` : `<div class="muted">No open facts carried (the last report was acted on, or nothing was extracted yet).</div>`}
     ${x.asked ? `<div class="muted">Waiting for the driver to answer: ${esc(x.asked)}</div>` : ""}

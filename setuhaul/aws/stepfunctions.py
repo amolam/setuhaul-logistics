@@ -53,6 +53,8 @@ class StepFunctionsApprovalWorkflow:
 
     # ---------------------------------------------------------------- the ApprovalWorkflow port
     def start(self, approval_id: str, deadline: datetime) -> bool:
+        if not self.arn:
+            raise RuntimeError("CONFIG: SETUHAUL_APPROVAL_STATE_MACHINE_ARN is required to start approval executions")
         timeout_s = max(1, int((deadline - self.clock()).total_seconds()))
         try:
             self.sfn.start_execution(stateMachineArn=self.arn, name=str(approval_id),

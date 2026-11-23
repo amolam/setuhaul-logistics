@@ -1,0 +1,573 @@
+{
+ "collected_utc": "2026-11-23T03:43:53+00:00",
+ "evidence": {
+  "machine": "setuhaul-pilot-approval",
+  "alias": [
+   "setuhaul-pilot-approval",
+   "live"
+  ],
+  "before": {
+   "approval_requests": [
+    [
+     "APPROVED",
+     1
+    ],
+    [
+     "EXPIRED",
+     1
+    ],
+    [
+     "REJECTED",
+     1
+    ]
+   ],
+   "appointments": [
+    [
+     "CONFIRMED",
+     1
+    ],
+    [
+     "EXPIRED",
+     1
+    ],
+    [
+     "REJECTED",
+     1
+    ]
+   ],
+   "executions": 3,
+   "booking_switch": {
+    "setuhaul-pilot-recovery": "false",
+    "setuhaul-pilot-db-bootstrap": "false",
+    "setuhaul-pilot-approval-notify": "false",
+    "setuhaul-pilot-agent": "false",
+    "setuhaul-pilot-approval-relay": "false",
+    "setuhaul-pilot-db-express": "false",
+    "setuhaul-pilot-outbound": "false",
+    "setuhaul-pilot-approval-token": "false",
+    "setuhaul-pilot-api": "false",
+    "setuhaul-pilot-approval-expire": "false",
+    "setuhaul-pilot-cognito-pretoken": "false"
+   },
+   "non_synthetic_rows": []
+  },
+  "requests": {
+   "APPROVE": {
+    "driver": "SYN-STEP6-DRV-1916A3E6",
+    "shipment": "SYN-STEP6-SHP-1916A3E6",
+    "thread": "THR-STEP6-1916A3E6",
+    "appointment": "APT-2c5169abd0ba4009b3c985d1ed3779da",
+    "approval_id": "68340642-e935-4cf6-9228-a1f06bc197a7",
+    "submit_status": "PENDING",
+    "hold_status": "HELD",
+    "start_ist": "2026-11-28T09:00:00+05:30",
+    "pending_expires_at": "2026-11-23T09:12:32.322302+05:30"
+   },
+   "REJECT": {
+    "driver": "SYN-STEP6-DRV-B34ABBAB",
+    "shipment": "SYN-STEP6-SHP-B34ABBAB",
+    "thread": "THR-STEP6-B34ABBAB",
+    "appointment": "APT-336eefdf14154ec28b70a934c00481c1",
+    "approval_id": "f0f94898-bea7-4380-8f9e-e58b36bd9b07",
+    "submit_status": "PENDING",
+    "hold_status": "HELD",
+    "start_ist": "2026-11-28T10:00:00+05:30",
+    "pending_expires_at": "2026-11-23T09:12:44.954062+05:30"
+   },
+   "EXPIRE": {
+    "driver": "SYN-STEP6-DRV-4163EAA5",
+    "shipment": "SYN-STEP6-SHP-4163EAA5",
+    "thread": "THR-STEP6-4163EAA5",
+    "appointment": "APT-accabc65141941ba87d873818f7ac919",
+    "approval_id": "d1836d8e-89ce-4352-aa24-ed2e1d64283e",
+    "submit_status": "PENDING",
+    "hold_status": "HELD",
+    "start_ist": "2026-11-28T11:00:00+05:30",
+    "pending_expires_at": "2026-11-23T09:12:58.387727+05:30"
+   }
+  },
+  "relay": {
+   "first": {
+    "status": 200,
+    "error": null,
+    "result": {
+     "consumed": 4,
+     "reconciled": 0
+    }
+   },
+   "second": {
+    "status": 200,
+    "error": null,
+    "result": {
+     "consumed": 0,
+     "reconciled": 0
+    }
+   }
+  },
+  "waiting": {
+   "f0f94898-bea7-4380-8f9e-e58b36bd9b07": {
+    "token_recorded": true,
+    "status": "OPEN"
+   },
+   "68340642-e935-4cf6-9228-a1f06bc197a7": {
+    "token_recorded": true,
+    "status": "OPEN"
+   },
+   "d1836d8e-89ce-4352-aa24-ed2e1d64283e": {
+    "token_recorded": true,
+    "status": "OPEN"
+   }
+  },
+  "refusals_before_decision": {
+   "agent role decides": {
+    "refused": true,
+    "sqlstate": "42501",
+    "message": "permission denied for function decide_booking_request"
+   },
+   "planner of another facility decides": {
+    "refused": true,
+    "sqlstate": "P0001",
+    "message": "APPOINTMENT_UNKNOWN"
+   },
+   "console without a staff identity decides": {
+    "refused": true,
+    "sqlstate": "P0001",
+    "message": "UNTRUSTED_CONTEXT: no staff identity for this transaction"
+   }
+  },
+  "decisions": {
+   "APPROVE": {
+    "status": "CONFIRMED",
+    "outcome": "APPROVED",
+    "replaced": null,
+    "decided_at": "2026-11-23T09:08:26.411923+05:30",
+    "decided_by": "staff:step6-drill-planner",
+    "approval_id": "68340642-e935-4cf6-9228-a1f06bc197a7",
+    "shipment_id": "SYN-STEP6-SHP-1916A3E6",
+    "appointment_id": "APT-2c5169abd0ba4009b3c985d1ed3779da",
+    "decided_by_role": "planner",
+    "decided_by_type": "HUMAN"
+   },
+   "APPROVE_same_key_again": {
+    "status": "CONFIRMED",
+    "outcome": "APPROVED",
+    "replaced": null,
+    "decided_at": "2026-11-23T09:08:26.411923+05:30",
+    "decided_by": "staff:step6-drill-planner",
+    "approval_id": "68340642-e935-4cf6-9228-a1f06bc197a7",
+    "shipment_id": "SYN-STEP6-SHP-1916A3E6",
+    "appointment_id": "APT-2c5169abd0ba4009b3c985d1ed3779da",
+    "decided_by_role": "planner",
+    "decided_by_type": "HUMAN"
+   },
+   "REJECT": {
+    "reason": "Step 6 drill",
+    "status": "REJECTED",
+    "outcome": "REJECTED",
+    "decided_at": "2026-11-23T09:08:29.884978+05:30",
+    "decided_by": "staff:step6-drill-planner",
+    "approval_id": "f0f94898-bea7-4380-8f9e-e58b36bd9b07",
+    "shipment_id": "SYN-STEP6-SHP-B34ABBAB",
+    "superseded_by": null,
+    "appointment_id": "APT-336eefdf14154ec28b70a934c00481c1",
+    "decided_by_type": "HUMAN",
+    "requested_outcome": null,
+    "still_valid_booking": null,
+    "withdraw_reason_code": null
+   },
+   "second_decision_new_key": {
+    "refused": true,
+    "sqlstate": "P0001",
+    "message": "ALREADY_DECIDED: APPROVED"
+   }
+  },
+  "relay_after_decisions": {
+   "status": 200,
+   "error": null,
+   "result": {
+    "consumed": 2,
+    "reconciled": 0
+   }
+  },
+  "relay_final": {
+   "status": 200,
+   "error": null,
+   "result": {
+    "consumed": 1,
+    "reconciled": 0
+   }
+  },
+  "outbound": {
+   "status": 200,
+   "error": null,
+   "result": {
+    "enqueued": 3,
+    "claimed": 3
+   }
+  },
+  "paths": {
+   "APPROVE": {
+    "execution": {
+     "status": "SUCCEEDED",
+     "states": [
+      "NotifyApprovers",
+      "WaitForDecision",
+      "Done"
+     ],
+     "executions_named_for_this_request": 1
+    },
+    "approval": {
+     "status": "APPROVED",
+     "decided_by": "staff:step6-drill-planner",
+     "decided": true,
+     "kind": "STANDARD",
+     "decided_role": "planner"
+    },
+    "appointment": {
+     "status": "CONFIRMED",
+     "is_current": true,
+     "claim_active": true
+    },
+    "audit": [
+     [
+      "agent",
+      "agent",
+      "HOLD_OPTION"
+     ],
+     [
+      "agent",
+      "agent",
+      "SUBMIT_BOOKING_REQUEST"
+     ],
+     [
+      "staff:step6-drill-planner",
+      "planner",
+      "APPROVAL_APPROVED"
+     ]
+    ],
+    "approval_decided_events": 1,
+    "callbacks": [
+     "DELIVERED"
+    ],
+    "notifications": [
+     [
+      "booking_approved",
+      "SENT",
+      "testsink."
+     ]
+    ]
+   },
+   "REJECT": {
+    "execution": {
+     "status": "SUCCEEDED",
+     "states": [
+      "NotifyApprovers",
+      "WaitForDecision",
+      "Done"
+     ],
+     "executions_named_for_this_request": 1
+    },
+    "approval": {
+     "status": "REJECTED",
+     "decided_by": "staff:step6-drill-planner",
+     "decided": true,
+     "kind": "STANDARD",
+     "decided_role": "planner"
+    },
+    "appointment": {
+     "status": "REJECTED",
+     "is_current": false,
+     "claim_active": false
+    },
+    "audit": [
+     [
+      "agent",
+      "agent",
+      "HOLD_OPTION"
+     ],
+     [
+      "agent",
+      "agent",
+      "SUBMIT_BOOKING_REQUEST"
+     ],
+     [
+      "staff:step6-drill-planner",
+      "planner",
+      "APPROVAL_REJECTED"
+     ]
+    ],
+    "approval_decided_events": 1,
+    "callbacks": [
+     "DELIVERED"
+    ],
+    "notifications": [
+     [
+      "booking_rejected",
+      "SENT",
+      "testsink."
+     ]
+    ]
+   },
+   "EXPIRE": {
+    "execution": {
+     "status": "SUCCEEDED",
+     "states": [
+      "NotifyApprovers",
+      "WaitForDecision",
+      "ExpireApproval",
+      "Done"
+     ],
+     "executions_named_for_this_request": 1
+    },
+    "approval": {
+     "status": "EXPIRED",
+     "decided_by": "system:expiry",
+     "decided": true,
+     "kind": "STANDARD",
+     "decided_role": "system"
+    },
+    "appointment": {
+     "status": "EXPIRED",
+     "is_current": false,
+     "claim_active": false
+    },
+    "audit": [
+     [
+      "agent",
+      "agent",
+      "HOLD_OPTION"
+     ],
+     [
+      "agent",
+      "agent",
+      "SUBMIT_BOOKING_REQUEST"
+     ],
+     [
+      "system:expiry",
+      "system",
+      "APPROVAL_EXPIRED"
+     ]
+    ],
+    "approval_decided_events": 1,
+    "callbacks": [
+     "TASK_FINISHED"
+    ],
+    "notifications": [
+     [
+      "booking_expired",
+      "SENT",
+      "testsink."
+     ]
+    ]
+   }
+  },
+  "after": {
+   "executions": 6,
+   "non_synthetic_rows": [],
+   "booking_switch": {
+    "setuhaul-pilot-recovery": "false",
+    "setuhaul-pilot-db-bootstrap": "false",
+    "setuhaul-pilot-approval-notify": "false",
+    "setuhaul-pilot-agent": "false",
+    "setuhaul-pilot-approval-relay": "false",
+    "setuhaul-pilot-db-express": "false",
+    "setuhaul-pilot-outbound": "false",
+    "setuhaul-pilot-approval-token": "false",
+    "setuhaul-pilot-api": "false",
+    "setuhaul-pilot-approval-expire": "false",
+    "setuhaul-pilot-cognito-pretoken": "false"
+   }
+  }
+ },
+ "checks": {
+  "no automatic approval: all three requests waited, OPEN with a task token": true,
+  "request: one execution per request, started by the deployed relay; a second relay run started none": true,
+  "approve: planner decision -> approval APPROVED, appointment CONFIRMED, claim kept, execution succeeded": true,
+  "reject: planner decision -> approval REJECTED, appointment REJECTED, claim released, execution succeeded": true,
+  "expiry: no decision -> the state machine's timeout ran ExpireApproval, request EXPIRED, claim released": true,
+  "refused: agent role, another facility's planner, no staff identity, and a second decision": true,
+  "idempotent: the same decision key twice returns the same decision": true,
+  "no duplicate business action: one decided event per decided request, at most one callback each": true,
+  "driver notices only to the internal test sink (no WhatsApp)": true,
+  "booking switch still false on every function; all data synthetic": true
+ },
+ "all_pass": true,
+ "log": [
+  {
+   "t": "2026-11-23T03:37:19+00:00",
+   "event": "before",
+   "approval_requests": [
+    [
+     "APPROVED",
+     1
+    ],
+    [
+     "EXPIRED",
+     1
+    ],
+    [
+     "REJECTED",
+     1
+    ]
+   ],
+   "appointments": [
+    [
+     "CONFIRMED",
+     1
+    ],
+    [
+     "EXPIRED",
+     1
+    ],
+    [
+     "REJECTED",
+     1
+    ]
+   ],
+   "executions": 3,
+   "non_synthetic_rows": []
+  },
+  {
+   "t": "2026-11-23T03:37:32+00:00",
+   "event": "APPROVE: request submitted",
+   "driver": "SYN-STEP6-DRV-1916A3E6",
+   "shipment": "SYN-STEP6-SHP-1916A3E6",
+   "thread": "THR-STEP6-1916A3E6",
+   "appointment": "APT-2c5169abd0ba4009b3c985d1ed3779da",
+   "approval_id": "68340642-e935-4cf6-9228-a1f06bc197a7",
+   "submit_status": "PENDING",
+   "hold_status": "HELD",
+   "start_ist": "2026-11-28T09:00:00+05:30",
+   "pending_expires_at": "2026-11-23T09:12:32.322302+05:30"
+  },
+  {
+   "t": "2026-11-23T03:37:44+00:00",
+   "event": "REJECT: request submitted",
+   "driver": "SYN-STEP6-DRV-B34ABBAB",
+   "shipment": "SYN-STEP6-SHP-B34ABBAB",
+   "thread": "THR-STEP6-B34ABBAB",
+   "appointment": "APT-336eefdf14154ec28b70a934c00481c1",
+   "approval_id": "f0f94898-bea7-4380-8f9e-e58b36bd9b07",
+   "submit_status": "PENDING",
+   "hold_status": "HELD",
+   "start_ist": "2026-11-28T10:00:00+05:30",
+   "pending_expires_at": "2026-11-23T09:12:44.954062+05:30"
+  },
+  {
+   "t": "2026-11-23T03:37:58+00:00",
+   "event": "EXPIRE: request submitted",
+   "driver": "SYN-STEP6-DRV-4163EAA5",
+   "shipment": "SYN-STEP6-SHP-4163EAA5",
+   "thread": "THR-STEP6-4163EAA5",
+   "appointment": "APT-accabc65141941ba87d873818f7ac919",
+   "approval_id": "d1836d8e-89ce-4352-aa24-ed2e1d64283e",
+   "submit_status": "PENDING",
+   "hold_status": "HELD",
+   "start_ist": "2026-11-28T11:00:00+05:30",
+   "pending_expires_at": "2026-11-23T09:12:58.387727+05:30"
+  },
+  {
+   "t": "2026-11-23T03:38:10+00:00",
+   "event": "relay runs",
+   "first": {
+    "status": 200,
+    "error": null,
+    "result": {
+     "consumed": 4,
+     "reconciled": 0
+    }
+   },
+   "second": {
+    "status": 200,
+    "error": null,
+    "result": {
+     "consumed": 0,
+     "reconciled": 0
+    }
+   }
+  },
+  {
+   "t": "2026-11-23T03:38:19+00:00",
+   "event": "all three waiting for a person",
+   "waiting": {
+    "f0f94898-bea7-4380-8f9e-e58b36bd9b07": {
+     "token_recorded": true,
+     "status": "OPEN"
+    },
+    "68340642-e935-4cf6-9228-a1f06bc197a7": {
+     "token_recorded": true,
+     "status": "OPEN"
+    },
+    "d1836d8e-89ce-4352-aa24-ed2e1d64283e": {
+     "token_recorded": true,
+     "status": "OPEN"
+    }
+   }
+  },
+  {
+   "t": "2026-11-23T03:38:24+00:00",
+   "event": "refusals",
+   "agent role decides": {
+    "refused": true,
+    "sqlstate": "42501",
+    "message": "permission denied for function decide_booking_request"
+   },
+   "planner of another facility decides": {
+    "refused": true,
+    "sqlstate": "P0001",
+    "message": "APPOINTMENT_UNKNOWN"
+   },
+   "console without a staff identity decides": {
+    "refused": true,
+    "sqlstate": "P0001",
+    "message": "UNTRUSTED_CONTEXT: no staff identity for this transaction"
+   }
+  },
+  {
+   "t": "2026-11-23T03:38:31+00:00",
+   "event": "decisions",
+   "approve": {
+    "status": "CONFIRMED",
+    "outcome": "APPROVED",
+    "replaced": null,
+    "decided_at": "2026-11-23T09:08:26.411923+05:30",
+    "decided_by": "staff:step6-drill-planner",
+    "approval_id": "68340642-e935-4cf6-9228-a1f06bc197a7",
+    "shipment_id": "SYN-STEP6-SHP-1916A3E6",
+    "appointment_id": "APT-2c5169abd0ba4009b3c985d1ed3779da",
+    "decided_by_role": "planner",
+    "decided_by_type": "HUMAN"
+   },
+   "reject": {
+    "reason": "Step 6 drill",
+    "status": "REJECTED",
+    "outcome": "REJECTED",
+    "decided_at": "2026-11-23T09:08:29.884978+05:30",
+    "decided_by": "staff:step6-drill-planner",
+    "approval_id": "f0f94898-bea7-4380-8f9e-e58b36bd9b07",
+    "shipment_id": "SYN-STEP6-SHP-B34ABBAB",
+    "superseded_by": null,
+    "appointment_id": "APT-336eefdf14154ec28b70a934c00481c1",
+    "decided_by_type": "HUMAN",
+    "requested_outcome": null,
+    "still_valid_booking": null,
+    "withdraw_reason_code": null
+   }
+  },
+  {
+   "t": "2026-11-23T03:38:34+00:00",
+   "event": "relay after decisions",
+   "status": 200,
+   "error": null,
+   "result": {
+    "consumed": 2,
+    "reconciled": 0
+   }
+  },
+  {
+   "t": "2026-11-23T03:43:11+00:00",
+   "event": "expiry path",
+   "status": "EXPIRED"
+  }
+ ]
+}

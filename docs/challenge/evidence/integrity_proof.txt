@@ -1,0 +1,74 @@
+SetuHaul integrity proof - 20 drivers, one slot
+run at 2026-11-22T19:03:18+00:00  |  database setuhaul_integrity_proof on host=localhost port=55434 user=postgres
+server: PostgreSQL 18.6 on x86_64-windows, compiled by msvc-19.44.35228, 64-bit
+
+== 1. Initial state
+facility FAC-JAI-01, docks in the facility: 1 (DOCK-JAI-D1)
+slot every driver was offered and said YES to: dock D1, 2026-11-24 07:00-07:55 IST (dock occupancy window incl. unload + changeover)
+active claims (holds/bookings/blocks) on that window before the race: 0
+drivers with a confirmed (attested) YES for this exact slot: 20
+
+== 2. The race: 20 hold requests released by one barrier, 20 threads, 20 HTTP clients, 20 DB connections
+spread of request start times: 4.9 ms; first answer after 1046.3 ms; requests already sent before the first answer came back: 20/20
+
+== 3. What each driver's request got back (service envelope)
+  SHP-01-a939ea  status=LOST   code=None fresh_options=3
+  SHP-02-854897  status=LOST   code=None fresh_options=3
+  SHP-03-b3c823  status=LOST   code=None fresh_options=3
+  SHP-04-85cc7b  status=LOST   code=None fresh_options=3
+  SHP-05-e8c2f0  status=LOST   code=None fresh_options=3
+  SHP-06-d45bc6  status=LOST   code=None fresh_options=3
+  SHP-07-54e29f  status=LOST   code=None fresh_options=3
+  SHP-08-849744  status=LOST   code=None fresh_options=3
+  SHP-09-1ecc7c  status=LOST   code=None fresh_options=3
+  SHP-10-3a0afb  status=LOST   code=None fresh_options=3
+  SHP-11-b81447  status=LOST   code=None fresh_options=3
+  SHP-12-09de1f  status=LOST   code=None fresh_options=3
+  SHP-13-b7813b  status=LOST   code=None fresh_options=3
+  SHP-14-d5de25  status=OK    HELD 2026-11-23T00:36:54.545586+05:30
+  SHP-15-6beb7a  status=LOST   code=None fresh_options=3
+  SHP-16-333e91  status=LOST   code=None fresh_options=3
+  SHP-17-19419d  status=LOST   code=None fresh_options=3
+  SHP-18-66d2a3  status=LOST   code=None fresh_options=3
+  SHP-19-09dd07  status=LOST   code=None fresh_options=3
+  SHP-20-158c18  status=LOST   code=None fresh_options=3
+totals: OK=1 LOST=19 other=0
+
+== 4. What a losing driver is told (the orchestrator's fixed template, setuhaul/agent/replies.py)
+  That slot was just taken.
+  Available slots:
+  1. Dock D1, 8:00 AM on 24 Nov
+  2. Dock D1, 9:00 AM on 24 Nov
+  3. Dock D1, 10:00 AM on 24 Nov
+  Reply with the number you want.
+
+== 4b. Database right after the race, before anything else happens
+  id=1 kind=HOLD shipment=SHP-14-d5de25 07:00-07:55 active=True hold_expires=00:36:54
+
+winner SHP-14-d5de25 submits the booking request: OK PENDING APT-44356f049ac1484ea8e0b2f13194ed8e
+
+== 5. ACTUAL database outcome
+dock_occupancy rows touching the raced window (all, active or not):
+  id=1 dock=DOCK-JAI-D1 kind=APPOINTMENT shipment=SHP-14-d5de25 07:00-07:55 active=True
+Q5 fresh options handed to losers: 57; of those overlapping the taken window: 0
+Q1 shipments with an active claim on that dock window: 1
+Q2 active HOLD rows on that window: 0
+Q3 active appointments among the 20 racing shipments: 1 -> [('APT-44356f049ac1484ea8e0b2f13194ed8e', 'SHP-14-d5de25', 'PENDING_CONFIRMATION')]
+Q4 pairs of active claims of DIFFERENT shipments overlapping on ANY dock (whole database): 0
+
+== 6. Bypass attempt: insert a second overlapping claim directly, as the database superuser
+   (superuser bypasses row-level security and grants; only the EXCLUDE constraint is left)
+   result: REFUSED sqlstate=23P01 conflicting key value violates exclusion constraint "ex_one_truck_per_dock"
+
+== 7. Invariant checks
+  [PASS] exactly one of 20 hold requests succeeded
+  [PASS] the other 19 were told LOST (slot taken)
+  [PASS] every loser received fresh options in the same answer
+  [PASS] no fresh option offered to a loser overlaps the taken window
+  [PASS] one shipment holds the dock window in the database
+  [PASS] at most one active HOLD on the window
+  [PASS] exactly one active appointment among the racers (the winner's)
+  [PASS] zero overlapping claims of different shipments on any dock
+  [PASS] direct superuser insert of an overlapping claim is refused (23P01)
+
+RESULT: PASS  (9/9 checks)  elapsed 38.9 s

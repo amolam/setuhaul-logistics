@@ -145,6 +145,34 @@ def test_pause_check_reports_whether_the_cluster_reached_zero_acu(pm_factory):
     assert pm.pause_check(now=now)["reached_zero_acu"] is False
 
 
+def test_pause_state_comes_from_rds_cluster_events(pm_factory):
+    """22 Nov 2026: the ACU metric stopped publishing; RDS events are the authoritative pause evidence."""
+    from datetime import datetime, timedelta, timezone
+    pm, _ = pm_factory()
+    now = datetime(2026, 11, 22, 19, 0, tzinfo=timezone.utc)
+
+    class Rds:
+        def __init__(self, msgs):
+            self.msgs, self.calls = msgs, []
+
+        def describe_events(self, **kw):
+            self.calls.append(kw)
+            assert kw["SourceType"] == "db-cluster" and kw["SourceIdentifier"] == "setuhaul-pilot"
+            page = 0 if "Marker" not in kw else 1
+            evs = [{"Date": now - timedelta(minutes=60 - i), "Message": m} for i, m in enumerate(self.msgs)][page::2]
+            return {"Events": evs, **({"Marker": "m"} if page == 0 else {})}
+    pm.cluster_id = "setuhaul-pilot"
+    pm.rds = Rds(["Initiated pause for the DB instance: i-1", "Successfully paused the DB instance: i-1",
+                  "Initiated resume for the DB instance: i-1 due to user activity", "Successfully resumed the DB instance: i-1",
+                  "Initiated pause for the DB instance: i-1", "Successfully paused the DB instance: i-1"])
+    r = pm.pause_events(now=now)
+    assert (r["state"], r["pauses"], r["resumes"], r["initiated_events"]) == ("PAUSED", 2, 1, 3) and len(pm.rds.calls) == 2
+    pm.rds = Rds(["Successfully paused the DB instance: i-1", "Successfully resumed the DB instance: i-1"])
+    assert pm.pause_events(now=now)["state"] == "RESUMED"
+    pm.rds = Rds([])
+    assert pm.pause_events(now=now)["state"].startswith("UNKNOWN")
+
+
 # ---------------------------------------------------------------- Data API resume retry
 class Resuming(Exception):
     def __init__(self, code=RESUMING):

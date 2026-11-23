@@ -1,0 +1,34 @@
+{
+ "drill": "AWS_QUEUE / RECOVERY_WORKER dead-letter drill, owner-approved 23 Nov 2026, synthetic, booking OFF",
+ "tracked_message": {
+  "tag": "STEP6-DLQ-DRILL-8436a4759a40",
+  "sent_utc": "2026-11-23T01:28:14Z",
+  "sqs_ids": {
+   "before_redrive": "cf6ed815-c893-4e39-a3b2-c4327d33929c",
+   "after_redrive": "0bff4e2f-d993-4a24-93f6-385901d153fb"
+  },
+  "body": "not JSON; no business data"
+ },
+ "runs": {
+  "1": "sent; stopped when the operator's AWS session expired (drill_dlq_run1.log)",
+  "2": "resumed; phase 1 proven; redrive started at 01:53:27, counters read too early (drill_dlq_run2.*)",
+  "3": "stopped itself: a second id appeared in the logs, identified as the redriven message (drill_dlq_run3.log)",
+  "4": "stopped when the AWS session expired again (drill_dlq_run4.log)",
+  "5": "phase 2 proven; tracked message removed (drill_dlq_run5.*)"
+ },
+ "checks": {
+  "queues held nothing but the tracked message [run 2]": true,
+  "dead-lettered after 5 consumer failures, all JSONDecodeError [run 2]": true,
+  "the DLQ held exactly the tracked message (body tag, same id) [run 2]": true,
+  "redrive moved exactly 1 message back to the source queue [run 5, move task record]": true,
+  "the redriven message reached the consumer again, failed 5 times and was dead-lettered again; body tag matched [run 5]": true,
+  "no business code ran: every failure at the JSON parse [runs 2, 5]": true,
+  "business records unchanged: inbound_receipts write counters [runs 2 to 5]": true,
+  "only the tracked message removed; both queues empty after [run 5]": true
+ },
+ "monitoring": {
+  "QueueOldestMessage alarm (age > 300 s)": "fired during the drill: OK->ALARM 01:35:18 and 02:00:18 UTC",
+  "DlqNotEmpty alarm (visible > 0, 5-min max)": "did NOT fire: the DLQ metric recorded no non-zero point; the message stayed in the DLQ only seconds/minutes before redrive or removal. Not demonstrated."
+ },
+ "all_pass": true
+}

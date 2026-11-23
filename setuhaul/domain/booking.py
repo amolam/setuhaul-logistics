@@ -42,6 +42,9 @@ ALLOWED = {
     "submit_booking_request": {S.HELD},
     "release_hold":          {S.HELD},
     "get_booking_status":    set(S) - {S.HUMAN},
+    # read-only facility scheduling tool: returns a PROPOSAL for the driver's facility, never a booking. Applying a
+    # move (move_appointment) is a console action for a person and is never available to the agent.
+    "propose_facility_schedule": set(S) - {S.HUMAN},
     "escalate_to_human":     set(S) - {S.HUMAN},
 }
 

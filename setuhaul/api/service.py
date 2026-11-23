@@ -28,7 +28,8 @@ from pydantic import AwareDatetime, BaseModel, Field, ValidationError, model_val
 
 from ..adapters.pg_view import load_view
 from ..domain.booking import BookingFlow, S, classify_confirmation, idem_key, map_db_error
-from ..domain.feasibility import FeasibilityEngine, Option
+from ..domain.feasibility import FeasibilityEngine, Option, hm
+from ..domain.scheduling import ENGINE_VERSION, NOT_A_BOOKING, RULES, Proposal, propose, snapshot_from_data
 from .db import Db
 from .security import Principal
 
@@ -49,6 +50,19 @@ PERMISSIONS: dict[str, frozenset] = {
     "pause":         frozenset({"ops_lead"}),
     "takeover":      frozenset({"operations", "planner", "ops_lead"}),
     "handback":      frozenset({"operations", "planner", "ops_lead"}),
+}
+# Facility scheduling tool (migration 0025), kept apart from the P1-7 matrix above, which tests/test_api.py pins.
+SCHEDULE_PERMISSIONS: dict[str, frozenset] = {
+    "schedule_proposal": frozenset({"planner", "ops_lead"}),         # view / store a facility proposal (no booking)
+    # applying a move changes a time a driver was told: MOVE_CONFIRMED_PROMISE in approval_role_rules (B-WF-2 §8);
+    # the database checks the same rule itself
+    "move_appointment":  frozenset({"ops_lead"}),
+}
+# Option D (migration 0026): the booking kill switch. The database refuses every new booking commitment while it is
+# engaged, whatever the deployment says; an ops_lead operates it from the console, the owner with ops/kill_switch.py.
+KILL_SWITCH_PERMISSIONS: dict[str, frozenset] = {
+    "booking_kill_switch": frozenset({"ops_lead"}),
+    "view_kill_switch":    frozenset({"planner", "ops_lead", "operations"}),
 }
 
 
@@ -128,8 +142,16 @@ class EscalateArgs(_Strict):
     what_driver_was_told: str = Field(max_length=500)
 
 
-BOOKING_TOOLS = {"hold_option", "submit_booking_request"}
-TOOLS = {"get_driver_context": None, "record_driver_report": DriverReport, "find_feasible_options": FindArgs,
+class ScheduleArgs(_Strict):
+    """Structured only: which rule. The facility is the conversation's (the driver's shipment), never an argument."""
+    rule: Literal["FACILITY_SCORE", "FCFS", "EARLIEST_ETA"] = "FACILITY_SCORE"
+
+
+# Booking switch (SETUHAUL_BOOKING_ENABLED, off by default): these change dock bookings and are refused while it is off.
+# move_appointment is a console route, never an agent tool; it is listed so one switch covers every booking change.
+BOOKING_TOOLS = {"hold_option", "submit_booking_request", "move_appointment"}
+TOOLS = {"propose_facility_schedule": ScheduleArgs,
+         "get_driver_context": None,"record_driver_report": DriverReport, "find_feasible_options": FindArgs,
          "select_option": OptionArg, "confirm_selection": ConfirmArgs, "hold_option": OptionArg,
          "submit_booking_request": OptionArg, "release_hold": OptionArg, "get_booking_status": StatusArgs,
          "escalate_to_human": EscalateArgs}
@@ -147,6 +169,11 @@ class BookingService:
         return self.clock().astimezone(IST)
 
     # ---------------------------------------------------------------- shared helpers
+    def _has_login(self, role: str) -> bool:
+        """psycopg (local, tests): every role; the Data API backend: only the logins this workload was given."""
+        have = getattr(self.db, "secret_arns", None)
+        return have is None or role in have
+
     def _engine(self, scope: tuple[str, ...] | None = None) -> FeasibilityEngine:
         """Feasibility role, read-only transaction. Facility-wide facts the driver must never see stay inside the service."""
         with self.db.tx("feasibility", scope or self.facilities, readonly=True) as c:
@@ -538,11 +565,134 @@ class BookingService:
         r = self._escalate(p, fac, a.reason_code, a.mode, a.driver_last_message, a.what_driver_was_told, key)
         return env("OK", r, say_hint="Tell the driver a coordinator has their details and will respond within 10 minutes.")
 
+    # ---------------------------------------------------------------- facility scheduling tool (proposals only)
+    PROPOSAL_TTL_S = 600
+
+    def _facility_view(self, facility: str, now: datetime):
+        """The facility's structured state (feasibility role, read-only). The scope adds the other configured
+        facilities only so the double-assignment check sees a driver's or truck's other shipments, as the
+        feasibility engine does; every proposal covers `facility` alone."""
+        with self.db.tx("feasibility", (facility,) + tuple(x for x in self.facilities if x != facility), readonly=True) as c:
+            row = c.execute("SELECT schedule_version FROM facilities WHERE facility_id=%s", (facility,)).fetchone()
+            if not row:
+                raise ServiceError(404, "NOT_FOUND", "no such facility")
+            data = load_view(c, now)
+        if facility not in data.timings:
+            raise ServiceError(409, "FACILITY_NOT_CONFIGURED", "no active facility_config")
+        return snapshot_from_data(data, facility, now), row[0]
+
+    def _schedule(self, facility: str, rule: str) -> tuple[Proposal, int]:
+        """Run the deterministic planner on structured data. Writes nothing."""
+        if rule not in RULES:
+            raise ServiceError(400, "BAD_RULE", f"one of {', '.join(RULES)}")
+        snap, sv = self._facility_view(facility, self.now())
+        return propose(snap, rule), sv
+
+    def t_propose_facility_schedule(self, p, a: ScheduleArgs, key):
+        """Agent tool, read only. The facility comes from the conversation's shipment. The driver channel gets this
+        driver's own row and facility totals only: other trucks, their drivers and the reasons that name them stay in
+        the service. The result is a PROPOSAL, not a booking, and carries no id a move could be applied with."""
+        sid, fac, live = self._shipment(p, None)
+        if sid is None:
+            return env("NEEDS_INFO", {"live_shipments": [r[0] for r in live]}, missing=["shipment_id"])
+        with self.db.tx("agent", (fac,), p.driver_id) as c:
+            f, _ = self._flow(c, p, self._thread(c, p))
+            ok = f.allow("propose_facility_schedule")
+            if not ok.allowed:
+                return env("REQUIRES_HUMAN" if ok.reason == "HUMAN_ACTIVE" else "ERROR", {"code": ok.reason})
+        prop, _ = self._schedule(fac, a.rule)
+        mine = next((x for x in prop.assignments if x.shipment_id == sid), None)
+        left = next((u for u in prop.unscheduled if u.shipment_id == sid), None)
+        keys = ("trucks", "planned", "missed_promises", "changed_promises", "unscheduled")
+        return env("OK", {
+            "status": prop.status, "not_a_booking": True, "note": NOT_A_BOOKING, "rule": prop.rule, "facility_id": fac,
+            "input_fingerprint": prop.input_fingerprint, "shipment_id": sid,
+            "proposed": {"dock_code": mine.dock_code, "start": human_time(mine.start), "start_ts": mine.start.isoformat(),
+                         "action": mine.action, "keeps_promise": mine.action == "KEEP",
+                         "wait_min": mine.score.wait_min} if mine else None,
+            "needs_person": {"reason_code": left.reason_code} if left else None,
+            "in_window": sid not in prop.out_of_horizon,
+            "facility_totals": {k: prop.metrics[k] for k in keys}},
+            say_hint="This is a planning proposal for the dock office, not a booking. Do not tell the driver this time "
+                     "is confirmed; offer bookable times with find_feasible_options, or escalate.")
+
+    def schedule_proposal(self, p: Principal, facility: str, rule: str = "FACILITY_SCORE") -> dict:
+        """Console, read only: the facility's proposal as computed now. Stores nothing. A facility outside this person's
+        scope is indistinguishable from one that does not exist (404), as for conversations."""
+        self.require(p, "schedule_proposal")
+        if facility not in p.facilities:
+            raise ServiceError(404, "NOT_FOUND", "no such facility")
+        prop, sv = self._schedule(facility, rule)
+        return prop.to_dict() | {"schedule_version": sv, "stored": False, "proposal_id": None}
+
+    def store_schedule_proposal(self, p: Principal, facility: str, rule: str = "FACILITY_SCORE",
+                                ttl_s: int | None = None) -> dict:
+        """Console: compute and store a proposal, so a person can apply its moves (one at a time) before it expires.
+        Storing changes no booking. The database re-validates the rows (facility, current appointments, no overlap)."""
+        self.require(p, "schedule_proposal")
+        if facility not in p.facilities:
+            raise ServiceError(404, "NOT_FOUND", "no such facility")
+        prop, sv = self._schedule(facility, rule)
+        d = prop.to_dict()
+        rows = [{"seq": r["seq"], "shipment_id": r["shipment_id"], "appointment_id": r["appointment_id"],
+                 "action": r["action"], "dock_id": r["dock_id"], "start": r["start"], "end": r["end"],
+                 "from_dock_id": (r["promised"] or {}).get("dock_id"), "from_start": (r["promised"] or {}).get("start"),
+                 "score": r["score"], "reason": r["reason"][:500]} for r in d["assignments"]]
+        stored = self._console_call(
+            p, "SELECT record_schedule_proposal(%s,%s,%s,%s,%s,%s,%s,%s)",
+            (facility, rule, ENGINE_VERSION, prop.input_fingerprint, sv, Jsonb(prop.metrics), Jsonb(rows),
+             ttl_s or self.PROPOSAL_TTL_S),
+            ("APPOINTMENT_CHANGED", "APPOINTMENT_NOT_MOVABLE", "PROPOSAL_ROWS_OVERLAP"))
+        return d | {"schedule_version": sv, "stored": True, "proposal_id": str(stored["proposal_id"]),
+                    "expires_at": stored["expires_at"]}
+
+    MOVE_CONFLICTS = ("PROPOSAL_EXPIRED", "ALREADY_APPLIED", "APPOINTMENT_IN_PROGRESS", "SHIPMENT_IN_DOCK",
+                      "APPOINTMENT_CHANGED", "SLOT_IN_PAST", "OPERATIONAL_HOLD", "OUTSIDE_HOURS", "SLOT_TAKEN",
+                      "REQUEST_PENDING", "CROSS_FACILITY", "DOCK_WRONG_FACILITY", "DOCK_WEIGHT_EXCEEDED",
+                      "DOCK_NOT_REFRIGERATED", "DOCK_NOT_HEAVY", "COMPAT_CHANGE_NEEDS_READ_COMMITTED",
+                      "IDEMPOTENCY_KEY_REUSED", "NOT_FEASIBLE")
+
+    def move_appointment(self, p: Principal, appointment_id: str, proposal_id, key: str, note: str | None = None) -> dict:
+        """Console: apply ONE move of a stored, unexpired proposal. Refused while the booking switch is off, exactly
+        like the agent's booking tools. The database function re-proves every booking rule under the decide locks;
+        the readiness check here is advisory (has the truck's ETA moved past the proposed start since?)."""
+        if not self.booking_enabled:
+            raise ServiceError(409, "BOOKING_DISABLED", "booking changes are switched off; the dock office calls the driver")
+        self.require(p, "move_appointment")
+        with self.db.tx("console", p.facilities, readonly=True) as c:
+            row = c.execute("""SELECT r.shipment_id, r.start_at, pr.facility_id
+                                 FROM schedule_proposal_rows r JOIN schedule_proposals pr USING (proposal_id)
+                                WHERE r.proposal_id=%s AND r.appointment_id=%s AND r.action='MOVE'""",
+                            (proposal_id, appointment_id)).fetchone()
+        if row:
+            sid, start, fac = row
+            snap, _ = self._facility_view(fac, self.now())
+            job = next((j for j in snap.jobs if j.shipment_id == sid), None)
+            if job is not None and job.release > start + timedelta(minutes=1):
+                raise ServiceError(409, "NOT_FEASIBLE", f"the truck is now ready at {hm(job.release)}, after the proposed start")
+            if job is None and sid in snap.out_of_horizon and start < snap.horizon_end:
+                raise ServiceError(409, "NOT_FEASIBLE", "the truck is now ready only after the planning window")
+        try:
+            with self.db.tx("console", p.facilities, staff=self._staff(p)) as c:
+                return c.execute("SELECT move_appointment(%s,%s,%s,%s)",
+                                 (proposal_id, appointment_id, key, note)).fetchone()[0]
+        except psycopg.Error as e:
+            if e.sqlstate == "23P01":                     # a concurrent block or hold won the same dock time
+                raise ServiceError(409, "SLOT_TAKEN", "another change took that dock time first") from e
+            code = (e.diag.message_primary or "").split(":")[0]
+            if code in ("ROLE_NOT_ALLOWED", "FORBIDDEN"):
+                raise ServiceError(403, code, e.diag.message_primary) from e
+            if code in ("PROPOSAL_UNKNOWN", "APPOINTMENT_UNKNOWN", "NOT_A_PROPOSED_MOVE"):
+                raise ServiceError(404, code) from e
+            raise ServiceError(409 if code in self.MOVE_CONFLICTS else 400, code or "ERROR",
+                               e.diag.message_primary or "") from e
+
     # ---------------------------------------------------------------- console (people decide)
     @staticmethod
     def require(p: Principal, action: str):
-        if not (p.roles & PERMISSIONS[action]):
-            raise ServiceError(403, "FORBIDDEN", f"{action} needs one of: {', '.join(sorted(PERMISSIONS[action]))}")
+        allowed = PERMISSIONS.get(action) or SCHEDULE_PERMISSIONS.get(action) or KILL_SWITCH_PERMISSIONS[action]
+        if not (p.roles & allowed):
+            raise ServiceError(403, "FORBIDDEN", f"{action} needs one of: {', '.join(sorted(allowed))}")
 
     def _scope(self, p: Principal, facility: str | None) -> tuple[str, ...]:
         if facility is not None and facility not in p.facilities:
@@ -564,6 +714,8 @@ class BookingService:
                 raise ServiceError(403, code, e.diag.message_primary) from e
             if code in ("APPOINTMENT_UNKNOWN", "HOLD_UNKNOWN"):
                 raise ServiceError(404, code) from e
+            if code == "BOOKING_KILLED":
+                raise ServiceError(409, code, "the booking kill switch is engaged") from e
             raise ServiceError(409 if code in conflict else 400, code or "ERROR") from e
 
     def list_requests(self, p: Principal, facility: str | None) -> list[dict]:
@@ -608,6 +760,14 @@ class BookingService:
         if not provider_message_id:
             return None
         return "test_sink" if provider_message_id.startswith("testsink.") else "provider"
+
+    def whoami(self, p: Principal) -> dict:
+        """Read only (Step 6 WORKLOAD_IDENTITY check 5): who the server says this person is, derived ONLY from the
+        verified Cognito token (groups -> roles, facility_scope claim), and which console actions that allows. Nothing
+        the browser sends can change it; the database receives the same roles in begin_staff_context."""
+        allowed = {**PERMISSIONS, **SCHEDULE_PERMISSIONS, **KILL_SWITCH_PERMISSIONS}
+        return {"principal": f"staff:{p.sub}", "roles": sorted(p.roles), "facilities": list(p.facilities),
+                "permissions": {a: bool(p.roles & r) for a, r in sorted(allowed.items())}}
 
     def list_threads(self, p: Principal, limit: int = 25, before: datetime | None = None) -> dict:
         """Conversations visible to this person (row-level security: only their facilities), newest activity first.
@@ -671,6 +831,10 @@ class BookingService:
                                     WHERE o.thread_id = %s ORDER BY o.created_at DESC, o.rank LIMIT 30""", (thread_id,)).fetchall()
             picks = c.execute("""SELECT option_id, selected_at FROM option_selections WHERE thread_id = %s
                                   ORDER BY selected_at DESC LIMIT 10""", (thread_id,)).fetchall()
+            # the stored read-back each YES is checked against (record_read_back): evidence, never sent itself; the
+            # reply the driver received is its own row (with reply_to and a notification)
+            read_backs = {r[0] for r in c.execute("""SELECT read_back_message_id FROM option_selections
+                                                      WHERE thread_id = %s""", (thread_id,)).fetchall()}
             notes = c.execute("""SELECT notification_id, template_id, channel, status, attempts, max_attempts,
                                         provider_message_id, last_error, chat_message_id, created_at, updated_at
                                    FROM notifications WHERE thread_id = %s ORDER BY created_at DESC LIMIT 50""",
@@ -681,7 +845,7 @@ class BookingService:
                        "opened_at": t[8], "closed_at": t[9], "clarification_turns": t[10]},
             "flow": {"state": t[11], "selected_option": t[12], "appointment_id": t[13], "updated_at": t[14]},
             "messages": [{"message_id": m[0], "sender": m[1], "channel": m[2], "body_masked": m[3], "at": m[4],
-                          "reply_to": m[5]} for m in msgs],
+                          "reply_to": m[5], "read_back_record": m[0] in read_backs} for m in msgs],
             "extracted": {"facts": facts[0] if facts else None, "asked": facts[1] if facts else None,
                           "updated_at": facts[2] if facts else None,
                           "eta_signals": [{"source": e[0], "derived_eta": e[1], "confidence": e[2],
@@ -706,8 +870,10 @@ class BookingService:
         if not row:
             raise ServiceError(404, "APPOINTMENT_UNKNOWN")
         sid, dock, fac, start, end, status = row
-        if decision == "CONFIRM" and status == "PENDING_CONFIRMATION":
-            # advisory (B-WF-2 §5): a clear early message; the database function re-proves every invariant itself
+        if decision == "CONFIRM" and status == "PENDING_CONFIRMATION" and self._has_login("feasibility"):
+            # advisory (B-WF-2 §5): a clear early message; the database function re-proves every invariant itself.
+            # The deployed api has no feasibility login (WORKLOAD_ROLES: ingest, console), so there it is skipped and
+            # decide_booking_request alone decides (Option D, 23 Nov 2026: every console Confirm failed with a 500).
             ok, why = self._engine((fac,) + tuple(x for x in self.facilities if x != fac)).is_feasible(
                 sid, Option(dock, start, end, (), False), self.now())
             if not ok:
@@ -728,6 +894,17 @@ class BookingService:
     def clear_hold(self, p: Principal, hold_id: int, note: str) -> bool:
         self.require(p, "booking_hold")
         return self._console_call(p, "SELECT clear_booking_hold(%s,%s)", (hold_id, note))
+
+    def kill_switch(self, p: Principal) -> dict:
+        self.require(p, "view_kill_switch")
+        with self.db.tx("console", p.facilities, readonly=True) as c:
+            engaged = c.execute("SELECT booking_killed()").fetchone()[0]
+        return {"engaged": bool(engaged), "booking_enabled": self.booking_enabled}
+
+    def set_kill_switch(self, p: Principal, engaged: bool, reason: str) -> dict:
+        self.require(p, "booking_kill_switch")
+        v = self._console_call(p, "SELECT set_booking_kill_switch(%s,%s,%s)", (engaged, f"staff:{p.sub}", reason))
+        return {"engaged": bool(v)}
 
     def pause(self, p: Principal, facility: str, paused: bool, reason: str) -> bool:
         self.require(p, "pause")

@@ -1,0 +1,138 @@
+{
+ "collected_utc": "2026-11-23T04:06:44+00:00",
+ "evidence": {
+  "before": {
+   "queue": {
+    "ApproximateNumberOfMessages": "0",
+    "ApproximateNumberOfMessagesNotVisible": "0"
+   },
+   "unprocessed_receipts": 0,
+   "non_synthetic_rows": []
+  },
+  "message": {
+   "driver": "SYN-STEP6-LEASE-DRV-DD0FBD93",
+   "shipment": "SYN-STEP6-LEASE-SHP-DD0FBD93",
+   "thread": "THR-STEP6L-DD0FBD93",
+   "message_id": 232,
+   "external_id": "wamid.SYN.STEP6.LEASE.e11415e8ae1143d0a5896f8f214ce554"
+  },
+  "w1": {
+   "owner": "step6-crashed-worker-W1",
+   "generation": 0,
+   "lease_s": 20,
+   "fence_while_lease_live": "passed"
+  },
+  "w1_after_expiry": {
+   "renew": "refused",
+   "fence": "TURN_FENCED: this worker no longer holds the turn for message 232",
+   "finish": "refused"
+  },
+  "recovery": {
+   "republished": 1
+  },
+  "after_recovery": {
+   "processed": true,
+   "owner": "orch:a9290226f46a",
+   "deliveries": 2,
+   "generation": 0,
+   "published": true,
+   "agent_replies": [
+    [
+     233,
+     0,
+     "What time do you expect to reach the warehouse gate?"
+    ]
+   ]
+  },
+  "w1_after_takeover": {
+   "fence": "TURN_FENCED: this worker no longer holds the turn for message 232",
+   "finish": "refused"
+  },
+  "agent_turn_logs": [
+   "[INFO] 2026-11-23T04:05:58.335Z c38f1866-7c0e-5ef1-8a8c-7b1bc1c74ed7 agent turn message=a7096b29-a749-4ca6-a44d-13ead2638e0a path=ask:declared_eta_local extractor=rules-fallback "
+  ],
+  "notifications": [
+   [
+    "agent_reply",
+    "SENT",
+    "testsink."
+   ]
+  ],
+  "after": {
+   "queue": {
+    "ApproximateNumberOfMessages": "0",
+    "ApproximateNumberOfMessagesNotVisible": "0"
+   },
+   "outbound": {
+    "enqueued": 1,
+    "claimed": 1
+   }
+  }
+ },
+ "checks": {
+  "clean start: empty queue, no other unprocessed receipt, all data synthetic": true,
+  "W1 passed the fence while its lease was live": true,
+  "after lease expiry W1's renewal was refused (an expired lease is never revived)": true,
+  "after lease expiry W1 was fenced out (TURN_FENCED)": true,
+  "after lease expiry W1 could not mark the message processed": true,
+  "the deployed recovery function re-published exactly this message to the real queue": true,
+  "the deployed agent took over the lease and finished the turn": true,
+  "exactly one agent reply for the message (no duplicate)": true,
+  "W1 still fenced out after the takeover": true,
+  "any driver notice went to the internal test sink only": true,
+  "queue empty afterwards": true
+ },
+ "all_pass": true,
+ "log": [
+  {
+   "t": "2026-11-23T04:04:13+00:00",
+   "event": "before",
+   "queue": {
+    "ApproximateNumberOfMessages": "0",
+    "ApproximateNumberOfMessagesNotVisible": "0"
+   },
+   "unprocessed_receipts": 0,
+   "non_synthetic_rows": []
+  },
+  {
+   "t": "2026-11-23T04:04:36+00:00",
+   "event": "stored, never published (API crash after store)",
+   "message_id": 232
+  },
+  {
+   "t": "2026-11-23T04:04:43+00:00",
+   "event": "W1 took the lease and crashed",
+   "generation": 0
+  },
+  {
+   "t": "2026-11-23T04:05:36+00:00",
+   "event": "W1 after lease expiry",
+   "renew": "refused",
+   "fence": "TURN_FENCED: this worker no longer holds the turn for message 232",
+   "finish": "refused"
+  },
+  {
+   "t": "2026-11-23T04:05:48+00:00",
+   "event": "recovery invoked",
+   "result": {
+    "republished": 1
+   }
+  },
+  {
+   "t": "2026-11-23T04:06:08+00:00",
+   "event": "after recovery",
+   "processed": true,
+   "owner": "orch:a9290226f46a",
+   "deliveries": 2,
+   "generation": 0,
+   "published": true,
+   "agent_replies": [
+    [
+     233,
+     0,
+     "What time do you expect to reach the warehouse gate?"
+    ]
+   ]
+  }
+ ]
+}

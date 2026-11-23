@@ -1,19 +1,19 @@
 {
  "no_token /console/threads": [
   401,
-  null
+  "no-store"
  ],
  "no_token /console/threads/anything": [
   401,
-  null
+  "no-store"
  ],
  "no_token /console/requests": [
   401,
-  null
+  "no-store"
  ],
  "no_token /console/escalations": [
   401,
-  null
+  "no-store"
  ],
  "forged alg_none": [
   401,
@@ -57,23 +57,23 @@
   false
  ],
  "page headers": {
-  "Content-Security-Policy": null,
-  "X-Content-Type-Options": null,
-  "Referrer-Policy": null,
-  "X-Frame-Options": null,
-  "Strict-Transport-Security": null,
-  "Cache-Control": null
+  "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://setuhaul-pilot-console.auth.ap-southeast-2.amazoncognito.com; form-action 'self' https://setuhaul-pilot-console.auth.ap-southeast-2.amazoncognito.com; frame-ancestors 'none'; base-uri 'none'",
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "no-referrer",
+  "X-Frame-Options": "DENY",
+  "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+  "Cache-Control": "no-cache"
  },
  "inline script in html": false,
  "live asset scan": {
   "assets/app.css?v=0f2a5ac72478": {
    "status": 200,
-   "cache": null,
+   "cache": "public, max-age=31536000, immutable",
    "hits": []
   },
   "assets/app.js?v=91f25f0bea53": {
    "status": 200,
-   "cache": null,
+   "cache": "public, max-age=31536000, immutable",
    "hits": []
   }
  },
@@ -81,5 +81,6 @@
   "apiBase",
   "clientId",
   "cognitoDomain"
- ]
+ ],
+ "captured_utc": "2026-11-22T19:10:06Z"
 }

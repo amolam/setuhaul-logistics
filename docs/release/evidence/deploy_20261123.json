@@ -1,0 +1,46 @@
+{
+ "approved_by_owner": "23 Nov 2026: relay permission fix and migration 0025 (controlled pilot deployment)",
+ "pre_deploy": {
+  "ci_run": 45101428259,
+  "sha": "2d7dffc147e96a2bf3bc18ea91c88e1c299608d7",
+  "ci_result": "success on postgres:17.9: 1138 passed, 1 skipped; Data API 427 passed",
+  "restore_point_utc": "2026-11-23T02:48:59Z",
+  "backups": "automated, 1-day retention, point-in-time restore since 2026-11-22T12:03Z; deletion protection on",
+  "migration_0025_review": "schema-additive (2 tables with forced RLS, 2 SECURITY DEFINER functions owned by setuhaul_rpc, grants); enqueue_notifications redefinition = 0018 body + one AppointmentMoved branch; no DROP/TRUNCATE/data change at migration time; verified on live 17.9 in a rolled-back transaction (pg17_migration_0025.json)",
+  "template_diff_vs_live": {
+   "changed": [
+    "FnApprovalRelayServiceRoleDefaultPolicy: states:StartExecution on [alias :live] -> [alias :live, state machine]"
+   ],
+   "added_outputs": [
+    "BookingMode (OFF)"
+   ],
+   "added_resources": [],
+   "removed_resources": [],
+   "lambda_code": "bundle rebuilt from 2d7dffc (scheduling tool, move route refused while booking off)"
+  },
+  "least_privilege": "only states:StartExecution, only this state machine and its live alias; the relay still calls the alias"
+ },
+ "deploy": {
+  "workflow_run": 45102351722,
+  "branch": "release/fde-sydney-pilot",
+  "sha": "2d7dffc",
+  "jobs": {
+   "test": "success",
+   "synth": "success",
+   "deploy": "success"
+  },
+  "stack_status": "UPDATE_COMPLETE",
+  "updated_utc": "2026-11-23T02:57:50Z"
+ },
+ "post_deploy": {
+  "deploy_check": "29/29 (evidence/deploy_check.json)",
+  "booking": "false on every function; BookingMode OFF",
+  "notification": "test_sink; WhatsApp disabled",
+  "migration_0025": "recorded; hash matches repository",
+  "relay_iam_live": [
+   "...:stateMachine:setuhaul-pilot-approval:live",
+   "...:stateMachine:setuhaul-pilot-approval"
+  ],
+  "appointments_outside_step6_drills": 0
+ }
+}

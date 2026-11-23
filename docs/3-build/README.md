@@ -2,21 +2,23 @@
 
 Build follows the order in `docs/2-design/08_signoff_and_backlog.md` §4.
 
-## Current status (21 Nov 2026)
+## Current status (23 Nov 2026)
 
 | Area | Status |
 |---|---|
-| Local build (steps 1–5) | **Done.** 800 tests pass on local PostgreSQL 18 (after Phase B; developer-reported full run, 21 Nov 2026) |
+| Local build (steps 1–5) | **Done.** The latest consolidated run, on local PostgreSQL 18.6 and in Data API mode, is in `docs/challenge/TEST_REPORT.md`. CI runs the same suite on PostgreSQL 17 |
 | Human checks | Demo walkthroughs F1–F9 done; F5 and F6 confirmed by the owner (21 Nov). Native-speaker Hindi/Hinglish review done and applied (S4-R2-08, 21 Nov) |
 | Replies | Fixed templates in English, Hindi and Hinglish; no phrasing model in production (OD-3). B-AI-3 is superseded by OD-3: the Sonnet comparison and the human scoring sheet were **not** run |
 | Model provider | **Phase B done (T52):** `model_for()` builds OpenRouter (primary, Haiku 4.5 pinned to the `amazon-bedrock` zero-data-retention route, key from Secrets Manager in staging/pilot, every attempt metered against a daily budget, migration 0023) or Bedrock (optional). Details below |
-| AWS (step 6) | **Not started.** B-AWS-0: the AWS account is limited to Sydney (`ap-southeast-2`). The six gates in `DEPLOYMENT_GATES.md` (AWS_QUEUE, AURORA, RECOVERY_WORKER, BOOKING_WORKFLOW, WORKLOAD_IDENTITY, OUTBOUND_DELIVERY) have no AWS evidence yet |
-| Booking switch | `SETUHAUL_BOOKING_ENABLED` **off** |
+| AWS (step 6) | **Option A pilot deployed and verified** in `ap-southeast-2`. **Gates measured live (23 Nov):** BOOKING_WORKFLOW, AWS_QUEUE and RECOVERY_WORKER **PASS**; AURORA PASS WITH PILOT EXCEPTION (T33-P); WORKLOAD_IDENTITY PARTIAL (all 5 acceptance checks pass live; only drift detection, not on the Free plan); OUTBOUND_DELIVERY BLOCKED (`docs/release/13_STEP6_GATE_EVIDENCE.md`) |
+| Booking switch | **Option D (booking) ACTIVE on the synthetic pilot since 23 Nov 2026** (`OWNER-APPROVAL-20261123-OPTION-D`; `14_OPTION_D_ACTIVATION.md`). Off everywhere else; `ci.yml` never turns it on; database kill switch (ops_lead or owner) |
+| Scheduling tool | **Built 23 Nov, local only:** `setuhaul/domain/scheduling.py`, the agent tool `propose_facility_schedule`, console proposal routes, and `move_appointment` (migration 0025, ops_lead only, refused while booking is off) — `SCHEDULING_TOOL.md` |
+| Challenge hand-ins | Break report, integrity proof, scenario run and client readout in `docs/challenge/` |
 | Deferred by the owner | "Talk to a person" requests (S4-R2-08b); device evidence (FASTag, location pins, SIM, telematics); the driver app is cancelled |
 
 **Configurations.** *Development*: local PostgreSQL, scripted or rules model, no paid calls. *Evaluation*: OpenRouter on
 synthetic data, approved and capped runs only (`COSTS.md`). *Staging / pilot*: AWS Sydney, synthetic data, booking switch
-off; not built yet.
+off; deployed 22 Nov (Option A).
 
 The sections below are the build history, kept as written; dated statements describe the state on that date.
 
@@ -290,7 +292,7 @@ SETUHAUL_TEST_DSN="host=localhost port=55432 user=postgres" python -m pytest tes
 - **Step 4:** Step Functions approvals (B-WF-2), risk-based confirmation rules (B-WF-2a), the notification relay (B-WF-3); SLA breach monitoring and escalation ownership. Durable inbound delivery is done locally; SQS itself is exercised in step 6.
 - **Step 6:** mapping AWS workload identities (Lambda / AgentCore roles) to these database roles; Aurora verification (G1).
 - **Central queue delivery:** events are durable in the outbox; routing them to the central operations channel is part of the notification relay (step 4). Until then the console polls `/console/escalations`, and each escalation carries its acknowledgement SLA (5 min safety, 10 min otherwise).
-- **`move_appointment`** waits for the scheduling tool.
+- **`move_appointment`** waits for the scheduling tool. *(Done 23 Nov: migration 0025, `SCHEDULING_TOOL.md`.)*
 - **Planner override with a reason** (for a NOT_FEASIBLE recheck or contradictory data) belongs to the human-in-the-loop work in step 4.
 - **Recheck-then-decide is two transactions.** The database re-checks capacity at decision time, so the remaining window is small; noted, not fixed.
 - **Role separation inside the console** is enforced by the application, not by separate database roles.

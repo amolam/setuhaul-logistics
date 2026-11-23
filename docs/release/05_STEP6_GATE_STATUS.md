@@ -1,4 +1,22 @@
-# Phase F: AWS step 6 acceptance, gate by gate (21 Nov 2026)
+# Phase F: AWS step 6 acceptance, gate by gate
+
+> **Current status (22 Nov 2026, 18:47 UTC): measured live on the deployed synthetic pilot.**
+> Full evidence: `13_STEP6_GATE_EVIDENCE.md` and `evidence/step6_gates.json`.
+>
+> | Gate | Status |
+> |---|---|
+> | AWS_QUEUE | **PASS** (23 Nov): redrive drilled live; the DLQ-depth alarm fired on a held message and returned to OK. |
+> | RECOVERY_WORKER | **PASS** (23 Nov): DLQ procedure drilled; forced lease loss recovered live by the deployed worker (fenced, one reply). |
+> | WORKLOAD_IDENTITY | **PARTIAL.** All five acceptance checks pass live (check 5: a real `pilot-operations` sign-in with MFA got only the operations role; planner actions refused, 403). Only live drift detection (AWS Config) is missing: not on the Free plan. |
+> | AURORA | **PASS WITH PILOT EXCEPTION (T33-P)**, 23 Nov: 17.9 verified live and in CI. Production still needs 18.3+ (T33). |
+> | BOOKING_WORKFLOW | **PASS** (23 Nov): drill 2 live, 10 of 10 (request, approve, reject, duplicate, refusals, audit, timeout expiry); the failed runs were redriven safely; the alarm was proven. |
+> | OUTBOUND_DELIVERY | **BLOCKED.** It needs a Meta test number and approved templates. |
+>
+> **BOOKING_WORKFLOW, AWS_QUEUE and RECOVERY_WORKER passed on 23 Nov; AURORA passes only with the pilot exception.** The owner accepted three pilot exceptions and approved Option D: booking is ON on the synthetic pilot (`14_OPTION_D_ACTIVATION.md`).
+>
+> The text below is the original plan of 21 Nov, kept as written.
+
+## Original plan (21 Nov 2026)
 
 The six gates are those in `docs/operations/DEPLOYMENT_GATES.md`, unchanged. **No gate has passed**: nothing is
 deployed in AWS yet (`04_SYDNEY_PILOT_DEPLOYMENT_PLAN.md`). Local tests prove the code behind each gate; they are not

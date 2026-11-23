@@ -67,7 +67,55 @@ def workload_functions(t):
     return {n: p for n, p in functions(t).items() if n.removeprefix("setuhaul-pilot-") not in PLATFORM_FUNCTIONS}
 
 
+def test_option_d_switch_needs_the_owners_approval_reference_and_never_reaches_setup_functions(tmp_path):
+    """Option D: absent context = OFF (the pilot, and every CI synth); a malformed reference is refused; the approval
+    reference turns it on only for the api and the agent (the functions that make booking commitments), which then
+    read the recorded manifest and still need all six gates at start-up; every other function keeps it off."""
+    def synth(approval):
+        app = cdk.App(outdir=str(tmp_path / f"out{len(approval)}"))
+        s = SetuHaulPilotStack(app, "SetuHaulPilot", lambda_asset=str(_zip(tmp_path / f"l{len(approval)}.zip")),
+                               booking_approval=approval, env=cdk.Environment(account="000000000000", region="ap-southeast-2"))
+        return Template.from_stack(s)
+    for bad in ("yes", "true", "OWNER-APPROVAL-2026-x", "on"):
+        with pytest.raises(ValueError, match="OWNER-APPROVAL"):
+            synth(bad)
+    on = synth("OWNER-APPROVAL-20261123-test1")
+    for name, p in functions(on).items():
+        env = p["Environment"]["Variables"]
+        booking = name.removeprefix("setuhaul-pilot-") in ("api", "agent")
+        assert env["SETUHAUL_BOOKING_ENABLED"] == ("true" if booking else "false"), name
+        assert env.get("SETUHAUL_DEPLOYMENT_MANIFEST_SOURCE") == ("database" if booking else None), name
+        assert env["SETUHAUL_DATA_CLASS"] == "synthetic", name
+    stmts = [s for pol in on.find_resources("AWS::IAM::Policy").values()
+             for s in pol["Properties"]["PolicyDocument"]["Statement"]]
+    reads = [s for s in stmts if s["Action"] == "lambda:GetFunctionConfiguration"]
+    assert len(reads) == 2 and not any("*" in json.dumps(s["Resource"]) for s in reads)
+    assert on.find_outputs("BookingMode")["BookingMode"]["Value"] == "ON (OWNER-APPROVAL-20261123-test1)"
+
+
+def test_ci_never_passes_the_booking_approval():
+    ci = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    assert "booking_approval" not in ci and "BOOKING_ENABLED=true" not in ci
+
+
+def test_only_the_activation_workflow_turns_booking_on_and_only_for_the_pilot_release_branch():
+    """Option D (23 Nov 2026): a separate, manually started workflow; the release branch only, the typed confirmation
+    and the owner's written reference; the deploy-evidence login only for the gate rows; ci.yml stays OFF."""
+    wf = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "activate-booking.yml").read_text(encoding="utf-8")
+    trig = wf.split("\non:", 1)[1].split("\npermissions:", 1)[0]
+    assert "workflow_dispatch" in trig and "push" not in trig and "pull_request" not in trig and "schedule" not in trig
+    assert wf.count("github.ref == 'refs/heads/release/fde-sydney-pilot'") == 2
+    assert '[ "$DEPLOY_REF" = "refs/heads/release/fde-sydney-pilot" ]' in wf
+    assert '[ "$CONFIRM" = "activate-synthetic-pilot-booking" ]' in wf
+    assert "^OWNER-APPROVAL-20[0-9]{6}-[A-Za-z0-9-]{3,40}$" in wf
+    assert "{deploy_evidence}" in wf and "--environment pilot-ap-southeast-2" in wf
+    assert 'on == {"setuhaul-pilot-api", "setuhaul-pilot-agent"}' in wf
+    assert 'SETUHAUL_WHATSAPP_ENABLED"] == "false"' in wf and "test_sink" in wf
+    assert "prod" not in wf.replace("production", "")
+
+
 def test_the_booking_switch_is_off_and_the_data_is_synthetic_on_every_function(t):
+    assert t.find_outputs("BookingMode")["BookingMode"]["Value"] == "OFF"
     fns = functions(t)
     assert len(workload_functions(t)) == 8   # api, agent, recovery, outbound, relay, and the three state-machine tasks
     assert set(fns) - set(workload_functions(t)) == {f"setuhaul-pilot-{n}" for n in PLATFORM_FUNCTIONS}
@@ -559,3 +607,20 @@ def test_facility_scope_comes_from_the_v2_trigger_and_admin_groups(t):
     assert groups == {"operations", "planner", "ops_lead", "facility-FAC-JAI-01", "facility-FAC-GGN-01"}
     assert not [s for s in _policy_resources(t, trig["LambdaArn"]["Fn::GetAtt"][0])
                 if "secretsmanager" in json.dumps(s) or "rds-data" in json.dumps(s)]       # no secret, no database
+
+
+def test_the_relay_may_start_executions_through_the_alias(t):
+    """Step 6 drill, 23 Nov 2026: with StartExecution granted on the alias ARN only, every start was denied on the
+    state machine's own ARN. Both must be granted; the relay still calls the alias (published version)."""
+    relay = next(p for n, p in functions(t).items() if n.endswith("approval-relay"))
+    role_ref = relay["Role"]["Fn::GetAtt"][0]
+    stmts = [st for pol in t.find_resources("AWS::IAM::Policy").values()
+             if any(r.get("Ref") == role_ref for r in pol["Properties"]["Roles"])
+             for st in pol["Properties"]["PolicyDocument"]["Statement"]]
+    start = [st for st in stmts if st["Action"] == "states:StartExecution"]
+    assert len(start) == 1
+    res = json.dumps(start[0]["Resource"])
+    alias = next(iter(t.find_resources("AWS::StepFunctions::StateMachineAlias")))
+    machine = next(iter(t.find_resources("AWS::StepFunctions::StateMachine")))
+    assert alias in res and machine in res and len(start[0]["Resource"]) == 2
+    assert alias in json.dumps(relay["Environment"]["Variables"]["SETUHAUL_APPROVAL_STATE_MACHINE_ARN"])

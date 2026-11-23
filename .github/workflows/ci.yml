@@ -44,13 +44,13 @@ jobs:
     runs-on: ubuntu-24.04
     services:
       postgres:
-        image: postgres:17                  # Aurora express configuration runs 17.9 (docs/release/10)
+        image: postgres:17.9                # T33-P: exactly the Aurora express engine (docs/release/13)
         env:
           POSTGRES_HOST_AUTH_METHOD: trust
         ports: ["5432:5432"]
         options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
       postgres_fresh:                          # an EMPTY cluster: migrations run as a non-superuser owner, as on Aurora
-        image: postgres:17                  # Aurora express configuration runs 17.9 (docs/release/10)
+        image: postgres:17.9                # T33-P: exactly the Aurora express engine (docs/release/13)
         env:
           POSTGRES_HOST_AUTH_METHOD: trust
         ports: ["5433:5432"]
@@ -67,6 +67,11 @@ jobs:
         with:
           node-version: "22"
       - run: pip install -r requirements-dev.txt -r requirements-aws.txt -r requirements-infra.txt
+      - name: Database engine is PostgreSQL 17.9 (T33-P pilot exception)
+        run: >
+          python -c "import psycopg; v = [psycopg.connect(f'{d} dbname=postgres').execute('SHOW server_version').fetchone()[0]
+          for d in ('host=localhost port=5432 user=postgres', 'host=localhost port=5433 user=postgres')]; print(v);
+          assert all(x.startswith('17.9') for x in v), v"
       - name: Full test suite
         run: python -m pytest tests -q -p no:cacheprovider
       - name: Database tests through the RDS Data API backend (emulated)
@@ -75,7 +80,8 @@ jobs:
         run: >
           python -m pytest -q -p no:cacheprovider tests/test_api.py tests/test_db_requests.py tests/test_approvals.py
           tests/test_orchestrator.py tests/test_outbound.py tests/test_inbound_delivery.py tests/test_concurrency.py
-          tests/test_data_api.py tests/test_aws.py tests/test_console_threads.py
+          tests/test_data_api.py tests/test_aws.py tests/test_console_threads.py tests/test_move_appointment.py
+          tests/test_gate_evidence.py tests/test_scenario_run.py tests/test_option_d.py
       - name: Dependency audit
         run: python -m pip_audit -r requirements-aws.txt -r requirements-dev.txt -r requirements-infra.txt
 

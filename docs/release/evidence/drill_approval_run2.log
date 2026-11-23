@@ -1,0 +1,21 @@
+2026-11-23T03:37:19+00:00 before {"approval_requests": [["APPROVED", 1], ["EXPIRED", 1], ["REJECTED", 1]], "appointments": [["CONFIRMED", 1], ["EXPIRED", 1], ["REJECTED", 1]], "executions": 3, "non_synthetic_rows": []}
+2026-11-23T03:37:32+00:00 APPROVE: request submitted {"driver": "SYN-STEP6-DRV-1916A3E6", "shipment": "SYN-STEP6-SHP-1916A3E6", "thread": "THR-STEP6-1916A3E6", "appointment": "APT-2c5169abd0ba4009b3c985d1ed3779da", "approval_id": "68340642-e935-4cf6-9228-a1f06bc197a7", "submit_status": "PENDING", "hold_status": "HELD", "start_ist": "2026-11-28T09:00:0
+2026-11-23T03:37:44+00:00 REJECT: request submitted {"driver": "SYN-STEP6-DRV-B34ABBAB", "shipment": "SYN-STEP6-SHP-B34ABBAB", "thread": "THR-STEP6-B34ABBAB", "appointment": "APT-336eefdf14154ec28b70a934c00481c1", "approval_id": "f0f94898-bea7-4380-8f9e-e58b36bd9b07", "submit_status": "PENDING", "hold_status": "HELD", "start_ist": "2026-11-28T10:00:0
+2026-11-23T03:37:58+00:00 EXPIRE: request submitted {"driver": "SYN-STEP6-DRV-4163EAA5", "shipment": "SYN-STEP6-SHP-4163EAA5", "thread": "THR-STEP6-4163EAA5", "appointment": "APT-accabc65141941ba87d873818f7ac919", "approval_id": "d1836d8e-89ce-4352-aa24-ed2e1d64283e", "submit_status": "PENDING", "hold_status": "HELD", "start_ist": "2026-11-28T11:00:0
+2026-11-23T03:38:10+00:00 relay runs {"first": {"status": 200, "error": null, "result": {"consumed": 4, "reconciled": 0}}, "second": {"status": 200, "error": null, "result": {"consumed": 0, "reconciled": 0}}}
+2026-11-23T03:38:19+00:00 all three waiting for a person {"waiting": {"f0f94898-bea7-4380-8f9e-e58b36bd9b07": {"token_recorded": true, "status": "OPEN"}, "68340642-e935-4cf6-9228-a1f06bc197a7": {"token_recorded": true, "status": "OPEN"}, "d1836d8e-89ce-4352-aa24-ed2e1d64283e": {"token_recorded": true, "status": "OPEN"}}}
+2026-11-23T03:38:24+00:00 refusals {"agent role decides": {"refused": true, "sqlstate": "42501", "message": "permission denied for function decide_booking_request"}, "planner of another facility decides": {"refused": true, "sqlstate": "P0001", "message": "APPOINTMENT_UNKNOWN"}, "console without a staff identity decides": {"refused": 
+2026-11-23T03:38:31+00:00 decisions {"approve": {"status": "CONFIRMED", "outcome": "APPROVED", "replaced": null, "decided_at": "2026-11-23T09:08:26.411923+05:30", "decided_by": "staff:step6-drill-planner", "approval_id": "68340642-e935-4cf6-9228-a1f06bc197a7", "shipment_id": "SYN-STEP6-SHP-1916A3E6", "appointment_id": "APT-2c5169abd0b
+2026-11-23T03:38:34+00:00 relay after decisions {"status": 200, "error": null, "result": {"consumed": 2, "reconciled": 0}}
+2026-11-23T03:43:11+00:00 expiry path {"status": "EXPIRED"}
+ok no automatic approval: all three requests waited, OPEN with a task token
+ok request: one execution per request, started by the deployed relay; a second relay run started none
+ok approve: planner decision -> approval APPROVED, appointment CONFIRMED, claim kept, execution succeeded
+ok reject: planner decision -> approval REJECTED, appointment REJECTED, claim released, execution succeeded
+ok expiry: no decision -> the state machine's timeout ran ExpireApproval, request EXPIRED, claim released
+ok refused: agent role, another facility's planner, no staff identity, and a second decision
+ok idempotent: the same decision key twice returns the same decision
+ok no duplicate business action: one decided event per decided request, at most one callback each
+ok driver notices only to the internal test sink (no WhatsApp)
+ok booking switch still false on every function; all data synthetic
+exit=0

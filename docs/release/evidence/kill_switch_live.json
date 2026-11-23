@@ -1,0 +1,102 @@
+{
+ "collected_utc": "2026-11-23T06:58:51+00:00",
+ "evidence": {
+  "synthetic_shipment": "SYN-SHP-00BA3AF9",
+  "dock": "DOCK-JAI-D1",
+  "start": {
+   "engaged": false,
+   "changed_at": "2026-11-23 06:55:02.867712+00",
+   "changed_by": "migration:0026",
+   "reason": "created disengaged; the booking switch itself is still off"
+  },
+  "owner_engaged": {
+   "status": {
+    "engaged": true,
+    "changed_at": "2026-11-23 06:57:32.088046+00",
+    "changed_by": "owner:kill-switch-cli",
+    "reason": "Option D pre-activation check: owner engages"
+   },
+   "commitment": {
+    "refused": true,
+    "sqlstate": "P0001",
+    "message": "BOOKING_KILLED: the booking kill switch is engaged; no new booking commitment is accepted"
+   }
+  },
+  "owner_disengaged": {
+   "status": {
+    "engaged": false,
+    "changed_at": "2026-11-23 06:57:52.418615+00",
+    "changed_by": "owner:kill-switch-cli",
+    "reason": "Option D pre-activation check: owner disengages"
+   },
+   "commitment": {
+    "refused": true,
+    "sqlstate": "22012",
+    "message": "division by zero"
+   }
+  },
+  "planner_refused": {
+   "refused": true,
+   "sqlstate": "P0001",
+   "message": "ROLE_NOT_ALLOWED: operating the booking kill switch needs one of {ops_lead}"
+  },
+  "ops_lead_engage": true,
+  "ops_lead_engaged": {
+   "status": {
+    "engaged": true,
+    "changed_at": "2026-11-23 06:58:20.359192+00",
+    "changed_by": "staff:option-d-kill-lead",
+    "reason": "Option D pre-activation kill switch check"
+   },
+   "commitment": {
+    "refused": true,
+    "sqlstate": "P0001",
+    "message": "BOOKING_KILLED: the booking kill switch is engaged; no new booking commitment is accepted"
+   }
+  },
+  "ops_lead_disengage": false,
+  "final": {
+   "engaged": false,
+   "changed_at": "2026-11-23 06:58:37.409542+00",
+   "changed_by": "staff:option-d-kill-lead",
+   "reason": "Option D pre-activation kill switch check"
+  },
+  "audit": [
+   [
+    "BOOKING_KILL_DISENGAGED",
+    "staff:option-d-kill-lead",
+    "ops_lead",
+    "2026-11-23 06:58:37.409542+00"
+   ],
+   [
+    "BOOKING_KILL_ENGAGED",
+    "staff:option-d-kill-lead",
+    "ops_lead",
+    "2026-11-23 06:58:20.359192+00"
+   ],
+   [
+    "BOOKING_KILL_DISENGAGED",
+    "owner:kill-switch-cli",
+    "owner",
+    "2026-11-23 06:57:52.418615+00"
+   ],
+   [
+    "BOOKING_KILL_ENGAGED",
+    "owner:kill-switch-cli",
+    "owner",
+    "2026-11-23 06:57:32.088046+00"
+   ]
+  ]
+ },
+ "checks": {
+  "starts disengaged": true,
+  "owner engage: a booking commitment is refused BOOKING_KILLED": true,
+  "owner disengage: the same statement gets past the switch (and is still never committed)": true,
+  "a planner cannot operate it": true,
+  "ops_lead engage via the console role: commitment refused BOOKING_KILLED": true,
+  "left disengaged": true,
+  "every change audited (owner x2, ops_lead x2)": true,
+  "nothing was committed": true
+ },
+ "all_pass": true
+}

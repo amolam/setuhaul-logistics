@@ -1,0 +1,14 @@
+2026-11-23T03:36:35+00:00 before {"approval_requests": [["APPROVED", 1], ["EXPIRED", 1], ["REJECTED", 1]], "appointments": [["CONFIRMED", 1], ["EXPIRED", 1], ["REJECTED", 1]], "executions": 3, "non_synthetic_rows": []}
+Traceback (most recent call last):
+  File "G:\FDE-Projects\setUhaul_Logistics\scripts\drill_approval_workflow.py", line 285, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "G:\FDE-Projects\setUhaul_Logistics\scripts\drill_approval_workflow.py", line 143, in main
+    held = j(t.execute("SELECT hold_option(%s,%s,%s,%s,'agent')",
+             ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                       (oid, tid, att["attestation_id"], "step6-hold-" + u)).fetchone()[0])
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "G:\FDE-Projects\setUhaul_Logistics\setuhaul\aws\data_api.py", line 330, in execute
+    raise translate(e) from None
+setuhaul.aws.data_api.DataApiExclusionViolation: DatabaseErrorException: ERROR: conflicting key value violates exclusion constraint "ex_one_truck_per_dock"
+exit=1

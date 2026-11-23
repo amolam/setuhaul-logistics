@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable, Literal
@@ -22,7 +23,8 @@ from starlette.concurrency import run_in_threadpool
 from pydantic import AwareDatetime, BaseModel, Field, model_validator
 
 from .db import Db
-from .inbound import InboundRelay, LocalQueue, SqsFifoQueue, check_booking_preconditions, load_manifest
+from .inbound import (InboundRelay, LocalQueue, SqsFifoQueue, booking_killed, check_booking_preconditions,
+                      load_manifest, manifest_from_database, own_code_sha256)
 from .security import AuthError, CognitoVerifier, Principal, SessionTokens, meta_signature_ok
 from .service import BookingService, ServiceError
 
@@ -42,6 +44,8 @@ class Settings:
     environment: str | None = None              # e.g. "prod-ap-south-1"; deployment evidence is bound to it
     deployment_id: str | None = None            # optional cross-check; the real id is derived from the manifest
     deployment_manifest: str | None = None      # R2.1: path to the immutable deployment manifest shipped with the build
+    # 0026: "database" = the manifest the pipeline recorded, checked against this function's own code hash (AWS)
+    manifest_source: str = "file"
     # Tests and the replay only: lets the booking path run on LocalQueue without deployment gates. from_env never
     # sets it, so a deployed service with the switch on always goes through check_booking_preconditions (S4-05).
     local_test_harness: bool = False
@@ -68,6 +72,7 @@ class Settings:
                    console_client_id=os.environ.get("COGNITO_CONSOLE_CLIENT_ID") or None,
                    deployment_id=os.environ.get("SETUHAUL_DEPLOYMENT_ID") or None,
                    deployment_manifest=os.environ.get("SETUHAUL_DEPLOYMENT_MANIFEST") or None,
+                   manifest_source=os.environ.get("SETUHAUL_DEPLOYMENT_MANIFEST_SOURCE", "file"),
                    tools_route=(os.environ.get("SETUHAUL_TOOLS_ROUTE", "on").lower() not in ("off", "false", "0")
                                 and os.environ.get("SETUHAUL_ENV") not in ("staging", "pilot")))
 
@@ -83,6 +88,12 @@ class Decision(BaseModel):
     decision: Literal["CONFIRM", "REJECT"]
     idempotency_key: str = Field(min_length=16, max_length=128)
     note: str | None = Field(default=None, max_length=500)
+
+
+class KillSwitch(BaseModel):
+    model_config = {"extra": "forbid"}
+    engaged: bool
+    reason: str = Field(min_length=5, max_length=300)
 
 
 class Pause(BaseModel):
@@ -135,6 +146,22 @@ class Handback(BaseModel):
     summary: str = Field(min_length=10, max_length=1000)
 
 
+ScheduleRule = Literal["FACILITY_SCORE", "FCFS", "EARLIEST_ETA"]
+
+
+class ScheduleStore(BaseModel):
+    model_config = {"extra": "forbid"}
+    rule: ScheduleRule = "FACILITY_SCORE"
+    ttl_s: int = Field(default=600, ge=60, le=1800)
+
+
+class Move(BaseModel):
+    model_config = {"extra": "forbid"}
+    proposal_id: uuid.UUID
+    idempotency_key: str = Field(min_length=16, max_length=128)
+    note: str | None = Field(default=None, max_length=500)
+
+
 log = logging.getLogger("setuhaul.api")
 
 
@@ -162,9 +189,12 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
     if settings.booking_enabled and not settings.local_test_harness:
         # S4-05: the switch fails closed. Durable FIFO queue with a dead-letter queue and a visibility timeout that
         # covers the processing lease, plus recorded evidence for every deployment gate, or the service does not start.
-        manifest = load_manifest(settings.deployment_manifest) if settings.deployment_manifest else None
-        check_booking_preconditions(db, inbound, settings.processing_lease_s, settings.environment, manifest,
-                                    settings.deployment_id)
+        if settings.manifest_source == "database" and settings.environment:
+            manifest = manifest_from_database(db, settings.environment, own_code_sha256())
+        else:
+            manifest = load_manifest(settings.deployment_manifest) if settings.deployment_manifest else None
+        app.state.gate_exceptions = check_booking_preconditions(db, inbound, settings.processing_lease_s,
+                                                                settings.environment, manifest, settings.deployment_id)
     relay = InboundRelay(svc, inbound, sessions)
     app.state.service, app.state.sessions, app.state.inbound, app.state.relay = svc, sessions, inbound, relay
 
@@ -182,9 +212,15 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
             database = "ok"
         except psycopg.Error:
             database = "unreachable"
-        return JSONResponse({"status": "ok" if database == "ok" else "degraded", "database": database,
-                             "booking_enabled": settings.booking_enabled, "environment": settings.environment,
-                             "version": app.version}, status_code=200 if database == "ok" else 503)
+        body = {"status": "ok" if database == "ok" else "degraded", "database": database,
+                "booking_enabled": settings.booking_enabled, "environment": settings.environment, "version": app.version}
+        if settings.booking_enabled and database == "ok":
+            try:                                                    # 0026: what the database will refuse now
+                body["booking_kill_switch"] = "ENGAGED" if booking_killed(db) else "disengaged"
+            except Exception:                                       # noqa: BLE001 — reported, never fatal here
+                body["booking_kill_switch"] = "unknown"
+            body["gate_exceptions"] = sorted(getattr(app.state, "gate_exceptions", None) or {})
+        return JSONResponse(body, status_code=200 if database == "ok" else 503)
 
     def staff(authorization: str | None = Header(default=None)) -> Principal:
         if not authorization or not authorization.startswith("Bearer "):
@@ -288,6 +324,15 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
     def clear_hold(hold_id: int, h: HoldClear, p: Principal = Depends(staff)):
         return {"cleared": svc.clear_hold(p, hold_id, h.note)}
 
+    @app.get("/console/booking-kill-switch")
+    def kill_switch_state(p: Principal = Depends(staff)):
+        return svc.kill_switch(p)
+
+    @app.post("/console/booking-kill-switch")
+    def kill_switch_set(body: KillSwitch, p: Principal = Depends(staff)):
+        """0026: an ops_lead engages (or disengages) the database's booking kill switch. Audited; no deployment."""
+        return svc.set_kill_switch(p, body.engaged, body.reason)
+
     @app.post("/console/facilities/{facility_id}/pause")
     def pause(facility_id: str, body: Pause, p: Principal = Depends(staff)):
         return {"automation_paused": svc.pause(p, facility_id, body.paused, body.reason)}
@@ -296,9 +341,32 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
     def block(dock_id: str, b: Block, p: Principal = Depends(staff)):
         return {"occupancy_id": svc.block_dock(p, dock_id, b.event_id, b.start, b.end, b.type, b.reason)}
 
+    @app.get("/console/facilities/{facility_id}/schedule-proposal")
+    def schedule_proposal(facility_id: str = Path(min_length=1, max_length=40), rule: ScheduleRule = "FACILITY_SCORE",
+                          p: Principal = Depends(staff)):
+        """Read only: the facility scheduling tool's PROPOSAL as of now (not stored, not a booking)."""
+        return svc.schedule_proposal(p, facility_id, rule)
+
+    @app.post("/console/facilities/{facility_id}/schedule-proposals")
+    def store_schedule_proposal(body: ScheduleStore, facility_id: str = Path(min_length=1, max_length=40),
+                                p: Principal = Depends(staff)):
+        """Compute and store a proposal (evidence with an expiry) so its moves can be applied one at a time."""
+        return svc.store_schedule_proposal(p, facility_id, body.rule, body.ttl_s)
+
+    @app.post("/console/appointments/{appointment_id}/move")
+    def move_appointment(body: Move, appointment_id: str = Path(min_length=1, max_length=80),
+                         p: Principal = Depends(staff)):
+        """Apply one move of a stored proposal. Booking switch, role, facility and every booking rule are re-checked."""
+        return svc.move_appointment(p, appointment_id, body.proposal_id, body.idempotency_key, body.note)
+
     @app.get("/console/escalations")
     def escalations(p: Principal = Depends(staff)):
         return {"escalations": svc.list_escalations(p)}
+
+    @app.get("/console/me")
+    def me(p: Principal = Depends(staff)):
+        """Read only: the roles, facilities and permitted actions the server derives from the verified token."""
+        return svc.whoami(p)
 
     @app.get("/console/threads")
     def threads(limit: int = Query(25, ge=1, le=50), before: datetime | None = None, p: Principal = Depends(staff)):

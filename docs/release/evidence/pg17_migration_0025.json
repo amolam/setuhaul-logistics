@@ -1,0 +1,153 @@
+{
+ "evidence": {
+  "collected_utc": "2026-11-23T00:56:52+00:00",
+  "committed": false,
+  "server_version": "17.9",
+  "migrations_before": 24,
+  "migration_0025_statements_applied": 24,
+  "tables": [
+   [
+    "schedule_proposal_rows",
+    true,
+    true
+   ],
+   [
+    "schedule_proposals",
+    true,
+    true
+   ]
+  ],
+  "functions": [
+   [
+    "move_appointment",
+    "setuhaul_rpc",
+    true
+   ],
+   [
+    "record_schedule_proposal",
+    "setuhaul_rpc",
+    true
+   ]
+  ],
+  "move_appointment_execute": {
+   "setuhaul_agent": false,
+   "setuhaul_console": true,
+   "setuhaul_feasibility": false,
+   "setuhaul_ingest": false,
+   "setuhaul_system": false
+  },
+  "move_result": {
+   "outcome": "MOVED",
+   "status": "CONFIRMED",
+   "dock_code": "D2",
+   "start": "2026-11-24T06:30:00+00:00",
+   "from_start": "2026-11-24T04:30:00+00:00",
+   "rule": "FACILITY_SCORE"
+  },
+  "refusals": [
+   {
+    "probe": "the same row applied again (new key)",
+    "refused": true,
+    "sqlstate": "P0001",
+    "message": "ALREADY_APPLIED: APT-2a8f5c4e390c42b19460bebdcaca2f6f"
+   },
+   {
+    "probe": "an unknown proposal",
+    "refused": true,
+    "sqlstate": "P0001",
+    "message": "PROPOSAL_UNKNOWN"
+   },
+   {
+    "probe": "the agent role calls move_appointment",
+    "refused": true,
+    "sqlstate": "42501",
+    "message": "permission denied for function move_appointment"
+   }
+  ],
+  "appointments_after_move": [
+   [
+    "SYN-APT-PG17D07BBFB0",
+    "CANCELLED",
+    false,
+    "DOCK-JAI-D1"
+   ],
+   [
+    "APT-2a8f5c4e390c42b19460bebdcaca2f6f",
+    "CONFIRMED",
+    true,
+    "DOCK-JAI-D2"
+   ]
+  ],
+  "claims_after_move": [
+   [
+    "DOCK-JAI-D1",
+    false
+   ],
+   [
+    "DOCK-JAI-D2",
+    true
+   ]
+  ],
+  "rls_probe_shipment_visible": {
+   "FAC-JAI-01": 1,
+   "FAC-GGN-01": 0
+  },
+  "role_allowlist": [
+   {
+    "role": "setuhaul_agent",
+    "probe": "agent inserts an appointment directly",
+    "refused": true,
+    "sqlstate": "42501",
+    "message": "permission denied for table appointments"
+   },
+   {
+    "role": "setuhaul_agent",
+    "probe": "agent writes deployment evidence",
+    "refused": true,
+    "sqlstate": "42501",
+    "message": "permission denied for table deployment_evidence"
+   },
+   {
+    "role": "setuhaul_console",
+    "probe": "console updates a dock claim directly",
+    "refused": true,
+    "sqlstate": "42501",
+    "message": "permission denied for table dock_occupancy"
+   },
+   {
+    "role": "setuhaul_console",
+    "probe": "console writes a proposal row directly",
+    "refused": true,
+    "sqlstate": "42501",
+    "message": "permission denied for table schedule_proposals"
+   },
+   {
+    "role": "setuhaul_system",
+    "probe": "system calls move_appointment",
+    "refused": true,
+    "sqlstate": "42501",
+    "message": "permission denied for function move_appointment"
+   }
+  ],
+  "rolled_back": true,
+  "after_rollback": {
+   "migrations": 24,
+   "schedule_proposals_table": false,
+   "probe_shipments": 0
+  }
+ },
+ "checks": {
+  "server is PostgreSQL 17.9": true,
+  "migration 0025 applies on 17.9 as the non-superuser owner": true,
+  "both proposal tables exist with forced RLS": true,
+  "both functions are SECURITY DEFINER owned by setuhaul_rpc": true,
+  "only setuhaul_console can EXECUTE move_appointment": true,
+  "a real move succeeds on 17.9 (MOVED, CONFIRMED)": true,
+  "re-apply, unknown proposal and the agent role are all refused": true,
+  "RLS on Aurora: the JAI shipment is visible in JAI scope only": true,
+  "role allow-list on Aurora: every forbidden direct write is refused with 42501": true,
+  "old appointment cancelled, one current CONFIRMED on the new dock, one active claim": true,
+  "after rollback: still 24 migrations, no 0025 objects, no probe rows": true
+ },
+ "all_pass": true
+}
