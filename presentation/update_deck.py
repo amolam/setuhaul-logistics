@@ -186,7 +186,7 @@ def status_slide(prs):
     rows = [["Gate (measured live, 22–23 Nov)", "Status", "What is missing"],
             ["Queue", "PASS", "DLQ alarm + redrive drilled live"],
             ["Recovery worker", "PASS", "forced lease loss recovered live"],
-            ["Workload identity", "PARTIAL", "check 5 sign-in; Free-plan drift detection"],
+            ["Workload identity", "PARTIAL", "5/5 checks live; drift detection (Free plan)"],
             ["Database", "PASS (pilot exc.)", "T33-P: 17.9 pilot only; prod needs 18.3+"],
             ["Approval workflow", "PASS", "drilled live 23 Nov; 2 fixes deployed"],
             ["Outbound delivery", "BLOCKED", "Meta test number + templates"]]

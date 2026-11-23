@@ -1,5 +1,5 @@
 {
- "collected_utc": "2026-11-23",
+ "collected_utc": "2026-11-23T05:33:00+00:00",
  "user": "pilot-operations",
  "status_at_creation": "FORCE_CHANGE_PASSWORD (temporary password e-mailed by Cognito; never seen by the operator)",
  "groups": [
@@ -33,5 +33,50 @@
   },
   "group_override": null,
   "reading": "the deployed trigger adds only facility_scope from facility-* groups; it never adds or changes role groups, and client metadata is ignored"
+ },
+ "live_signin": {
+  "collected_utc": "2026-11-23T05:33:00+00:00",
+  "signed_in_by": "the owner (Claude did not see or enter the password or MFA code)",
+  "cognito_after": {
+   "user": "pilot-operations",
+   "status": "CONFIRMED",
+   "last_modified_utc": "2026-11-23T05:30:11+00:00",
+   "groups": [
+    "facility-FAC-JAI-01",
+    "operations"
+   ],
+   "pool_mfa": "ON, software token (TOTP) only: a token cannot be issued without the second factor",
+   "note": "AdminGetUser lists no per-user MFA preference, the same as pilot-planner; MFA is enforced at pool level"
+  },
+  "api_log": [
+   [
+    "2026-11-23T05:31:01Z",
+    "GET /console/me 200",
+    "the server derived roles from the token (the console header showed 'server roles: operations', confirmed by the owner)"
+   ],
+   [
+    "2026-11-23T05:31:29Z",
+    "GET /console/threads 200",
+    "operations may list threads"
+   ],
+   [
+    "2026-11-23T05:31:35Z",
+    "GET /console/facilities/FAC-JAI-01/schedule-proposal 403",
+    "own facility: refused, planner/ops_lead only"
+   ],
+   [
+    "2026-11-23T05:31:40Z",
+    "GET /console/facilities/FAC-GGN-01/schedule-proposal 403",
+    "other facility: refused"
+   ]
+  ],
+  "reading": "An ordinary operations user, signed in for real through Cognito with MFA, got only the operations role from the server; a planner/ops_lead action was refused at the server in both facilities. A planner token would have received 200 on the proposal, so the 403s are role refusals.",
+  "checks": {
+   "second user confirmed by a real sign-in": true,
+   "server-derived roles shown (GET /console/me 200)": true,
+   "planner/ops_lead action refused for the operations user (403, own facility)": true,
+   "refused for another facility too (403)": true
+  },
+  "all_pass": true
  }
 }

@@ -7,7 +7,7 @@
 >   - Synthetic data, booking switch OFF, internal test sink, hosted staff console.
 >   - Evidence: `12_CONSOLE_PILOT_REPORT.md` and `evidence/deploy_check.json` (29 of 29 checks).
 > - **Challenge completion work: implemented and tested locally, not deployed.** On branch `phase-f/challenge-completion`: the facility scheduling tool and `move_appointment` (migration 0025), the Option D switch and the gate-evidence tool, the Break and Defend deliverables (`docs/challenge/`), and the follow-ups. Test results: `docs/challenge/TEST_REPORT.md`.
-> - **Step 6:** measured live. BOOKING_WORKFLOW, AWS_QUEUE and RECOVERY_WORKER **PASS**; AURORA PASS WITH PILOT EXCEPTION (T33-P); WORKLOAD_IDENTITY PARTIAL (check 5 sign-in; Free-plan drift detection); OUTBOUND_DELIVERY BLOCKED (`13_STEP6_GATE_EVIDENCE.md`). Booking stays OFF.
+> - **Step 6:** measured live. BOOKING_WORKFLOW, AWS_QUEUE and RECOVERY_WORKER **PASS**; AURORA PASS WITH PILOT EXCEPTION (T33-P); WORKLOAD_IDENTITY PARTIAL (all 5 acceptance checks pass live; only drift detection, not on the Free plan); OUTBOUND_DELIVERY BLOCKED (`13_STEP6_GATE_EVIDENCE.md`). Booking stays OFF.
 >
 > The tables below are the 21–22 Nov plan, with their status columns updated.
 
@@ -18,7 +18,7 @@
 | C Tests and quality gates | Done; the latest consolidated run is in `docs/challenge/TEST_REPORT.md` |
 | D Security and GitHub readiness | Done: private repository `amolam/setuhaul-logistics`, tag `v0.1.0-fde-pilot` (`02_SECURITY_SCAN.md`, `03_GITHUB_RELEASE_CHECKLIST.md`) |
 | E AWS Sydney pilot | **Option A deployed and verified** (`10_EXPRESS_AURORA.md`, `11_STAFF_CONSOLE.md`, `12_CONSOLE_PILOT_REPORT.md`). Option D is built and OFF |
-| F Step 6 acceptance | **Measured live (22–23 Nov):** BOOKING_WORKFLOW, AWS_QUEUE and RECOVERY_WORKER **PASS**; AURORA PASS WITH PILOT EXCEPTION (T33-P); WORKLOAD_IDENTITY PARTIAL (check 5 sign-in; Free-plan drift detection); OUTBOUND_DELIVERY BLOCKED (`13_STEP6_GATE_EVIDENCE.md`) |
+| F Step 6 acceptance | **Measured live (22–23 Nov):** BOOKING_WORKFLOW, AWS_QUEUE and RECOVERY_WORKER **PASS**; AURORA PASS WITH PILOT EXCEPTION (T33-P); WORKLOAD_IDENTITY PARTIAL (all 5 acceptance checks pass live; only drift detection, not on the Free plan); OUTBOUND_DELIVERY BLOCKED (`13_STEP6_GATE_EVIDENCE.md`) |
 | G Monitoring, cost, operations | Done as a guide; `/health`; pilot wake and sleep; pause evidence from RDS events (`06_PILOT_OPERATIONS_GUIDE.md`) |
 
 ## The twelve deliverables
@@ -79,7 +79,7 @@ Since the restructure (`git diff --name-only 77e82cc HEAD`): `README.md`; `.env.
 
 | Item | Kind | Note |
 |---|---|---|
-| Step 6 gates (23 Nov): BOOKING_WORKFLOW, AWS_QUEUE and RECOVERY_WORKER **PASS**; AURORA PASS WITH PILOT EXCEPTION (T33-P); WORKLOAD_IDENTITY PARTIAL (check 5 sign-in; Free-plan drift detection); OUTBOUND_DELIVERY BLOCKED | blocking for booking | owner: the check-5 sign-in as `pilot-operations`; drift detection (paid AWS Config, or accept as a pilot exception); a Meta test number and templates; whether T33-P may count for Option D (`13_STEP6_GATE_EVIDENCE.md`) |
+| Step 6 gates (23 Nov): BOOKING_WORKFLOW, AWS_QUEUE and RECOVERY_WORKER **PASS**; AURORA PASS WITH PILOT EXCEPTION (T33-P); WORKLOAD_IDENTITY PARTIAL (all 5 acceptance checks pass live; only drift detection, not on the Free plan); OUTBOUND_DELIVERY BLOCKED | blocking for booking | owner: drift detection (paid AWS Config, or accept as a pilot exception); a Meta test number and templates; whether T33-P may count for Option D (`13_STEP6_GATE_EVIDENCE.md`) |
 | R2 (low): spending cap and cost are supplied by the calling code | **deferred (23 Nov)** | the cap comes from the deployment configuration (`SETUHAUL_LLM_DAILY_BUDGET_USD`), backed by the $3/month key limit. Moving it into the database needs a migration and new grants, which is out of scope for a low item |
 | R3 (low): no length limits on extracted text arguments | **implemented (23 Nov)** | every free-text field is bounded in the schema and the parser; over-long values fall back to the rules reader (`tests/test_extraction_bounds.py`) |
 | R5 (info): a crashed process leaves its reservation counted for the day | **deferred, accepted (23 Nov)** | errs towards spending less; resets at 00:00 UTC |
