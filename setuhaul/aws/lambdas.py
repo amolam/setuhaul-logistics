@@ -189,8 +189,12 @@ def outbound_handler(event, context):
 
 @lru_cache(maxsize=1)
 def _workflow():
+    """Only the relay starts executions, so only the relay has the state machine ARN. The three state-machine task
+    functions cannot be given it (the machine references them: a CloudFormation cycle) and do not need it: storing a
+    task token, answering one and expiring a request use the token and the database only. Step 6 drill, 23 Nov 2026:
+    requiring it here made the token and expiry tasks fail with KeyError, so no execution could wait or expire."""
     from .stepfunctions import StepFunctionsApprovalWorkflow
-    return StepFunctionsApprovalWorkflow(runtime().state.service.db, os.environ["SETUHAUL_APPROVAL_STATE_MACHINE_ARN"])
+    return StepFunctionsApprovalWorkflow(runtime().state.service.db, os.environ.get("SETUHAUL_APPROVAL_STATE_MACHINE_ARN", ""))
 
 
 def approval_relay_handler(event, context):

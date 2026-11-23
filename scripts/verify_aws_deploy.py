@@ -144,8 +144,13 @@ def main() -> int:
                     " (SELECT count(*) FROM setuhaul.facilities), (SELECT count(*) FROM setuhaul.appointments)",
                     ("SELECT set_config('app.facility_scope', 'FAC-JAI-01,FAC-GGN-01,CENTRAL', true)",))
     ev["database"] = {"migrations": versions, "login_roles": roles, "carriers_drivers_facilities_appointments": list(seed[0])}
-    checks["migrations 0001-0024 recorded"] = [v.split("_")[0] if "_" in v else v for v in versions] == [f.split("_")[0] for f in files] or versions == files
-    checks["no appointments (booking off)"] = seed[0][3] == 0
+    checks["every repository migration recorded, in order"] = [v.split("_")[0] if "_" in v else v for v in versions] == [f.split("_")[0] for f in files] or versions == files
+    # With booking off no conversation can create an appointment. The only ones allowed are the owner-approved Step 6
+    # approval-workflow drill's synthetic requests (SYN-STEP6-* shipments, 23 Nov 2026; docs/release/13_STEP6_GATE_EVIDENCE.md).
+    other = db.query("SELECT count(*) FROM setuhaul.appointments WHERE shipment_id NOT LIKE 'SYN-STEP6-%'",
+                     ("SELECT set_config('app.facility_scope', 'FAC-JAI-01,FAC-GGN-01,CENTRAL', true)",))[0][0]
+    ev["database"]["appointments_outside_step6_drills"] = other
+    checks["no appointments outside the owner-approved Step 6 drills (booking off)"] = other == 0
 
     # hosted staff console, served by the API under /app/ (docs/release/11_STAFF_CONSOLE.md)
     if out.get("ConsoleClientId"):

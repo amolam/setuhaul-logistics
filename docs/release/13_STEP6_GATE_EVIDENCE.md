@@ -21,7 +21,7 @@
 | **RECOVERY_WORKER** | PARTIAL | <ul><li>`rate(1 minute)`.</li><li>201 real scheduled runs in 3 days.</li><li>**DLQ handling procedure drilled live** (inspect, redrive, remove one message; see AWS_QUEUE).</li></ul> | <ul><li>Schedules are DISABLED while the pilot sleeps.</li><li>Lease renewal and generation fencing were not forced live (that needs a deliberately stuck message on the real queue). They are proven locally.</li></ul> |
 | **WORKLOAD_IDENTITY** | PARTIAL | Acceptance checks 1 to 4 (`DEPLOYMENT_GATES.md` §"Workload identity acceptance"):<ul><li>Each of the 6 logins belongs to exactly one application role.</li><li>Only the console login can use `setuhaul_console`.</li><li>No login can use `setuhaul_rpc`, the database owner, superuser or BYPASSRLS.</li><li>In a real Data API transaction, a second `begin_staff_context` was refused with *"already set in this transaction"*. That shows the staff identity survives from one statement to the next.</li><li>Each function's IAM role can read exactly the database secrets of its configured roles, and no others.</li></ul> | <ul><li>Check 5 (an ordinary operations user cannot create an ops_lead context) needs a second Cognito user, which the owner creates. It is proven locally.</li><li>Live drift detection (AWS Config) is not deployed on the Free plan. The IAM policy hash is recorded instead.</li></ul> |
 | **AURORA** | **PASS WITH PILOT EXCEPTION (T33-P)**: not an unconditional pass | <ul><li>`aurora-postgresql 17.9`.</li><li>24 of 24 migrations recorded, every hash equal to the repository.</li><li>Both evidence triggers enabled.</li><li>The Data API works behind `Db.tx()`.</li><li>**Verified on 17.9 (23 Nov):**<ul><li>Migration 0025 applied on the live cluster as the non-superuser owner, then rolled back.</li><li>A real move succeeded.</li><li>The refusals held: re-applying a move, an unknown proposal, and the agent role.</li><li>RLS isolated by facility.</li><li>Five forbidden direct writes were refused with error 42501 (`evidence/pg17_migration_0025.json`, 11 of 11 checks).</li><li>The whole suite passed in CI on `postgres:17.9`: run 45091795877, 1,136 passed and 426 in Data API mode (`evidence/ci_pg17.json`).</li></ul></li></ul> | Production still needs 18.3+ (T33). The exception covers only the synthetic Free-plan pilot, and it is never written as a PASS evidence row. |
-| **BOOKING_WORKFLOW** | **FAIL (deployed IAM defect, found 23 Nov)** | Approved drill on synthetic requests (see the next section):<ul><li>No automatic approval: all three requests were PENDING.</li><li>The planner's decisions recorded correctly: APPROVED with the appointment CONFIRMED; REJECTED with the claim released.</li><li>Refusals held: the agent role (42501), another facility's planner, and a call with no staff identity.</li><li>Idempotent: the same decision key twice gave the same answer, and a second decision was refused.</li><li>The `live` alias routes to the published version, whose definition equals the repository's.</li></ul> | **The deployed relay cannot start any execution:** `AccessDeniedException ... states:StartExecution on resource ...:stateMachine:setuhaul-pilot-approval`. The role was granted the alias ARN only, and IAM also evaluates the state machine's own ARN. The fix is in `infra/setuhaul_stack.py` and is tested (`test_the_relay_may_start_executions_through_the_alias` fails on the old grant), but it is **not deployed**: that needs the owner's approval. After it is deployed, rerun the drill for the workflow-driven paths: wake-up after a decision, and expiry by timeout. |
+| **BOOKING_WORKFLOW** | **FAIL** (after the 23 Nov deployment) | <ul><li>No automatic approval.</li><li>Planner decisions are recorded and audited.</li><li>Refusals and idempotency hold.</li><li>**The relay now starts executions:** the IAM fix was deployed in run 45102351722.</li><li>Decided requests stay unchanged when their executions run.</li></ul> | **The deployed token and expiry task functions crash with `KeyError: SETUHAUL_APPROVAL_STATE_MACHINE_ARN`:** no execution can wait for a decision or expire, and all 3 executions failed. The fix and its regression test are ready locally and **not deployed** (owner approval). Afterwards: redrive the 3 failed executions, then run drill 2 (start, approve, reject, duplicate decision, audit, timeout expiry). |
 | **OUTBOUND_DELIVERY** | BLOCKED | The internal test sink only. Delivery and refusal were shown in the Option A run (`evidence/option_a.json`, A3 and A4). | A **Meta WhatsApp Cloud API test number**, **Meta-approved templates** (en, hi; Hinglish is its own gate) and a real, permitted test delivery. Real WhatsApp stays disabled until the owner provides these. |
 
 ## The database version: T33 and T33-P (owner approval, 23 Nov 2026)
@@ -107,3 +107,47 @@ One tagged message, `STEP6-DLQ-DRILL-8436a4759a40`, was tracked; it is not JSON 
 | Monitoring | The **oldest-message alarm fired** (OK→ALARM at 01:35:18 and 02:00:18). The **DLQ-not-empty alarm did not**: its 5-minute maximum never saw the message, which stayed in the DLQ only seconds to minutes. **DLQ-depth monitoring is not demonstrated** |
 
 **Result:** the redrive procedure works live, and the DLQ handling procedure (inspect, redrive, remove one message) is drilled. **AWS_QUEUE stays PARTIAL** on a single item: the DLQ-depth alarm. To demonstrate it, keep a drill message in the DLQ for 10 minutes or more before redriving it; that needs the owner's approval for another drill.
+
+## Controlled pilot deployment, 23 Nov 2026 (owner-approved: relay permission fix and migration 0025)
+
+**Evidence:** `evidence/deploy_20261123.json`, `evidence/deploy_check.json` and `evidence/pending_workflow_processed.json`.
+
+**Before deploying:**
+- CI on `2d7dffc` passed, pinned to PostgreSQL 17.9 (run 45101428259).
+- A time-of-day test flake had failed run 45099842565. It was fixed in the test fixture; no product code changed.
+- Restore point recorded: 02:48:59 UTC, with point-in-time restore available.
+- Migration 0025 reviewed: schema-additive.
+- Template diff against the live stack: **only** the relay's `states:StartExecution` resource list changed (the alias, plus the state machine), plus a `BookingMode` output.
+
+**Deploy:** workflow run 45102351722 from `release/fde-sydney-pilot` at `2d7dffc`; the test, synth and deploy jobs all passed.
+
+**After deploying:**
+- 29 of 29 deploy checks pass.
+- Booking is false on every function, and `BookingMode` is OFF.
+- Notifications go to the test sink only.
+- Migration 0025 is recorded, with its hash matching.
+- The relay's live grant matches the template.
+
+**Processing the pending events** (`scripts/process_pending_workflow.py`):
+
+| Check | Result |
+|---|---|
+| The relay starts executions | **Yes.** 5 events consumed and 3 executions started; the IAM fix works |
+| Decided requests unchanged | Yes: APPROVED and REJECTED keep the same `decided_by` and `decided_at` |
+| No request decided twice | Yes |
+| A second relay run | Did nothing (0 consumed) |
+| The executions themselves | **All 3 FAILED.** The token and expiry task functions crash: `KeyError: 'SETUHAUL_APPROVAL_STATE_MACHINE_ARN'` |
+| The overdue OPEN request | **Still OPEN.** Expiry depends on the expiry task |
+
+**Second deployed defect:** `_workflow()` in `setuhaul/aws/lambdas.py` required the state machine ARN in every function. Only the relay has that ARN: the task functions cannot be given it, because the machine references them, which would be a CloudFormation cycle. They also don't need it.
+- The IAM denial had hidden this until now.
+- The local test set the variable for every handler, so it never caught the crash.
+- **Fix, ready locally and not deployed:** the ARN is optional in `_workflow()`, and `start()` refuses with a clear configuration error when it is missing.
+- **Regression test:** `test_the_state_machine_task_lambdas_run_without_the_state_machine_arn` fails with `KeyError` on the deployed code and passes with the fix.
+
+**Recovery after the fix is deployed:** redrive the 3 failed executions (Step Functions `RedriveExecution` resumes from the failed `ExpireApproval` step).
+- For the two decided requests, `expire_approval` returns their status unchanged.
+- The overdue request expires through the designed path.
+- No manual cleanup.
+
+Deploying the fix and redriving need the owner's approval.

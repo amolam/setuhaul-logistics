@@ -360,6 +360,26 @@ def test_the_recovery_and_approval_lambdas_run_with_their_own_roles(lambda_env, 
     assert lambdas.notify_approvers_handler({"approval_id": str(r["approval_id"])}, None)["approval_id"] == str(r["approval_id"])
 
 
+def test_the_state_machine_task_lambdas_run_without_the_state_machine_arn(lambda_env, monkeypatch, conn):
+    """Step 6 drill, 23 Nov 2026: the token and expiry task functions are deployed WITHOUT
+    SETUHAUL_APPROVAL_STATE_MACHINE_ARN (the machine references them, so they cannot reference it). They crashed with
+    KeyError, so no execution could store its token or expire. They must work without it; starting still needs it."""
+    lambda_env("approval")
+    monkeypatch.delenv("SETUHAUL_APPROVAL_STATE_MACHINE_ARN", raising=False)
+    monkeypatch.setenv("AWS_DEFAULT_REGION", "ap-southeast-2")
+    lambdas._workflow.cache_clear()
+    stub = StubSfn()
+    monkeypatch.setattr("boto3.client", lambda *a, **k: stub)
+    _, r = pending(conn)
+    aid = str(r["approval_id"])
+    assert lambdas.record_task_token_handler({"approval_id": aid, "task_token": "tok-1"}, None)["open"] is True
+    decide(conn, r["appointment_id"], "REJECT")
+    assert lambdas.expire_approval_handler({"approval_id": aid}, None)["outcome"] == "REJECTED"   # decided: unchanged
+    with pytest.raises(RuntimeError, match="SETUHAUL_APPROVAL_STATE_MACHINE_ARN"):
+        lambdas._workflow().start(aid, __import__("datetime").datetime.now(__import__("datetime").timezone.utc))
+    lambdas._workflow.cache_clear()
+
+
 def test_the_outbound_lambda_sends_stored_replies_with_only_the_system_role(lambda_env, monkeypatch):
     lambda_env("outbound")
     sent = []

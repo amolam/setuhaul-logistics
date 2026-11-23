@@ -12,6 +12,7 @@
     "ApiEndpoint4F160690": "https://w8ptr7w960.execute-api.ap-southeast-2.amazonaws.com/pilot/",
     "ApiUrl": "https://w8ptr7w960.execute-api.ap-southeast-2.amazonaws.com/pilot/",
     "UserPoolId": "ap-southeast-2_4t4cJBj0P",
+    "BookingMode": "OFF",
     "WhatsAppSecretArn": "arn:aws:secretsmanager:ap-southeast-2:<ACCOUNT>:secret:setuhaul/pilot/whatsapp-IWQ16g",
     "ApprovalVersionArn": "arn:aws:states:ap-southeast-2:<ACCOUNT>:stateMachine:setuhaul-pilot-approval:1",
     "CognitoDomain": "setuhaul-pilot-console.auth.ap-southeast-2.amazoncognito.com"
@@ -224,7 +225,8 @@
         "0021_booking_compat_serialization",
         "0022_handback_context",
         "0023_model_usage",
-        "0024_task_callback_tracking"
+        "0024_task_callback_tracking",
+        "0025_schedule_proposals_and_move"
       ],
       "login_roles": [
         "setuhaul_login_agent",
@@ -237,10 +239,11 @@
       ],
       "carriers_drivers_facilities_appointments": [
         1,
-        10,
+        23,
         2,
-        0
-      ]
+        3
+      ],
+      "appointments_outside_step6_drills": 0
     },
     "console": {
       "url": "https://w8ptr7w960.execute-api.ap-southeast-2.amazonaws.com/pilot/app/",
@@ -281,8 +284,8 @@
     "3 schedules, all disabled": true,
     "no NAT, no public IPv4, no endpoints, no internet gateway on the database VPC": true,
     "Data API owner is the non-master owner, not a superuser": true,
-    "migrations 0001-0024 recorded": true,
-    "no appointments (booking off)": true,
+    "every repository migration recorded, in order": true,
+    "no appointments outside the owner-approved Step 6 drills (booking off)": true,
     "Cognito: code grant, no client secret, callback = console only": true,
     "Cognito hosted domain active": true,
     "facility-scope trigger V2_0": true,

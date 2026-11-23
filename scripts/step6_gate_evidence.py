@@ -237,26 +237,35 @@ def gate_workflow(out, fns, res):
             text = text.replace("${" + placeholder + "}", arn)
     repo_def = json.loads(text) if text is not None else None
     live_def = json.loads(vd.get("definition") or d["definition"])
-    execs = sfn.list_executions(stateMachineArn=sm, maxResults=50)["executions"]
+    execs = sfn.list_executions(stateMachineArn=sm, maxResults=100)["executions"]
+    owner = OwnerSession(c("rds-data"), out["ClusterArn"], out["OwnerSecretArn"])
+    drill_ids = {r[0] for r in owner.query(
+        "SELECT approval_id::text FROM setuhaul.approval_requests WHERE shipment_id LIKE 'SYN-STEP6-%'",
+        ("SELECT set_config('app.facility_scope','FAC-JAI-01,FAC-GGN-01',true)",))}
     ev = {"state_machine": sm.rsplit(":", 1)[-1], "type": d.get("type"), "alias_routes_to_version": ver and ver.rsplit(":", 1)[-1],
           "logging": d.get("loggingConfiguration", {}).get("level"), "tracing": d.get("tracingConfiguration", {}).get("enabled"),
           "live_definition_sha256": sha(json.dumps(live_def, sort_keys=True).encode()),
           "repo_definition_sha256": repo_def and sha(json.dumps(repo_def, sort_keys=True).encode()),
-          "executions": len(execs)}
+          "executions": len(execs), "execution_status": {e["name"][:8]: e["status"] for e in execs}}
     checks = {
         "live alias 'live' routes 100% to one published version": bool(ver) and al["routingConfiguration"][0].get("weight") == 100,
         "published definition equals the repository ASL": repo_def is not None and ev["live_definition_sha256"] == ev["repo_definition_sha256"],
-        "no execution ever started (booking off)": len(execs) == 0,
+        "every execution is an owner-approved Step 6 drill request (SYN-STEP6-*)": all(
+            e["name"] in drill_ids for e in execs),
+        "no execution has failed": all(e["status"] != "FAILED" for e in execs),
         "booking switch false on every function": all(f["booking"] == "false" for f in fns.values() if f["booking"] is not None),
     }
     missing = ["request / approve / reject / expiry against the real state machine need the booking switch ON (Option D), "
                "which needs the owner's separate approval; proven locally (tests/test_approval_workflow*.py, LocalApprovalWorkflow + ASL)"]
     d = drill("drill_approval_run1.json")
+    pend = drill("pending_workflow_processed.json")
     if d:
-        ev["approval_drill"] = {"executions_started": d["executions"], "relay_error": d["relay_error"],
-                                "requests": d["requests"]}
-        checks["the deployed relay can start executions (live drill, 23 Nov)"] = d["executions"] > 0
-        missing = ["rerun the drill after the IAM fix is deployed (decision callbacks and expiry by timeout)"]
+        ev["approval_drill"] = {"run1_executions_started": d["executions"], "run1_relay_error": d["relay_error"],
+                                "pending_processed": pend and {"checks": pend["checks"], "status": pend["execution_status"]}}
+        checks["the deployed relay can start executions"] = bool(
+            pend and pend["checks"].get("the relay now starts executions (no AccessDenied)")) or d["executions"] > 0
+        missing = ["drill 2 after the task-function fix is deployed: start, approve, reject, duplicate decision, audit, "
+                   "timeout expiry; and a redrive of the 3 failed executions"]
     return ev, checks, missing
 
 

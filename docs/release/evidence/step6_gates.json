@@ -1,5 +1,5 @@
 {
- "collected_utc": "2026-11-23T02:21:24+00:00",
+ "collected_utc": "2026-11-23T03:12:20+00:00",
  "stack": "SetuHaulPilot",
  "region": "ap-southeast-2",
  "booking_enabled": false,
@@ -157,7 +157,7 @@
      "second_begin": "BAD_STAFF_CONTEXT: already set in this transaction",
      "rolled_back": true
     },
-    "iam_policies_sha256": "dcaba688d9e1a6a7b2f278f6b0ce1a3873a1e2ee1866945f7fc1c057ecc6ec97"
+    "iam_policies_sha256": "06094ff65c3b95f70d2f6a387b65d935befb38b64dfa98ae4b2a261e10b166e6"
    },
    "checks": {
     "1 console login maps only to setuhaul_console": true,
@@ -177,18 +177,16 @@
    "evidence": {
     "engine": "aurora-postgresql 17.9",
     "server_version": "17.9",
-    "migrations_live": 24,
+    "migrations_live": 25,
     "migrations_in_repo": 25,
     "hash_mismatches": [],
-    "repo_only_migrations": [
-     "0025"
-    ],
+    "repo_only_migrations": [],
     "evidence_triggers": {
      "deployment_evidence_append_only": "O",
      "deployment_evidence_fresh": "O"
     },
-    "tables_with_forced_rls": 22,
-    "tables": 37,
+    "tables_with_forced_rls": 24,
+    "tables": 39,
     "t33": {
      "production_requirement": "PostgreSQL 18.3+ (T33, unchanged)",
      "engine_major": 17
@@ -359,7 +357,7 @@
       "ingest",
       "system"
      ],
-     "code_sha256": "vQ3Pb7XFohQA+0VelBuFiLqQNNHo+bHYvkfMwj9eWTw="
+     "code_sha256": "IgQBsnvLWISwEplQXqB5KqUlZgPYW5GTPaP8samPLZE="
     },
     "recovery_invocations_last_3_days": 201,
     "last_invocation_utc": "2026-11-22T18:22:25.509000+00:00"
@@ -384,53 +382,44 @@
     "tracing": true,
     "live_definition_sha256": "d5d970c03393afa647027e6f43c5c37dbfcb46cea9731b4b3b9b67181c45f908",
     "repo_definition_sha256": "d5d970c03393afa647027e6f43c5c37dbfcb46cea9731b4b3b9b67181c45f908",
-    "executions": 0,
+    "executions": 3,
+    "execution_status": {
+     "2c6b6e0f": "FAILED",
+     "ec99648f": "FAILED",
+     "e0a3c0bb": "FAILED"
+    },
     "approval_drill": {
-     "executions_started": 0,
-     "relay_error": "AccessDeniedException: ...FnApprovalRelayServiceRole... is not authorized to perform: states:StartExecution on resource: arn:aws:states:ap-southeast-2:************:stateMachine:setuhaul-pilot-approval because no identity-based policy allows the states:StartExecution action",
-     "requests": [
-      [
-       "e0a3c0bb-7d17-4181-9336-a64f0eb1f40f",
-       "SYN-STEP6-SHP-4AB620D0",
-       "APPROVED",
-       "staff:step6-drill-planner",
-       "2026-11-23 01:35:03.738954+00",
-       false,
-       "CONFIRMED",
-       true
-      ],
-      [
-       "ec99648f-e0ad-4c32-b0ee-02bfde2d8e8a",
-       "SYN-STEP6-SHP-ECCDE8C2",
-       "REJECTED",
-       "staff:step6-drill-planner",
-       "2026-11-23 01:35:15.931354+00",
-       false,
-       "REJECTED",
-       false
-      ],
-      [
-       "2c6b6e0f-a222-42c3-be5e-2099d7e87547",
-       "SYN-STEP6-SHP-9DEE8575",
-       "OPEN",
-       null,
-       "2026-11-23 01:35:29.317121+00",
-       false,
-       "PENDING_CONFIRMATION",
-       true
-      ]
-     ]
+     "run1_executions_started": 0,
+     "run1_relay_error": "AccessDeniedException: ...FnApprovalRelayServiceRole... is not authorized to perform: states:StartExecution on resource: arn:aws:states:ap-southeast-2:************:stateMachine:setuhaul-pilot-approval because no identity-based policy allows the states:StartExecution action",
+     "pending_processed": {
+      "checks": {
+       "the relay now starts executions (no AccessDenied)": true,
+       "one execution per pending request, all SUCCEEDED": false,
+       "decided requests unchanged (status, decided_by, decided_at)": true,
+       "decided executions did not take the expiry path": false,
+       "the overdue OPEN request expired through the workflow timeout": false,
+       "the second relay run did nothing": true,
+       "each ApprovalDecided event consumed, once per consumer": true,
+       "no request decided twice (one decision event each in the audit trail)": true
+      },
+      "status": {
+       "APPROVE": "FAILED",
+       "REJECT": "FAILED",
+       "EXPIRE": "FAILED"
+      }
+     }
     }
    },
    "checks": {
     "live alias 'live' routes 100% to one published version": true,
     "published definition equals the repository ASL": true,
-    "no execution ever started (booking off)": true,
+    "every execution is an owner-approved Step 6 drill request (SYN-STEP6-*)": true,
+    "no execution has failed": false,
     "booking switch false on every function": true,
-    "the deployed relay can start executions (live drill, 23 Nov)": false
+    "the deployed relay can start executions": true
    },
    "not_shown": [
-    "rerun the drill after the IAM fix is deployed (decision callbacks and expiry by timeout)"
+    "drill 2 after the task-function fix is deployed: start, approve, reject, duplicate decision, audit, timeout expiry; and a redrive of the 3 failed executions"
    ],
    "status": "FAIL"
   },
