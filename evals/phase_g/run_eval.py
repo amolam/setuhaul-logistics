@@ -45,7 +45,7 @@ DATASET = Path(__file__).resolve().parent / "dataset.jsonl"
 RESULTS = ROOT / "evals" / "results"
 IST = timezone(timedelta(hours=5, minutes=30))
 SUITE, DATASET_VERSION = "phase-g-agent-eval", "g1"
-PHONE_RX = re.compile(r"\+?\d[\d\s-]{9,}\d")                  # any phone-like digit run
+PHONE_RX = re.compile(r"(?<![0-9a-f])\+?\d[\d\s-]{9,}\d(?![0-9a-f])")   # phone-like digits (not inside hex ids)
 CATEGORIES = ("intent_recognition", "tool_selection", "parameter_extraction", "authentication", "authorization",
               "facility_isolation", "privacy", "optimizer_use", "booking_without_authorization", "approval_boundary",
               "idempotency", "recovery", "fallback", "hallucination_resistance", "latency", "cost")
@@ -122,7 +122,8 @@ def spoken(text: str) -> str:
 
 def options_of(env, client, d):
     p = client.app.state.sessions.verify(d.session)
-    return client.app.state.service.call_tool(p, "get_driver_context", 0, {})["data"]["flow"]["options"]
+    r = client.app.state.service.call_tool(p, "get_driver_context", 0, {})
+    return r["data"]["flow"]["options"] if r["status"] == "OK" else []       # a person owns the thread: none
 
 
 # ---------------------------------------------------------------- executors
@@ -335,7 +336,7 @@ def run_intent(env: Env, row: dict) -> dict:
     """Intent recognition and parameter extraction by the deterministic rules reader (no model, no cost)."""
     inp, exp = row["input"], row["expected"]
     t0 = time.perf_counter()
-    out = rules_extractor.extract(inp["say"])
+    out = rules_extractor.extract(inp["say"]).model_dump()
     lat = int((time.perf_counter() - t0) * 1000)
     checks, fail = {}, []
     want = exp["intent"] if isinstance(exp["intent"], list) else [exp["intent"]]

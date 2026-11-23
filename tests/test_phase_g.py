@@ -22,7 +22,7 @@ from test_api import (CLIENT, GGN, H, ISSUER, IST, JAI, META_SECRET, SESSION_SEC
                       dsn, keys, staff_token)
 from test_orchestrator import exd, in_90
 
-PHONE_DIGITS = __import__("re").compile(r"\+?\d{10,}")
+PHONE_DIGITS = __import__("re").compile(r"\+\d{10,}")              # an E.164 number (hex ids are not phones)
 
 
 @pytest.fixture(scope="module")
@@ -40,7 +40,7 @@ def one(dsn, sql, *a):
 
 # ---------------------------------------------------------------- console: recommendations
 def test_planner_gets_structured_feasible_recommendations_and_the_run_is_recorded(client, dsn, keys):
-    _, _, (sid,) = add_driver(dsn)
+    _, phone, (sid,) = add_driver(dsn)
     r = client.get(f"/console/shipments/{sid}/recommendations", headers=H(staff_token(keys)))
     assert r.status_code == 200, r.text
     b = r.json()
@@ -48,7 +48,7 @@ def test_planner_gets_structured_feasible_recommendations_and_the_run_is_recorde
     assert b["solver_status"] == "OPTIMAL" and b["options"] and all(o["feasible"] for o in b["options"])
     assert len(b["constraints_evaluated"]) == 12 and b["input_fingerprint"] and b["data_as_of"]
     assert r.headers["x-correlation-id"] == b["correlation_id"] == b["request_id"]
-    assert GGN not in r.text and not PHONE_DIGITS.search(r.text)
+    assert GGN not in r.text and not PHONE_DIGITS.search(r.text) and phone[1:] not in r.text
     row = one(dsn, """SELECT caller, solver_status, options_count, facility_id FROM setuhaul.optimization_runs
                       WHERE request_id=%s""", b["request_id"])
     assert row == ("console", "OPTIMAL", len(b["options"]), JAI)
