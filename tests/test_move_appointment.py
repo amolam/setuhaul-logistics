@@ -31,7 +31,7 @@ def sch(dsn):
     with psycopg.connect(dsn, autocommit=True) as c:
         c.execute("SET search_path = setuhaul")
         c.execute("""INSERT INTO facilities (facility_id,facility_name,open_time,close_time) VALUES
-                     (%s,'Scheduling test A','00:00','23:59'),(%s,'Scheduling test B','00:00','23:59')
+                     (%s,'Scheduling test A','00:00','23:59:59.999999'),(%s,'Scheduling test B','00:00','23:59:59.999999')
                      ON CONFLICT DO NOTHING""", (SCH, SCH2))
         shifts = '[{"name":"DAY","start":"00:00","end":"12:00"},{"name":"NIGHT","start":"12:00","end":"00:00"}]'
         c.execute("""INSERT INTO facility_config (facility_id,cfg_version,gate_to_dock_min,changeover_min,no_show_grace_min,
@@ -43,6 +43,11 @@ def sch(dsn):
                      (%s,%s,'S3','STANDARD',false,30000),(%s,%s,'T1','STANDARD',false,30000) ON CONFLICT DO NOTHING""",
                   (S1, SCH, S2, SCH, S3, SCH, T1, SCH2))
     return dsn
+
+
+# Open all day (close 23:59:59.999999: Python's time cannot hold 24:00). With close_time 23:59 a slot STARTING at 23:59 is after hours (slot_is_after_hours: start < close),
+# and at() rounds to whole minutes, so a run at the one minute where now + h lands on 23:59 IST failed with
+# OUTSIDE_HOURS (CI run 45099842565, 23 Nov 2026). These tests are about moves, not opening hours.
 
 
 def at(h: float) -> datetime:
