@@ -304,3 +304,66 @@ def test_activation_writes_manifest_evidence_and_exceptions_or_nothing(dsn):
                             FROM setuhaul.deployment_exceptions WHERE deployment_id=%s""", (out["deployment_id"],)).fetchall()
     assert {g for (g,) in ev} == passed and all(r[1] == REF and r[2] for r in ex)
     assert not {g for (g,) in ev} & {g for g, *_ in ex}            # an exception is never written as evidence
+
+
+def test_the_pipeline_command_runs_as_a_module_and_refuses_any_other_login(tmp_path):
+    """23 Nov 2026 activation run 45128314359 failed with NameError: the activation function was defined after the
+    `__main__` guard, so `python -m setuhaul.ops.gate_evidence --activate` died before writing anything (fail closed).
+    Run it exactly as the workflow does; with a login other than deploy_evidence it must refuse by name."""
+    import os
+    import subprocess
+    import sys
+    env = {**os.environ, "SETUHAUL_DB_SECRET_ARNS": json.dumps({"system": "arn:aws:secretsmanager:x"})}
+    r = subprocess.run([sys.executable, "-m", "setuhaul.ops.gate_evidence", "--activate", REF,
+                        "--report", str(ROOT / "docs" / "release" / "evidence" / "step6_gates.json"),
+                        "--manifest", "m.json", "--template", "t.json", "--artifact-uri", "https://x/y.json"],
+                       cwd=ROOT, env=env, capture_output=True, text=True, timeout=60)
+    assert r.returncode != 0 and "activation runs only with the deploy-evidence login" in r.stderr, r.stderr[-500:]
+
+
+def test_the_pipeline_activation_runs_end_to_end_through_the_data_api(dsn, tmp_path, monkeypatch):
+    """The exact pipeline function (activate_from_pipeline) through the emulated RDS Data API: deploy-evidence login,
+    queue read through the lookup session, template read for the sender. On PostgreSQL 17.9 (CI, the pilot's engine)
+    it records the manifest, PASS evidence and the three exceptions; on 18 it must refuse T33-P and write nothing."""
+    import argparse
+    import boto3
+    from data_api_emulator import EmulatedRdsData
+    em = EmulatedRdsData(dsn)
+    monkeypatch.setattr(boto3, "client", lambda name, **kw: em if name == "rds-data" else pytest.fail(name))
+
+    class Lookup:
+        def __init__(self, **kw):
+            pass
+
+        def client(self, name):
+            assert name == "sqs"
+            return FakeSqs()
+    monkeypatch.setattr(boto3, "Session", Lookup)
+    man = manifest(env=PILOT)
+    (tmp_path / "m.json").write_text(json.dumps(man), encoding="utf-8")
+    tpl = {"Resources": {"Out": {"Type": "AWS::Lambda::Function", "Properties": {
+        "FunctionName": "setuhaul-pilot-outbound", "Environment": {"Variables": SINK}}}}}
+    (tmp_path / "t.json").write_text(json.dumps(tpl), encoding="utf-8")
+    monkeypatch.setenv("SETUHAUL_DB_SECRET_ARNS", json.dumps({"deploy_evidence": "arn:aws:secretsmanager:x:deploy"}))
+    monkeypatch.setenv("SETUHAUL_DB_CLUSTER_ARN", "arn:aws:rds:ap-southeast-2:000000000000:cluster:setuhaul")
+    monkeypatch.setenv("SETUHAUL_DB_NAME", dsn.split("dbname=")[1])
+    monkeypatch.setenv("SETUHAUL_QUEUE_URL", URL)
+    monkeypatch.setenv("SETUHAUL_LOOKUP_SESSION", json.dumps({"region_name": "ap-southeast-2"}))
+    args = argparse.Namespace(activate=REF, report=str(ROOT / "docs" / "release" / "evidence" / "step6_gates.json"),
+                              manifest=str(tmp_path / "m.json"), template=str(tmp_path / "t.json"),
+                              environment=PILOT, artifact_uri="https://github.com/x/y/blob/z/step6_gates.json")
+    dep = deployment_id_for(man)
+    if 170009 <= server_version(dsn) < 180000:
+        assert ge.activate_from_pipeline(args) == 0
+        with psycopg.connect(dsn) as c:
+            assert c.execute("SELECT count(*) FROM setuhaul.deployment_manifests WHERE deployment_id=%s", (dep,)).fetchone()[0] == 1
+            n_ev = c.execute("SELECT count(*) FROM setuhaul.deployment_evidence WHERE deployment_id=%s", (dep,)).fetchone()[0]
+            n_ex = c.execute("SELECT count(*) FROM setuhaul.deployment_exceptions WHERE deployment_id=%s", (dep,)).fetchone()[0]
+        assert n_ev + n_ex == len(REQUIRED_GATES) and n_ex == 3
+        app = booking_app(dsn, SqsFifoQueue(URL, FakeSqs()), env=PILOT, man=man)     # and the switch now starts
+        assert set(app.state.gate_exceptions) == set(EXCEPTION_CODES)
+    else:
+        with pytest.raises(ge.EvidenceRefused, match="AURORA: T33-P does not hold"):
+            ge.activate_from_pipeline(args)
+        with psycopg.connect(dsn) as c:
+            assert c.execute("SELECT count(*) FROM setuhaul.deployment_manifests WHERE deployment_id=%s", (dep,)).fetchone()[0] == 0

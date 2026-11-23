@@ -208,10 +208,6 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-if __name__ == "__main__":
-    sys.exit(main())
-
-
 def activate_from_pipeline(a) -> int:
     """The pipeline step (.github/workflows/activate-booking.yml): runs only with the deploy-evidence login, which is
     the one login SETUHAUL_DB_SECRET_ARNS may hold here; the queue is read through the read-only lookup session."""
@@ -261,3 +257,7 @@ def activate_from_pipeline(a) -> int:
         out = activate(c, report, raw, manifest, a.environment, a.artifact_uri, a.activate, fps, ver, outbound_env)
     print(json.dumps(out, indent=1))
     return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
