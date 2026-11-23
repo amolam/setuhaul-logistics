@@ -107,11 +107,14 @@ class OptimizerConfig:
                    eta_stale_after_min=int(a.get("eta_stale_after_min", 240)),
                    default_crews=a.get("default_crews_when_missing"), capacity=dict(a.get("facility_capacity", {})))
 
-    def as_dict(self) -> dict:
+    def as_dict(self, facility: str | None = None) -> dict:
+        """With `facility`, only that facility's labour and capacity: a result never names another facility (HC12)."""
+        pick = (lambda d: {k: v for k, v in d.items() if k == facility}) if facility else (lambda d: d)
         return {"weights": asdict(self.weights), "time_limit_ms": self.time_limit_ms, "max_options": self.max_options,
                 "operating_days_ahead": self.operating_days_ahead, "snapshot_max_age_s": self.snapshot_max_age_s,
                 "eta_stale_after_min": self.eta_stale_after_min, "change_tolerance_min": self.change_tolerance_min,
-                "default_crews": self.default_crews, "labour": self.labour, "capacity": self.capacity, "seed": SEED}
+                "default_crews": self.default_crews, "labour": pick(self.labour), "capacity": pick(self.capacity),
+                "seed": SEED}
 
 
 @dataclass(frozen=True)
@@ -365,7 +368,7 @@ class SlotOptimizer:
         res = OptimizationResult(rid, req.facility_id, req.shipment_id, None, None, SOLVER, SOLVER_VERSION, ENGINE_VERSION,
                                  UNKNOWN, "", "NONE", constraints_evaluated=dict(HARD_CONSTRAINTS),
                                  data_as_of=(req.data_as_of or now).isoformat(), schedule_version=req.schedule_version,
-                                 config=self.cfg.as_dict())
+                                 config=self.cfg.as_dict(req.facility_id or "-"))
         try:
             self._run(req, now, res, t0)
         except Exception as e:                                   # noqa: BLE001 — the engine failing is a safe outcome
@@ -386,6 +389,7 @@ class SlotOptimizer:
             return self._invalid(res, "UNKNOWN_SHIPMENT", "shipment not in the facility data")
         fac = s["destination_facility_id"]
         res.facility_id = req.facility_id or fac
+        res.config = self.cfg.as_dict(fac)
         if req.facility_id and req.facility_id != fac:
             return self._invalid(res, "FACILITY_MISMATCH", "requested facility is not the shipment's destination")
         if fac not in self.d.timings or fac not in self.d.facilities:

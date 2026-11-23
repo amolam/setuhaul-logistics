@@ -113,7 +113,8 @@ class Orchestrator:
         t0 = time.perf_counter()
         try:
             res = self._turn(p, event)
-            res.turn_ms = int((time.perf_counter() - t0) * 1000)
+            if res is not None:                                       # a turn with nothing to do returns None
+                res.turn_ms = int((time.perf_counter() - t0) * 1000)
             if not self.svc.finish_turn(p, mid, owner, gen):            # R2.0 S4-R2-01: not a successful turn
                 raise TurnLeaseLost(f"message {mid}: the lease was lost before the turn finished; it will be redelivered")
         except BaseException:
@@ -127,7 +128,8 @@ class Orchestrator:
             TURN_FENCE.reset(token)
             CORRELATION_ID.reset(corr)
             hb.join(5)
-        self.svc.record_turn_metrics(res)                               # Phase G3: best effort, never fails the turn
+        if res is not None:
+            self.svc.record_turn_metrics(res)                           # Phase G3: best effort, never fails the turn
         return res
 
     def _turn(self, p, event: dict) -> TurnResult:

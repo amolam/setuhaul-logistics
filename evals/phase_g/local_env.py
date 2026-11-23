@@ -72,12 +72,16 @@ def staff_token(keys: Keys, groups=("planner",), facilities=(JAI,), ttl_s: int =
     return jwt.encode(claims, keys.private, algorithm="RS256", headers={"kid": "phase-g-kid"})
 
 
-def make_app(dsn: str, keys: Keys, booking: bool = True, optimizer_ranking: bool = True):
+def make_app(dsn: str, keys: Keys, booking: bool = True, optimizer_ranking: bool = True, console: bool = False):
+    """console=True also serves the staff page under /app/ (sign-in cannot complete locally: there is no Cognito; a
+    locally signed token is handed to the page for screenshots only)."""
     assert_local(dsn)
     return create_app(Settings(dsn=dsn, cognito_issuer=ISSUER, cognito_client_ids={CLIENT}, session_secret=SESSION_SECRET,
                                meta_app_secret=META_SECRET, facilities=(JAI, GGN), jwks=keys.jwks,
                                booking_enabled=booking, local_test_harness=booking,
-                               optimizer_ranking=optimizer_ranking, environment="local-phase-g"))
+                               optimizer_ranking=optimizer_ranking, environment="local-phase-g",
+                               cognito_domain="cognito.local.invalid" if console else None,
+                               console_client_id=CLIENT if console else None))
 
 
 def signed_message(phone: str, text: str, msg_id: str | None = None) -> tuple[bytes, dict]:

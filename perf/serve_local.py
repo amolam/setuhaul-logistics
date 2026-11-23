@@ -90,7 +90,7 @@ def main() -> int:
     a = ap.parse_args()
     dsn, report = fresh_database("setuhaul_phase_g_perf")
     keys = make_keys()
-    app = make_app(dsn, keys, booking=True, optimizer_ranking=True)
+    app = make_app(dsn, keys, booking=True, optimizer_ranking=True, console=True)
     drivers = []
     for i in range(a.drivers):
         _, phone, sids = add_synthetic_driver(dsn, facility=JAI if i % 5 else GGN, eta_min=60 + (i * 7) % 240)
