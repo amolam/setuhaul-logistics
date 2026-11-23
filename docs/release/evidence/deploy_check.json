@@ -226,7 +226,8 @@
         "0022_handback_context",
         "0023_model_usage",
         "0024_task_callback_tracking",
-        "0025_schedule_proposals_and_move"
+        "0025_schedule_proposals_and_move",
+        "0026_option_d_activation"
       ],
       "login_roles": [
         "setuhaul_login_agent",
