@@ -1,17 +1,27 @@
 {
- "collected_utc": "2026-11-24T15:45:29+00:00",
+ "collected_utc": "2026-11-24T23:24:30+00:00",
  "stack": "SetuHaulPilot",
  "region": "ap-southeast-2",
- "booking_enabled": true,
+ "booking_enabled": false,
+ "booking_observed": {
+  "source": "https://w8ptr7w960.execute-api.ap-southeast-2.amazonaws.com/pilot/health",
+  "observed_utc": "2026-11-24T23:24:28+00:00",
+  "http_status": 200,
+  "booking_state": "off",
+  "booking_enabled": false,
+  "meaning": "booking disabled (the booking switch is off)",
+  "format": "before D4 (booking_enabled is the start-up switch)",
+  "version": "0.2.0"
+ },
  "deployment_evidence_rows_written": 0,
  "gates": {
   "WORKLOAD_IDENTITY": {
    "evidence": {
     "login_to_group_roles": {
-     "setuhaul_login_agent": [
+     "setuhaul_login_agent_a17e74df1203": [
       "setuhaul_agent"
      ],
-     "setuhaul_login_console": [
+     "setuhaul_login_console_a17e74df1203": [
       "setuhaul_console"
      ],
      "setuhaul_login_deploy_evidence": [
@@ -103,7 +113,7 @@
     },
     "reach": [
      {
-      "login": "setuhaul_login_agent",
+      "login": "setuhaul_login_agent_a17e74df1203",
       "can_use_console": false,
       "can_use_rpc": false,
       "superuser": false,
@@ -111,7 +121,7 @@
       "can_use_db_owner": false
      },
      {
-      "login": "setuhaul_login_console",
+      "login": "setuhaul_login_console_a17e74df1203",
       "can_use_console": true,
       "can_use_rpc": false,
       "superuser": false,
@@ -239,7 +249,7 @@
       "all_pass": true
      }
     },
-    "iam_policies_sha256": "ec45cea6ba64d69ce037eab4a4e2abf9937b0ae0810a1e43cfb1ed04d115ac00"
+    "iam_policies_sha256": "06094ff65c3b95f70d2f6a387b65d935befb38b64dfa98ae4b2a261e10b166e6"
    },
    "checks": {
     "1 console login maps only to setuhaul_console": true,
@@ -260,22 +270,112 @@
    "evidence": {
     "engine": "aurora-postgresql 17.9",
     "server_version": "17.9",
-    "migrations_live": 27,
-    "migrations_in_repo": 32,
+    "migrations_live": 32,
+    "migrations_in_repo": 33,
     "hash_mismatches": [],
     "repo_only_migrations": [
-     "0028",
-     "0029",
-     "0030",
-     "0031",
-     "0032"
+     "0033"
     ],
     "evidence_triggers": {
-     "deployment_evidence_append_only": "O",
-     "deployment_evidence_fresh": "O"
+     "appointments.aa_booking_kill_switch": [
+      "O",
+      "trg_refuse_booking_when_killed",
+      23
+     ],
+     "appointments.ab_booking_evidence_guard": [
+      "O",
+      "trg_require_booking_evidence",
+      23
+     ],
+     "appointments.appointment_approval_consistent": [
+      "O",
+      "trg_check_appointment_approval",
+      21
+     ],
+     "appointments.supersede_on_new_booking": [
+      "O",
+      "trg_supersede_on_new_booking",
+      21
+     ],
+     "deployment_evidence.aa_evidence_requires_guard": [
+      "O",
+      "trg_evidence_requires_guard",
+      7
+     ],
+     "deployment_evidence.ab_provisional_consumption": [
+      "O",
+      "trg_provisional_consumption",
+      7
+     ],
+     "deployment_evidence.deployment_evidence_append_only": [
+      "O",
+      "trg_deployment_evidence_append_only",
+      58
+     ],
+     "deployment_evidence.deployment_evidence_fresh": [
+      "O",
+      "trg_deployment_evidence_fresh",
+      7
+     ],
+     "deployment_exceptions.aa_evidence_requires_guard": [
+      "O",
+      "trg_evidence_requires_guard",
+      7
+     ],
+     "deployment_exceptions.deployment_exceptions_append_only": [
+      "O",
+      "trg_activation_append_only",
+      58
+     ],
+     "deployment_exceptions.deployment_exceptions_clock": [
+      "O",
+      "trg_deployment_exception_clock",
+      7
+     ],
+     "deployment_manifests.aa_evidence_requires_guard": [
+      "O",
+      "trg_evidence_requires_guard",
+      7
+     ],
+     "deployment_manifests.deployment_manifests_append_only": [
+      "O",
+      "trg_activation_append_only",
+      58
+     ],
+     "deployment_manifests.deployment_manifests_lock": [
+      "O",
+      "trg_manifest_waits_for_commitments",
+      7
+     ],
+     "dock_occupancy.aa_booking_kill_switch": [
+      "O",
+      "trg_refuse_booking_when_killed",
+      23
+     ],
+     "dock_occupancy.ab_booking_evidence_guard": [
+      "O",
+      "trg_require_booking_evidence",
+      23
+     ],
+     "dock_occupancy.claim_approval_consistent": [
+      "O",
+      "trg_check_claim_approval",
+      17
+     ],
+     "dock_occupancy.occupancy_compat": [
+      "O",
+      "trg_occupancy_compat",
+      23
+     ],
+     "dock_occupancy.occupancy_version": [
+      "O",
+      "trg_bump_schedule_version",
+      29
+     ]
     },
+    "evidence_trigger_problems": [],
     "tables_with_forced_rls": 26,
-    "tables": 45,
+    "tables": 48,
     "t33": {
      "production_requirement": "PostgreSQL 18.3+ (T33, unchanged)",
      "engine_major": 17
@@ -327,7 +427,7 @@
    },
    "checks": {
     "every deployed migration's hash matches the repository": true,
-    "both evidence triggers enabled": true,
+    "evidence and booking guard triggers: exactly the expected set, enabled and configured": true,
     "Data API connectivity behind Db.tx()": true,
     "T33-P: engine is exactly 17.9 (the Free-plan express engine)": true,
     "T33-P: migration 0025, RLS and role allow-list verified live on this 17.9 cluster": true,
@@ -379,8 +479,8 @@
      ]
     },
     "last_48h": {
-     "messages_sent": 24,
-     "messages_deleted": 21,
+     "messages_sent": 28,
+     "messages_deleted": 25,
      "dlq_messages_sent": 0
     },
     "dlq_drill": {
@@ -467,10 +567,10 @@
       "ingest",
       "system"
      ],
-     "code_sha256": "I0wma0KzlIJdh27DInwhGJuUR41l3oQTVCr+k9AtE8s="
+     "code_sha256": "oX503xIDtgt6HdiT1OxDT+m1xBEb4whwBpLB2REA1fQ="
     },
-    "recovery_invocations_last_3_days": 259,
-    "last_invocation_utc": "2026-11-24T15:44:36.283000+00:00",
+    "recovery_invocations_last_3_days": 281,
+    "last_invocation_utc": "2026-11-24T23:23:51.123000+00:00",
     "lease_loss_drill": {
      "checks": {
       "clean start: empty queue, no other unprocessed receipt, all data synthetic": true,
@@ -506,60 +606,50 @@
     "live alias 'live' routes 100% to one published version": true,
     "published definition equals the repository ASL": true,
     "no execution has failed": true,
-    "config: booking ON on exactly the api and agent functions": true,
+    "config: booking ON on exactly the api and agent functions": false,
     "config: every other function has booking OFF": true,
     "config: api and agent run in the pilot environment with synthetic data": true,
     "config: every function is synthetic-data only": true,
-    "config: /health answers: status ok, database ok, booking ON": true,
+    "config: /health answers: status ok, database ok, booking ON": false,
     "config: /health environment is the synthetic pilot": true,
-    "config: kill switch is in its expected state (disengaged)": true,
+    "config: kill switch is in its expected state (disengaged)": false,
     "config: the renewal names a well-formed owner approval reference": true,
-    "config: the deployed stack's BookingMode names an owner approval": true,
+    "config: the deployed stack's BookingMode names an owner approval": false,
     "smoke: a fresh smoke test record is supplied": false,
     "smoke: the fresh smoke's own executions are attributed to it (category B)": false,
     "owner attribution record is valid and limited to the two confirmed executions": true,
-    "no approval execution contradicts its evidence": true,
+    "no approval execution contradicts its evidence": false,
     "every approval execution is attributed (A drill, B smoke, C owner-confirmed)": false
    },
    "not_shown": [
+    "BOOKING_WORKFLOW: FAIL \u2014 setuhaul-pilot-agent: booking is 'false', expected 'true'",
+    "BOOKING_WORKFLOW: FAIL \u2014 setuhaul-pilot-api: booking is 'false', expected 'true'",
+    "BOOKING_WORKFLOW: FAIL \u2014 kill switch is None, expected 'disengaged'",
+    "BOOKING_WORKFLOW: FAIL \u2014 /health: status 'ok', database 'ok', booking_enabled False",
+    "BOOKING_WORKFLOW: FAIL \u2014 deployed BookingMode is 'OFF', expected 'ON (OWNER-APPROVAL-\u2026)'",
     "BOOKING_WORKFLOW: FAIL \u2014 no fresh smoke test record (scripts/smoke_option_d.py --release-sha <sha>) was supplied",
-    "BOOKING_WORKFLOW: FAIL \u2014 approval execution 29ffac03 has no attributable evidence: no approval record is visible for this execution under the pilot facility scope",
-    "BOOKING_WORKFLOW: FAIL \u2014 approval execution 87915a37 has no attributable evidence: no approval record is visible for this execution under the pilot facility scope",
-    "BOOKING_WORKFLOW: FAIL \u2014 approval execution 73cac501 has no attributable evidence: no approval record is visible for this execution under the pilot facility scope",
-    "BOOKING_WORKFLOW: FAIL \u2014 approval execution d1836d8e has no attributable evidence: no approval record is visible for this execution under the pilot facility scope",
-    "BOOKING_WORKFLOW: FAIL \u2014 approval execution f0f94898 has no attributable evidence: no approval record is visible for this execution under the pilot facility scope",
-    "BOOKING_WORKFLOW: FAIL \u2014 approval execution 68340642 has no attributable evidence: no approval record is visible for this execution under the pilot facility scope",
-    "BOOKING_WORKFLOW: FAIL \u2014 approval execution 2c6b6e0f has no attributable evidence: no approval record is visible for this execution under the pilot facility scope",
-    "BOOKING_WORKFLOW: FAIL \u2014 approval execution e0a3c0bb has no attributable evidence: no approval record is visible for this execution under the pilot facility scope",
-    "BOOKING_WORKFLOW: FAIL \u2014 approval execution ec99648f has no attributable evidence: no approval record is visible for this execution under the pilot facility scope"
+    "BOOKING_WORKFLOW: FAIL \u2014 approval execution 29ffac03: owner-confirmed record does not match the database: decider kind 'drill_staff', the record says 'console_user'"
    ],
    "diagnostics": [
-    "BOOKING_WORKFLOW: FAIL \u2014 approval records could not be read through approval_execution_evidence: DataApiUndefinedFunction: DatabaseErrorException: ERROR: function setuhaul.approval_execution_evidence(uuid[]) does not exist; Hint: No function matches the given name and argument types",
+    "BOOKING_WORKFLOW: FAIL \u2014 setuhaul-pilot-agent: booking is 'false', expected 'true'",
+    "BOOKING_WORKFLOW: FAIL \u2014 setuhaul-pilot-api: booking is 'false', expected 'true'",
+    "BOOKING_WORKFLOW: FAIL \u2014 kill switch is None, expected 'disengaged'",
+    "BOOKING_WORKFLOW: FAIL \u2014 /health: status 'ok', database 'ok', booking_enabled False",
+    "BOOKING_WORKFLOW: FAIL \u2014 deployed BookingMode is 'OFF', expected 'ON (OWNER-APPROVAL-\u2026)'",
     "BOOKING_WORKFLOW: FAIL \u2014 no fresh smoke test record (scripts/smoke_option_d.py --release-sha <sha>) was supplied",
-    "BOOKING_WORKFLOW: FAIL \u2014 approval execution 29ffac03 has no attributable evidence: no approval record is visible for this execution under the pilot facility scope",
-    "BOOKING_WORKFLOW: FAIL \u2014 approval execution 87915a37 has no attributable evidence: no approval record is visible for this execution under the pilot facility scope",
-    "BOOKING_WORKFLOW: FAIL \u2014 approval execution 73cac501 has no attributable evidence: no approval record is visible for this execution under the pilot facility scope",
-    "BOOKING_WORKFLOW: FAIL \u2014 approval execution d1836d8e has no attributable evidence: no approval record is visible for this execution under the pilot facility scope",
-    "BOOKING_WORKFLOW: FAIL \u2014 approval execution f0f94898 has no attributable evidence: no approval record is visible for this execution under the pilot facility scope",
-    "BOOKING_WORKFLOW: FAIL \u2014 approval execution 68340642 has no attributable evidence: no approval record is visible for this execution under the pilot facility scope",
-    "BOOKING_WORKFLOW: FAIL \u2014 approval execution 2c6b6e0f has no attributable evidence: no approval record is visible for this execution under the pilot facility scope",
-    "BOOKING_WORKFLOW: FAIL \u2014 approval execution e0a3c0bb has no attributable evidence: no approval record is visible for this execution under the pilot facility scope",
-    "BOOKING_WORKFLOW: FAIL \u2014 approval execution ec99648f has no attributable evidence: no approval record is visible for this execution under the pilot facility scope"
+    "BOOKING_WORKFLOW: FAIL \u2014 approval execution 29ffac03: owner-confirmed record does not match the database: decider kind 'drill_staff', the record says 'console_user'"
    ],
    "evidence": {
     "booking_configuration": {
-     "booking_on": [
-      "setuhaul-pilot-agent",
-      "setuhaul-pilot-api"
-     ],
+     "booking_on": [],
      "functions": {
       "setuhaul-pilot-agent": {
-       "booking": "true",
+       "booking": "false",
        "env": "pilot",
        "data_class": "synthetic"
       },
       "setuhaul-pilot-api": {
-       "booking": "true",
+       "booking": "false",
        "env": "pilot",
        "data_class": "synthetic"
       },
@@ -609,150 +699,272 @@
        "data_class": "synthetic"
       }
      },
-     "kill_switch": "disengaged",
+     "kill_switch": null,
      "health": {
       "status": "ok",
       "database": "ok",
-      "booking_enabled": true,
+      "booking_enabled": false,
       "environment": "pilot-ap-southeast-2",
-      "booking_kill_switch": "disengaged",
-      "gate_exceptions": [
-       "AURORA",
-       "OUTBOUND_DELIVERY",
-       "WORKLOAD_IDENTITY"
-      ],
+      "booking_kill_switch": null,
+      "gate_exceptions": null,
       "version": "0.2.0"
      },
-     "deployed_booking_mode": "ON (OWNER-APPROVAL-20261123-PHASE-G)",
-     "deployed_approval_ref": "OWNER-APPROVAL-20261123-PHASE-G",
-     "renewal_approval_ref": "OWNER-APPROVAL-20261124-OPTION-P"
+     "deployed_booking_mode": "OFF",
+     "deployed_approval_ref": null,
+     "renewal_approval_ref": "OWNER-APPROVAL-20261124-RECOVERY-A"
     },
     "approval_executions": [
+     {
+      "approval_id": "e95e30a0-940f-41a8-8936-c1c391952756",
+      "execution": "e95e30a0",
+      "execution_status": "SUCCEEDED",
+      "started": "2026-11-24T21:31:06.929000+05:30",
+      "category": "B",
+      "verdict": "ATTRIBUTED",
+      "reasons": [
+       "smoke test SMOKE-20261124T155930Z-e9106066 on release 21b25cc009b8"
+      ],
+      "record": {
+       "kind": "STANDARD",
+       "facility_id": "FAC-JAI-01",
+       "shipment_id": "SYN-SHP-14B0CA5A",
+       "appointment_id": "APT-20ccc80eef2740c59478e617e0f81287",
+       "appointment_status": "CONFIRMED",
+       "status": "APPROVED",
+       "decided_by_type": "HUMAN",
+       "decider_kind": "drill_staff",
+       "created_at": "2026-11-24 16:00:53.995294+00:00",
+       "decided_at": "2026-11-24 16:01:32.925736+00:00"
+      }
+     },
      {
       "approval_id": "29ffac03-d8bd-4dac-b35c-66b0f8ebf24b",
       "execution": "29ffac03",
       "execution_status": "SUCCEEDED",
       "started": "2026-11-23T14:06:29.092000+05:30",
       "category": null,
-      "verdict": "UNRESOLVED",
+      "verdict": "FAIL",
       "reasons": [
-       "no approval record is visible for this execution under the pilot facility scope"
+       "owner-confirmed record does not match the database: decider kind 'drill_staff', the record says 'console_user'"
       ],
-      "record": null
+      "record": {
+       "kind": "STANDARD",
+       "facility_id": "FAC-JAI-01",
+       "shipment_id": "SYN-SHP-08A355E7",
+       "appointment_id": "APT-89027b09ab6449d1acdd5a51c6549bc5",
+       "appointment_status": "CONFIRMED",
+       "status": "APPROVED",
+       "decided_by_type": "HUMAN",
+       "decider_kind": "drill_staff",
+       "created_at": "2026-11-23 08:36:15.410256+00:00",
+       "decided_at": "2026-11-23 08:36:30.142280+00:00"
+      }
      },
      {
       "approval_id": "87915a37-918e-46b5-8872-8ecaa4fc7a24",
       "execution": "87915a37",
       "execution_status": "SUCCEEDED",
       "started": "2026-11-23T13:41:28.985000+05:30",
-      "category": null,
-      "verdict": "UNRESOLVED",
+      "category": "C",
+      "verdict": "ATTRIBUTED",
       "reasons": [
-       "no approval record is visible for this execution under the pilot facility scope"
+       "owner-confirmed manual console test: failed manual console test (pre-fix HTTP 500 defect)"
       ],
-      "record": null
+      "record": {
+       "kind": "STANDARD",
+       "facility_id": "FAC-JAI-01",
+       "shipment_id": "SYN-SHP-05DAE695",
+       "appointment_id": "APT-2dc6e787f98848e8902afa8b4b173f7b",
+       "appointment_status": "EXPIRED",
+       "status": "EXPIRED",
+       "decided_by_type": "SYSTEM",
+       "decider_kind": "system",
+       "created_at": "2026-11-23 08:10:37.617319+00:00",
+       "decided_at": "2026-11-23 08:15:48.819111+00:00"
+      }
      },
      {
       "approval_id": "73cac501-fe58-457a-80d5-b90234d56139",
       "execution": "73cac501",
       "execution_status": "SUCCEEDED",
       "started": "2026-11-23T13:00:13.175000+05:30",
-      "category": null,
-      "verdict": "UNRESOLVED",
+      "category": "B",
+      "verdict": "ATTRIBUTED",
       "reasons": [
-       "no approval record is visible for this execution under the pilot facility scope"
+       "smoke test of 2026-11-23T07:34:25+00:00 (23 Nov format: release SHA not recorded)"
       ],
-      "record": null
+      "record": {
+       "kind": "STANDARD",
+       "facility_id": "FAC-JAI-01",
+       "shipment_id": "SYN-SHP-2172ACB8",
+       "appointment_id": "APT-01c31ce02a444ad79d6f43d0fa874cc0",
+       "appointment_status": "CONFIRMED",
+       "status": "APPROVED",
+       "decided_by_type": "HUMAN",
+       "decider_kind": "drill_staff",
+       "created_at": "2026-11-23 07:30:05.611411+00:00",
+       "decided_at": "2026-11-23 07:30:53.250726+00:00"
+      }
      },
      {
       "approval_id": "d1836d8e-89ce-4352-aa24-ed2e1d64283e",
       "execution": "d1836d8e",
       "execution_status": "SUCCEEDED",
       "started": "2026-11-23T09:08:09.284000+05:30",
-      "category": null,
-      "verdict": "UNRESOLVED",
+      "category": "A",
+      "verdict": "ATTRIBUTED",
       "reasons": [
-       "no approval record is visible for this execution under the pilot facility scope"
+       "Step 6 drill request (SYN-STEP6-*)"
       ],
-      "record": null
+      "record": {
+       "kind": "STANDARD",
+       "facility_id": "FAC-JAI-01",
+       "shipment_id": "SYN-STEP6-SHP-4163EAA5",
+       "appointment_id": "APT-accabc65141941ba87d873818f7ac919",
+       "appointment_status": "EXPIRED",
+       "status": "EXPIRED",
+       "decided_by_type": "SYSTEM",
+       "decider_kind": "system",
+       "created_at": "2026-11-23 03:37:57.556455+00:00",
+       "decided_at": "2026-11-23 03:42:59.449519+00:00"
+      }
      },
      {
       "approval_id": "f0f94898-bea7-4380-8f9e-e58b36bd9b07",
       "execution": "f0f94898",
       "execution_status": "SUCCEEDED",
       "started": "2026-11-23T09:08:09.085000+05:30",
-      "category": null,
-      "verdict": "UNRESOLVED",
+      "category": "A",
+      "verdict": "ATTRIBUTED",
       "reasons": [
-       "no approval record is visible for this execution under the pilot facility scope"
+       "Step 6 drill request (SYN-STEP6-*)"
       ],
-      "record": null
+      "record": {
+       "kind": "STANDARD",
+       "facility_id": "FAC-JAI-01",
+       "shipment_id": "SYN-STEP6-SHP-B34ABBAB",
+       "appointment_id": "APT-336eefdf14154ec28b70a934c00481c1",
+       "appointment_status": "REJECTED",
+       "status": "REJECTED",
+       "decided_by_type": "HUMAN",
+       "decider_kind": "drill_staff",
+       "created_at": "2026-11-23 03:37:44.087458+00:00",
+       "decided_at": "2026-11-23 03:38:29.884978+00:00"
+      }
      },
      {
       "approval_id": "68340642-e935-4cf6-9228-a1f06bc197a7",
       "execution": "68340642",
       "execution_status": "SUCCEEDED",
       "started": "2026-11-23T09:08:08.897000+05:30",
-      "category": null,
-      "verdict": "UNRESOLVED",
+      "category": "A",
+      "verdict": "ATTRIBUTED",
       "reasons": [
-       "no approval record is visible for this execution under the pilot facility scope"
+       "Step 6 drill request (SYN-STEP6-*)"
       ],
-      "record": null
+      "record": {
+       "kind": "STANDARD",
+       "facility_id": "FAC-JAI-01",
+       "shipment_id": "SYN-STEP6-SHP-1916A3E6",
+       "appointment_id": "APT-2c5169abd0ba4009b3c985d1ed3779da",
+       "appointment_status": "CONFIRMED",
+       "status": "APPROVED",
+       "decided_by_type": "HUMAN",
+       "decider_kind": "drill_staff",
+       "created_at": "2026-11-23 03:37:31.473987+00:00",
+       "decided_at": "2026-11-23 03:38:26.411923+00:00"
+      }
      },
      {
       "approval_id": "2c6b6e0f-a222-42c3-be5e-2099d7e87547",
       "execution": "2c6b6e0f",
       "execution_status": "SUCCEEDED",
       "started": "2026-11-23T08:33:29.764000+05:30",
-      "category": null,
-      "verdict": "UNRESOLVED",
+      "category": "A",
+      "verdict": "ATTRIBUTED",
       "reasons": [
-       "no approval record is visible for this execution under the pilot facility scope"
+       "Step 6 drill request (SYN-STEP6-*)"
       ],
-      "record": null
+      "record": {
+       "kind": "STANDARD",
+       "facility_id": "FAC-JAI-01",
+       "shipment_id": "SYN-STEP6-SHP-9DEE8575",
+       "appointment_id": "APT-ca52c33efc9548b4a1987ee218826174",
+       "appointment_status": "EXPIRED",
+       "status": "EXPIRED",
+       "decided_by_type": "SYSTEM",
+       "decider_kind": "system",
+       "created_at": "2026-11-23 01:30:28.454226+00:00",
+       "decided_at": "2026-11-23 03:35:49.640877+00:00"
+      }
      },
      {
       "approval_id": "e0a3c0bb-7d17-4181-9336-a64f0eb1f40f",
       "execution": "e0a3c0bb",
       "execution_status": "SUCCEEDED",
       "started": "2026-11-23T08:33:29.333000+05:30",
-      "category": null,
-      "verdict": "UNRESOLVED",
+      "category": "A",
+      "verdict": "ATTRIBUTED",
       "reasons": [
-       "no approval record is visible for this execution under the pilot facility scope"
+       "Step 6 drill request (SYN-STEP6-*)"
       ],
-      "record": null
+      "record": {
+       "kind": "STANDARD",
+       "facility_id": "FAC-JAI-01",
+       "shipment_id": "SYN-STEP6-SHP-4AB620D0",
+       "appointment_id": "APT-996682f395a24fb4af2852e35b83b004",
+       "appointment_status": "CONFIRMED",
+       "status": "APPROVED",
+       "decided_by_type": "HUMAN",
+       "decider_kind": "drill_staff",
+       "created_at": "2026-11-23 01:30:02.886410+00:00",
+       "decided_at": "2026-11-23 01:33:35.925375+00:00"
+      }
      },
      {
       "approval_id": "ec99648f-e0ad-4c32-b0ee-02bfde2d8e8a",
       "execution": "ec99648f",
       "execution_status": "SUCCEEDED",
       "started": "2026-11-23T08:33:29.564000+05:30",
-      "category": null,
-      "verdict": "UNRESOLVED",
+      "category": "A",
+      "verdict": "ATTRIBUTED",
       "reasons": [
-       "no approval record is visible for this execution under the pilot facility scope"
+       "Step 6 drill request (SYN-STEP6-*)"
       ],
-      "record": null
+      "record": {
+       "kind": "STANDARD",
+       "facility_id": "FAC-JAI-01",
+       "shipment_id": "SYN-STEP6-SHP-ECCDE8C2",
+       "appointment_id": "APT-c6d413ef2ee04638b824b8bb042bae27",
+       "appointment_status": "REJECTED",
+       "status": "REJECTED",
+       "decided_by_type": "HUMAN",
+       "decider_kind": "drill_staff",
+       "created_at": "2026-11-23 01:30:15.040252+00:00",
+       "decided_at": "2026-11-23 01:33:39.346492+00:00"
+      }
      }
     ],
     "attribution_summary": {
-     "A": [],
-     "B": [],
-     "C": [],
-     "unresolved": [
-      "29ffac03",
+     "A": [
       "2c6b6e0f",
       "68340642",
-      "73cac501",
-      "87915a37",
       "d1836d8e",
       "e0a3c0bb",
       "ec99648f",
       "f0f94898"
      ],
-     "failed": []
+     "B": [
+      "73cac501",
+      "e95e30a0"
+     ],
+     "C": [
+      "87915a37"
+     ],
+     "unresolved": [],
+     "failed": [
+      "29ffac03"
+     ]
     },
     "fresh_smoke": null,
     "activation_facts": {
@@ -761,8 +973,61 @@
      "live_definition_sha256": "d5d970c03393afa647027e6f43c5c37dbfcb46cea9731b4b3b9b67181c45f908",
      "repo_definition_sha256": "d5d970c03393afa647027e6f43c5c37dbfcb46cea9731b4b3b9b67181c45f908"
     },
-    "executions_total": 9,
-    "record_access_blocker": "approval records could not be read through approval_execution_evidence: DataApiUndefinedFunction: DatabaseErrorException: ERROR: function setuhaul.approval_execution_evidence(uuid[]) does not exist; Hint: No function matches the given name and argument types"
+    "executions_total": 10,
+    "api_log_corroboration": {
+     "87915a37-918e-46b5-8872-8ecaa4fc7a24": {
+      "status": "verified",
+      "request_ids": [
+       "6407a1f4-5b36-4eaf-ae4d-23911681b0ee",
+       "83406c27-06b3-4650-840d-1c0213fd9591",
+       "97b4ae4f-91d1-4b30-9697-b5ba3a8f86e4",
+       "a7b5a55b-4ea9-41ef-9f0c-6c5b8117a05b",
+       "ae00ca17-2426-4ff7-8fbc-31a5020f0a7c"
+      ],
+      "log_group": "SetuHaulPilot-LogsApi160DC9DD-lJdhKCUhs6Vv",
+      "events": [
+       {
+        "request_id": "6407a1f4-5b36-4eaf-ae4d-23911681b0ee",
+        "timestamp_ms": 1795421482189,
+        "line": "POST /console/requests/APT-2dc6e787f98848e8902afa8b4b173f7b/decision 500"
+       },
+       {
+        "request_id": "a7b5a55b-4ea9-41ef-9f0c-6c5b8117a05b",
+        "timestamp_ms": 1795421485814,
+        "line": "POST /console/requests/APT-2dc6e787f98848e8902afa8b4b173f7b/decision 500"
+       },
+       {
+        "request_id": "97b4ae4f-91d1-4b30-9697-b5ba3a8f86e4",
+        "timestamp_ms": 1795421504173,
+        "line": "POST /console/requests/APT-2dc6e787f98848e8902afa8b4b173f7b/decision 500"
+       },
+       {
+        "request_id": "ae00ca17-2426-4ff7-8fbc-31a5020f0a7c",
+        "timestamp_ms": 1795421521524,
+        "line": "POST /console/requests/APT-2dc6e787f98848e8902afa8b4b173f7b/decision 500"
+       },
+       {
+        "request_id": "83406c27-06b3-4650-840d-1c0213fd9591",
+        "timestamp_ms": 1795421539362,
+        "line": "POST /console/requests/APT-2dc6e787f98848e8902afa8b4b173f7b/decision 500"
+       }
+      ]
+     },
+     "29ffac03-d8bd-4dac-b35c-66b0f8ebf24b": {
+      "status": "verified",
+      "request_ids": [
+       "882b6fca-28c1-4ae3-b960-e38f78613aef"
+      ],
+      "log_group": "SetuHaulPilot-LogsApi160DC9DD-lJdhKCUhs6Vv",
+      "events": [
+       {
+        "request_id": "882b6fca-28c1-4ae3-b960-e38f78613aef",
+        "timestamp_ms": 1795422990188,
+        "line": "POST /console/requests/APT-89027b09ab6449d1acdd5a51c6549bc5/decision 200"
+       }
+      ]
+     }
+    }
    }
   },
   "OUTBOUND_DELIVERY": {
@@ -780,9 +1045,9 @@
  },
  "mode": "renewal",
  "environment": "pilot-ap-southeast-2",
- "release_sha": "1d304f874e4f4443fc565f010050a055528c930b",
- "approval_ref": "OWNER-APPROVAL-20261124-OPTION-P",
- "artifact_sha256": "234c266b42b394825d876ec3227c21189b94478d65de8413542afe93d02d13cb",
+ "release_sha": "21b25cc009b8fa8feda392df795450ad9e725231",
+ "approval_ref": "OWNER-APPROVAL-20261124-RECOVERY-A",
+ "artifact_sha256": "a17e74df1203b60b7a1dd893d4ec434fe9b5c4111be308700692c1d91100d5f4",
  "expected_kill_switch": "disengaged",
  "approved_exceptions": [
   "AURORA (T33-P)",
