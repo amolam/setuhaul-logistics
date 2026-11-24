@@ -1,0 +1,99 @@
+# M2: independent deployment attestation (design only)
+
+Status: **design for review. Not implemented.** It remediates finding M2 of the PR #6 LLD review (24 Nov 2026). Some steps
+use paid AWS resources (Secrets Manager secrets) and IAM changes, so building it needs owner approval.
+
+## 1. The gap
+
+0030 decides on the deployment the **caller declares** (`app.environment`, `app.deployment_id`, `app.code_sha256`, set
+by `setuhaul/api/db.py` and `setuhaul/aws/data_api.py`). The guard defeats:
+* stale containers;
+* superseded deployments;
+* partly updated deployments;
+* rollbacks without fresh evidence;
+* expired evidence.
+
+Each of those names a deployment or code that isn't the newest. It **does not** defeat a process that holds a booking
+role's database credentials and *chooses* to declare the newest values: an old container patched to lie, or a script
+using the shared Data API secret. A self-reported declaration is a claim, not verification. This document doesn't treat it as attestation.
+
+## 2. Requirement
+
+The database must be able to tell **which deployment is calling** from something the caller cannot set:
+* the authenticated login (`session_user`, fixed at authentication; `SET ROLE` changes only `current_user`);
+* bound by the pipeline, an identity independent of the running code, to the deployment recorded in
+  `deployment_manifests`;
+* with the previous deployment's identity revoked at cutover.
+
+## 3. Options
+
+| | Mechanism | Independent of the caller? | Verdict |
+|---|---|---|---|
+| A | **Per-deployment database login**, reachable only through a per-deployment IAM execution role | yes: login is authenticated; role is attached to the Lambda version by the pipeline | **recommended** |
+| B | Pipeline-signed attestation token (KMS) the process presents | no: a bearer token; any holder can replay it | rejected alone |
+| C | Database calls AWS to check the caller | not possible from Aurora without extensions and network egress; adds a runtime dependency | rejected |
+| D | Shorter credential rotation only | narrows the window, but an old container still holds valid creds until rotation | partial; complements A |
+
+## 4. Recommended design (A)
+
+1. **Per deployment, the pipeline creates:**
+   * a database login `setuhaul_dep_<12 hex of deployment id>`: `LOGIN`, `NOINHERIT`, a member of exactly the booking
+     roles that function needs (`setuhaul_agent` or `setuhaul_console`, …), so the existing `SET LOCAL ROLE` model is
+     unchanged;
+   * a Secrets Manager secret for it;
+   * an IAM execution role whose policy allows `secretsmanager:GetSecretValue` on **that secret only** and
+     `rds-data:*` on the cluster. Its trust policy allows only `lambda.amazonaws.com` with `aws:SourceAccount` and
+     `aws:SourceArn` pinned to the function.
+2. **Binding recorded independently:** the manifest (already written by the pipeline login, never by the service)
+   gains `db_login` per function. The pipeline, not the running code, writes it.
+3. **Lambda versions:** a published Lambda version snapshots its configuration, including the execution role, so
+   version N+1 runs as role N+1, and only that role can read secret N+1.
+4. **Database rule (extends 0030's verdict):** a commitment is authorized only if `session_user` equals a `db_login`
+   of the **newest** manifest for the declared environment. The declaration stays (useful for logs and correlation)
+   but is no longer trusted on its own. A login that isn't bound to the newest manifest is refused even when its
+   declaration is "correct".
+5. **Cutover revocation (pipeline, after N+1's evidence is recorded):**
+   * `ALTER ROLE setuhaul_dep_<N> NOLOGIN`, which refuses new connections;
+   * `pg_terminate_backend` for its sessions;
+   * delete or deny role N's access to secret N;
+   * revoke role N's older IAM sessions, using a deny with an `aws:TokenIssueTime` condition.
+   
+   Old containers then fail closed at authentication, and the 0030 guard already refuses them at the commitment.
+6. **The shared secret** used today by the booking functions is retired for booking roles. Operational jobs
+   (system, ingest, feasibility) keep their own logins; they never make booking commitments (no DML on the guarded
+   tables).
+
+## 5. What it still does not cover (residual)
+
+* Someone able to assume role N+1 or read secret N+1 (an AWS admin) can impersonate N+1. That is the AWS account trust
+  boundary, mitigated by CloudTrail alerts on `GetSecretValue` from principals other than the Lambda service.
+* Code integrity of N+1 itself rests on the pipeline (artifact hash in the manifest). **AWS Lambda code signing**
+  (Signer profile, `CodeSigningConfig` with `Enforce`) is the complementary control so only pipeline-signed artifacts
+  can be deployed.
+* The RDS Data API's connection handling for a login that becomes `NOLOGIN` mid-flight must be verified in the pilot
+  before relying on step 5's immediacy. Until then, rely on the 0030 newest-manifest rule, which already refuses an old
+  deployment's commitments.
+
+## 6. Cost and approvals
+
+Secrets Manager charges per secret per month and per API call; IAM and Lambda versions are free. One secret per
+function per live deployment (old ones deleted at cutover) keeps it to a few secrets. This is still a **paid** change:
+owner approval required. Role and login creation also changes the IAM and database privilege model: owner approval
+required.
+
+## 7. Tests required before review
+
+* A login not bound to the newest manifest is refused, even with a correct declaration.
+* The bound login with a wrong declaration is refused (the declaration must still match).
+* After cutover, the old login is NOLOGIN, cannot connect, and its in-flight commitment is refused.
+* `SET ROLE` cannot change `session_user`.
+* No application role can create logins or write `db_login`.
+* Each function's IAM role can read only its own secret (policy unit test on the synthesized template).
+* Data API emulator parity for `session_user`.
+
+## 8. Relation to Option P
+
+P's window (≤ 2 h) is exactly when attestation matters most: unsmoked code books. With A, only the N+1 login, which the pipeline
+created for this deployment, can use the window. Without A, the window is bounded by the newest-manifest rule and its
+2 h expiry, but trusts the declaration. **Recommendation:** build A before P's first use, or accept this residual
+explicitly for the synthetic pilot (no real drivers, test sink only).
