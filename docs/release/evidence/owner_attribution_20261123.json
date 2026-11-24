@@ -1,0 +1,78 @@
+{
+ "record": "owner-confirmed attribution of approval-workflow executions (Category C)",
+ "category": "C",
+ "category_meaning": "an owner's own manual console test, attributed by original CloudWatch and Step Functions records plus the owner's explicit confirmation. Distinct from Category B (a release smoke test): never counts as smoke evidence and never satisfies the fresh-smoke requirement.",
+ "environment": "pilot-ap-southeast-2",
+ "state_machine": "setuhaul-pilot-approval",
+ "owner_confirmation": {
+  "confirmed_by": "owner",
+  "confirmed_at_utc": "2026-11-23",
+  "channel": "Claude Code session (Phase G.1 release / booking evidence renewal gate)",
+  "statement": "The owner explicitly confirms personally performing both console Confirm tests on 23 November 2026 and authorizes Category C attribution for exactly 87915a37 (failed manual console test; five HTTP 500 decision POSTs; workflow expired after 249 seconds) and 29ffac03 (successful post-fix manual validation; HTTP 200 decision POST; workflow succeeded after 10 seconds)."
+ },
+ "context": "docs/release/14_OPTION_D_ACTIVATION.md, 'Follow-up fix, same day': the owner's hands-on test found every console Confirm returned HTTP 500 (the api had no feasibility login); fix 8fe6935 was redeployed through activate-booking run 45137914143 (started 2026-11-23T08:21:05Z).",
+ "collected_by": "read-only AWS calls on 2026-11-23: states:GetExecutionHistory, logs:FilterLogEvents. No database read (the owner-secret read was refused by the session's permission check); the database facts below are EXPECTATIONS the renewal gate verifies through approval_execution_evidence (migration 0029).",
+ "executions": [
+  {
+   "approval_id": "87915a37-918e-46b5-8872-8ecaa4fc7a24",
+   "execution_arn": "arn:aws:states:ap-southeast-2:************:execution:setuhaul-pilot-approval:87915a37-918e-46b5-8872-8ecaa4fc7a24",
+   "label": "failed manual console test (pre-fix HTTP 500 defect)",
+   "step_functions": {
+    "input": {"approval_id": "87915a37-918e-46b5-8872-8ecaa4fc7a24", "timeout_s": 249},
+    "started_utc": "2026-11-23T08:11:28Z",
+    "wait_for_decision_entered_utc": "2026-11-23T08:11:29Z",
+    "task_token_submitted_utc": "2026-11-23T08:11:39Z",
+    "wait_for_decision": "TaskTimedOut (States.Timeout) at 2026-11-23T08:15:38Z",
+    "expire_approval": "TaskSucceeded at 2026-11-23T08:15:48Z, payload outcome EXPIRED",
+    "execution_status": "SUCCEEDED",
+    "stopped_utc": "2026-11-23T08:15:48Z"
+   },
+   "cloudwatch": {
+    "log_group": "SetuHaulPilot-LogsApi160DC9DD-lJdhKCUhs6Vv",
+    "requests": [
+     {"t_utc": "2026-11-23T08:11:22.189Z", "request_id": "6407a1f4-5b36-4eaf-ae4d-23911681b0ee", "line": "POST /console/requests/APT-2dc6e787f98848e8902afa8b4b173f7b/decision 500"},
+     {"t_utc": "2026-11-23T08:11:25.813Z", "request_id": "a7b5a55b-4ea9-41ef-9f0c-6c5b8117a05b", "line": "POST /console/requests/APT-2dc6e787f98848e8902afa8b4b173f7b/decision 500"},
+     {"t_utc": "2026-11-23T08:11:44.173Z", "request_id": "97b4ae4f-91d1-4b30-9697-b5ba3a8f86e4", "line": "POST /console/requests/APT-2dc6e787f98848e8902afa8b4b173f7b/decision 500"},
+     {"t_utc": "2026-11-23T08:12:01.524Z", "request_id": "ae00ca17-2426-4ff7-8fbc-31a5020f0a7c", "line": "POST /console/requests/APT-2dc6e787f98848e8902afa8b4b173f7b/decision 500"},
+     {"t_utc": "2026-11-23T08:12:19.362Z", "request_id": "83406c27-06b3-4650-840d-1c0213fd9591", "line": "POST /console/requests/APT-2dc6e787f98848e8902afa8b4b173f7b/decision 500"}
+    ],
+    "http_outcome": "five decision POSTs, each HTTP 500; no decision recorded"
+   },
+   "expected_record": {
+    "appointment_id": "APT-2dc6e787f98848e8902afa8b4b173f7b",
+    "approval_status": ["EXPIRED"],
+    "decided_by_type": ["SYSTEM"],
+    "decider_kind": "system",
+    "decided_between_utc": ["2026-11-23T08:15:30Z", "2026-11-23T08:16:00Z"],
+    "appointment_not_in": ["CONFIRMED", "PENDING_CONFIRMATION"]
+   }
+  },
+  {
+   "approval_id": "29ffac03-d8bd-4dac-b35c-66b0f8ebf24b",
+   "execution_arn": "arn:aws:states:ap-southeast-2:************:execution:setuhaul-pilot-approval:29ffac03-d8bd-4dac-b35c-66b0f8ebf24b",
+   "label": "successful post-fix manual validation",
+   "step_functions": {
+    "input": {"approval_id": "29ffac03-d8bd-4dac-b35c-66b0f8ebf24b", "timeout_s": 286},
+    "started_utc": "2026-11-23T08:36:29Z",
+    "wait_for_decision": "TaskSucceeded at 2026-11-23T08:36:39Z",
+    "execution_status": "SUCCEEDED",
+    "stopped_utc": "2026-11-23T08:36:39Z"
+   },
+   "cloudwatch": {
+    "log_group": "SetuHaulPilot-LogsApi160DC9DD-lJdhKCUhs6Vv",
+    "requests": [
+     {"t_utc": "2026-11-23T08:36:30.188Z", "request_id": "882b6fca-28c1-4ae3-b960-e38f78613aef", "line": "POST /console/requests/APT-89027b09ab6449d1acdd5a51c6549bc5/decision 200"}
+    ],
+    "http_outcome": "one decision POST, HTTP 200"
+   },
+   "expected_record": {
+    "appointment_id": "APT-89027b09ab6449d1acdd5a51c6549bc5",
+    "approval_status": ["APPROVED", "REJECTED"],
+    "decided_by_type": ["HUMAN"],
+    "decider_kind": "console_user",
+    "decided_between_utc": ["2026-11-23T08:36:20Z", "2026-11-23T08:36:45Z"],
+    "appointment_not_in": ["PENDING_CONFIRMATION"]
+   }
+  }
+ ]
+}

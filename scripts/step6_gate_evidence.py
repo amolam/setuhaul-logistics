@@ -65,6 +65,7 @@ def functions(res):
                                            "db_roles": sorted(json.loads(env.get("SETUHAUL_DB_SECRET_ARNS", "{}"))),
                                            "secret_arns": json.loads(env.get("SETUHAUL_DB_SECRET_ARNS", "{}")),
                                            "booking": env.get("SETUHAUL_BOOKING_ENABLED"),
+                                           "data_class": env.get("SETUHAUL_DATA_CLASS"), "env": env.get("SETUHAUL_ENV"),
                                            "code_sha256": cfg.get("CodeSha256"), "arn": cfg["FunctionArn"],
                                            "log_group": cfg.get("LoggingConfig", {}).get("LogGroup")
                                            or f"/aws/lambda/{cfg['FunctionName']}"}
@@ -232,7 +233,9 @@ def gate_recovery(out, fns, res):
     return ev, checks, missing
 
 
-def gate_workflow(out, fns, res):
+def gate_workflow(out, fns, res, with_drill_ids: bool = True):
+    """with_drill_ids=False (renewal): skip the owner-session read of drill ids; renewal reads records only through
+    approval_execution_evidence (0029) and judges attribution itself."""
     sfn = c("stepfunctions")
     sm = next(r["PhysicalResourceId"] for r in res if r["ResourceType"] == "AWS::StepFunctions::StateMachine")
     alias = next((r["PhysicalResourceId"] for r in res if r["ResourceType"] == "AWS::StepFunctions::StateMachineAlias"), None)
@@ -251,10 +254,12 @@ def gate_workflow(out, fns, res):
     repo_def = json.loads(text) if text is not None else None
     live_def = json.loads(vd.get("definition") or d["definition"])
     execs = sfn.list_executions(stateMachineArn=sm, maxResults=100)["executions"]
-    owner = OwnerSession(c("rds-data"), out["ClusterArn"], out["OwnerSecretArn"])
-    drill_ids = {r[0] for r in owner.query(
-        "SELECT approval_id::text FROM setuhaul.approval_requests WHERE shipment_id LIKE 'SYN-STEP6-%'",
-        ("SELECT set_config('app.facility_scope','FAC-JAI-01,FAC-GGN-01',true)",))}
+    drill_ids: set = set()
+    if with_drill_ids:
+        owner = OwnerSession(c("rds-data"), out["ClusterArn"], out["OwnerSecretArn"])
+        drill_ids = {r[0] for r in owner.query(
+            "SELECT approval_id::text FROM setuhaul.approval_requests WHERE shipment_id LIKE 'SYN-STEP6-%'",
+            ("SELECT set_config('app.facility_scope','FAC-JAI-01,FAC-GGN-01',true)",))}
     ev = {"state_machine": sm.rsplit(":", 1)[-1], "type": d.get("type"), "alias_routes_to_version": ver and ver.rsplit(":", 1)[-1],
           "logging": d.get("loggingConfiguration", {}).get("level"), "tracing": d.get("tracingConfiguration", {}).get("enabled"),
           "live_definition_sha256": sha(json.dumps(live_def, sort_keys=True).encode()),
@@ -431,10 +436,117 @@ def status(checks, missing, blocked=False):
     return "PARTIAL" if missing else "PASS"
 
 
+EVIDENCE = ROOT / "docs" / "release" / "evidence"
+ACTIVATION_ONLY = ("every execution is an owner-approved Step 6 drill request (SYN-STEP6-*)",
+                   "booking switch false on every function")
+
+
+def all_executions(sfn_arn: str) -> list[dict]:
+    """Every execution of the approval state machine (paginated): renewal attributes all of them, not the first 100."""
+    sfn, execs, token = c("stepfunctions"), [], None
+    while True:
+        page = sfn.list_executions(stateMachineArn=sfn_arn, maxResults=100, **({"nextToken": token} if token else {}))
+        execs += [{"name": e["name"], "status": e["status"], "start": e["startDate"].isoformat(),
+                   "stop": e.get("stopDate") and e["stopDate"].isoformat(), "arn": MASK.sub("************", e["executionArn"])}
+                  for e in page["executions"]]
+        token = page.get("nextToken")
+        if not token:
+            return execs
+
+
+def evidence_records(out: dict, approval_ids: list[str]) -> tuple[dict[str, dict], str | None]:
+    """The approval records behind the executions, through approval_execution_evidence (migration 0029) as the
+    pipeline's evidence identity: READ ONLY transaction, facility scope = the two pilot facilities, rolled back. RLS still
+    applies. No owner session and no table read. Returns (records, blocker)."""
+    from setuhaul.aws.data_api import Connection, begin_with_resume
+    from setuhaul.ops.renewal import PILOT_FACILITIES
+    secret = json.loads(out["LoginSecretArns"]).get("deploy_evidence")
+    if not secret:
+        return {}, "the stack has no deploy_evidence login secret"
+    rds = c("rds-data")
+    kw = {"resourceArn": out["ClusterArn"], "secretArn": secret, "database": "setuhaul"}
+    cols = ("approval_id", "kind", "facility_id", "shipment_id", "shipment_is_synthetic", "appointment_id",
+            "appointment_status", "status", "decided_by_type", "decided_by_role", "decider_kind", "outcome_reason",
+            "created_at", "decided_at", "expires_at", "task_token_recorded")
+    rows: dict[str, dict] = {}
+    tid = begin_with_resume(rds, kw, 120)
+    try:
+        conn = Connection(rds, out["ClusterArn"], secret, "setuhaul", tid)
+        conn.execute("SET TRANSACTION READ ONLY")
+        conn.execute("SELECT set_config('role', 'setuhaul_deploy_evidence', true), "
+                     "set_config('app.facility_scope', %s, true)", (",".join(PILOT_FACILITIES),))
+        for i in range(0, len(approval_ids), 200):
+            batch = approval_ids[i:i + 200]
+            for r in conn.execute("SELECT * FROM setuhaul.approval_execution_evidence(%s::uuid[])",
+                                  ("{" + ",".join(batch) + "}",)).fetchall():
+                d = dict(zip(cols, r))
+                rows[str(d["approval_id"])] = d
+    except Exception as e:                                       # noqa: BLE001 — reported; the gate then cannot pass
+        return {}, f"approval records could not be read through approval_execution_evidence: {type(e).__name__}: {str(e)[:160]}"
+    finally:
+        try:
+            rds.rollback_transaction(resourceArn=kw["resourceArn"], secretArn=secret, transactionId=tid)
+        except Exception:                                        # noqa: BLE001
+            pass
+    return rows, None
+
+
+def smoke_records() -> list[dict]:
+    """Every committed smoke record: the 23 Nov Option D smoke and the renewal-format runs under evidence/smoke/."""
+    files = [EVIDENCE / "option_d_smoke.json", *sorted((EVIDENCE / "smoke").glob("*.json"))]
+    return [json.loads(f.read_text(encoding="utf-8")) for f in files if f.exists()]
+
+
+def renewal_gate(out, fns, res, approval_ref: str, release_sha: str, fresh_smoke: dict | None,
+                 expected_kill_switch: str) -> tuple[dict, str | None]:
+    """BOOKING_WORKFLOW in renewal mode (setuhaul/ops/renewal.py judges; this function only reads)."""
+    import httpx
+    from setuhaul.ops import renewal as R
+    ev_act, ch_act, _ = gate_workflow(out, fns, res, with_drill_ids=False)   # activation facts: definition, alias, failures
+    base = {k: ok for k, ok in ch_act.items() if k not in ACTIVATION_ONLY and k in (
+        "live alias 'live' routes 100% to one published version", "published definition equals the repository ASL",
+        "no execution has failed")}
+    health = httpx.get(out["ApiUrl"].rstrip("/") + "/health", timeout=40).json()
+    by_name = {f["name"]: f for f in fns.values()}
+    config = R.check_booking_config(by_name, health, out.get("BookingMode"), approval_ref, expected_kill_switch)
+    shas = {R.code_sha256_hex(by_name[n]["code_sha256"]) for n in R.EXPECTED_BOOKING_ON if n in by_name}
+    artifact = shas.pop() if len(shas) == 1 else None
+    sm = next(r["PhysicalResourceId"] for r in res if r["ResourceType"] == "AWS::StepFunctions::StateMachine")
+    execs = all_executions(sm)
+    records, blocker = evidence_records(out, [e["name"] for e in execs])
+    smokes = smoke_records()
+    if fresh_smoke and not any(s.get("smoke_id") == fresh_smoke.get("smoke_id") for s in smokes):
+        smokes.append(fresh_smoke)
+    owner_file = EVIDENCE / "owner_attribution_20261123.json"
+    owner = json.loads(owner_file.read_text(encoding="utf-8")) if owner_file.exists() else None
+    attribution = R.attribute_executions(execs, records, smokes, owner)
+    now = datetime.now(timezone.utc)
+    smoke = R.fresh_smoke_checks(fresh_smoke, release_sha, artifact, now)
+    g = R.booking_workflow_renewal(base, config, attribution, smoke, fresh_smoke)
+    g["evidence"]["activation_facts"] = {k: ev_act.get(k) for k in ("state_machine", "alias_routes_to_version",
+                                                                      "live_definition_sha256", "repo_definition_sha256")}
+    g["evidence"]["executions_total"] = len(execs)
+    if blocker:
+        g["diagnostics"].insert(0, f"BOOKING_WORKFLOW: {g['status']} — {blocker}")
+        g["evidence"]["record_access_blocker"] = blocker
+    return g, artifact
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--out", default=str(ROOT / "docs" / "release" / "evidence" / "step6_gates.json"))
+    ap.add_argument("--mode", choices=("activation", "renewal"), default="activation",
+                    help="activation (default, unchanged): the pre-activation acceptance, booking OFF. renewal: an "
+                         "active pilot, booking ON (docs/booking-renewal/RENEWAL_GATE_DESIGN.md)")
+    ap.add_argument("--out", default=None)
+    ap.add_argument("--approval-ref", help="renewal: the owner's approval reference OWNER-APPROVAL-YYYYMMDD-<ref>")
+    ap.add_argument("--release-sha", help="renewal: the git commit the pilot runs (40 hex)")
+    ap.add_argument("--smoke", help="renewal: the fresh smoke record (scripts/smoke_option_d.py --release-sha ...)")
+    ap.add_argument("--expected-kill-switch", default="disengaged", choices=("disengaged", "ENGAGED"))
     a = ap.parse_args()
+    if a.mode == "renewal":
+        if not (a.approval_ref and a.release_sha and re.fullmatch(r"[0-9a-f]{40}", a.release_sha)):
+            raise SystemExit("renewal needs --approval-ref and --release-sha (40 hex); --smoke is checked by the gate")
+    a.out = a.out or str(EVIDENCE / ("renewal_gates.json" if a.mode == "renewal" else "step6_gates.json"))
     out, res = stack()
     fns = functions(res)
     stmts = {k: role_statements(f["role"]) for k, f in fns.items()}
@@ -449,9 +561,15 @@ def main() -> int:
     gates["AWS_QUEUE"] = {"evidence": ev, "checks": ch, "not_shown": mi, "status": status(ch, mi)}
     ev, ch, mi = gate_recovery(out, fns, res)
     gates["RECOVERY_WORKER"] = {"evidence": ev, "checks": ch, "not_shown": mi, "status": status(ch, mi)}
-    ev, ch, mi = gate_workflow(out, fns, res)
-    gates["BOOKING_WORKFLOW"] = {"evidence": ev, "checks": ch, "not_shown": mi,
-                                 "status": status(ch, mi, blocked=not ({"approval_drill", "approval_drill_2"} & set(ev)))}
+    artifact = None
+    if a.mode == "renewal":
+        fresh = json.loads(Path(a.smoke).read_text(encoding="utf-8")) if a.smoke else None
+        gates["BOOKING_WORKFLOW"], artifact = renewal_gate(out, fns, res, a.approval_ref, a.release_sha, fresh,
+                                                           a.expected_kill_switch)
+    else:
+        ev, ch, mi = gate_workflow(out, fns, res)
+        gates["BOOKING_WORKFLOW"] = {"evidence": ev, "checks": ch, "not_shown": mi,
+                                     "status": status(ch, mi, blocked=not ({"approval_drill", "approval_drill_2"} & set(ev)))}
     gates["OUTBOUND_DELIVERY"] = {
         "evidence": {"sender": "internal test sink (SETUHAUL_OUTBOUND=test-sink); WhatsApp never enabled",
                      "see": "docs/release/evidence/option_a.json (A3/A4: delivered to the sink; reserved number refused)"},
@@ -460,10 +578,22 @@ def main() -> int:
                       "gate) and a real permitted test delivery; real WhatsApp stays disabled until the owner provides them"]}
     report = {"collected_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"), "stack": STACK,
               "region": REGION, "booking_enabled": False, "deployment_evidence_rows_written": 0, "gates": gates}
+    if a.mode == "renewal":
+        from setuhaul.ops.renewal import ENVIRONMENT, renewal_status
+        for gname, gv in gates.items():
+            gv["renewal_status"] = renewal_status(gname, gv)
+        report.update({"mode": "renewal", "booking_enabled": True, "environment": ENVIRONMENT,
+                       "release_sha": a.release_sha, "approval_ref": a.approval_ref, "artifact_sha256": artifact,
+                       "expected_kill_switch": a.expected_kill_switch,
+                       "approved_exceptions": ["AURORA (T33-P)", "WORKLOAD_IDENTITY (NO-LIVE-DRIFT-DETECTION)",
+                                               "OUTBOUND_DELIVERY (META-DEFERRED-TEST-SINK-ONLY)"]})
     text = MASK.sub("************", json.dumps(report, indent=1, default=str))
     Path(a.out).write_text(text + "\n", encoding="utf-8")
     for g, v in gates.items():
-        print(f"{g:18} {v['status']:8} " + "; ".join(f"{'ok' if ok else 'NO'}: {k}" for k, ok in v["checks"].items()))
+        print(f"{g:18} {v.get('renewal_status', v['status']):8} "
+              + "; ".join(f"{'ok' if ok else 'NO'}: {k}" for k, ok in v["checks"].items()))
+        for d in v.get("diagnostics", []):
+            print("    " + d)
     return 0
 
 
