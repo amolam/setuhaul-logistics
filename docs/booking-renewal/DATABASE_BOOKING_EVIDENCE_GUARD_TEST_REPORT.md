@@ -100,3 +100,37 @@ SETUHAUL_TEST_DATA_API=1 python -m pytest -q <ci.yml list>      # Data API backe
 See the design, §13: the self-declared deployment identity (a trust boundary unchanged from today); fingerprints checked
 at start-up only; the gate list repeated in SQL (pinned); a fresh environment starts OFF until the owner enables it; the
 live pilot isn't exercised (not deployed by design).
+
+## 7. Review update (PR #6 feedback, 24 Nov 2026)
+
+### 7.1 Changes
+* **Production detection is case-insensitive, and environment classification is strict.** The new
+  `booking_environment_class` makes any name containing "prod" in any letter case production; anything else that isn't
+  canonical (`^[a-z0-9-]{2,32}$`) is invalid. It's used by both `booking_evidence_verdict` (`PRODUCTION_DISABLED` /
+  `ENVIRONMENT_INVALID`) and `booking_exception_current`. The pilot-exception restrictions are unchanged (pilot only,
+  the 3 pairs, T33-P only on 17.x).
+* **Startup declaration log line** (api and agent), for the rollout verification.
+* **Runbook:** `DATABASE_BOOKING_EVIDENCE_GUARD_RUNBOOK.md`.
+* No Data API code changed in this update.
+
+### 7.2 New tests (all with otherwise-valid evidence where the scenario allows)
+| Test | Cases |
+|---|---|
+| `test_production_in_any_letter_case_is_refused_even_with_otherwise_valid_evidence` | 14: `prod`, `production`, `PROD`, `Prod`, `Production`, `PRODUCTION`, `pRoD`, `ProDuction`, `prod-ap-south-1`, `Prod-AP-South-1`, `my-production`, `my-PRODUCTION-2`, `preprod`, `pilot-prod`. Complete PASS evidence is recorded for the lower-case name (the evidence tables accept nothing else), and the declared name is refused `PRODUCTION_DISABLED`. A mixed-case manifest is refused by the table CHECK; no exception can be recorded for any of them; `booking_exception_current` is false for each |
+| `test_the_environment_classification_is_strict` | 11 names → production / pilot / other / invalid |
+| `test_a_non_canonical_environment_is_refused_even_with_valid_evidence_for_its_twin` | 3: `Test-Env`, `PILOT-AP-SOUTHEAST-2`, `Pilot-ap-southeast-2` → `ENVIRONMENT_INVALID`, while the canonical twin books |
+| `test_a_guard_refusal_reaches_the_driver_and_the_planner_like_a_kill_switch_refusal` | the agent's tool status and the console code for a guard refusal |
+| `test_the_app_declares_the_deployment_its_start_up_check_accepted` (extended) | the exact startup log line |
+
+Guard tests: **68** (39 before review + 29).
+
+### 7.3 Results
+| Run | Where | PostgreSQL | Result |
+|---|---|---|---|
+| guard + security pins + kill switch + booking switch + migrations (targeted) | local | 18.6 | 127 passed |
+| full regression | local | 18.6 | **1379 passed, 0 failed, 2 skipped** (26 min 51 s; = 1350 + the 29 review tests; pre-existing skips) |
+| GitHub CI run [45334016050](https://github.com/amolam/setuhaul-logistics/actions/runs/45334016050) on `e68f3b6` (before review) | GitHub Actions | **17.9** (`postgres:17.9`) | `test`: **1351 passed, 1 skipped** (full suite, incl. the 39 guard tests and the T33-P path on 17.9) + Data API step **559 passed**; `synth` passed; `deploy` skipped |
+| GitHub CI on the review commit | GitHub Actions | 17.9 | «CI2» |
+
+Local and CI results are kept separate. The T33-P exception rule is exercised on PostgreSQL 17.9 only in CI
+(`test_t33p_is_accepted_only_on_postgresql_17` and the pilot positive test take the 17.x branch there).

@@ -220,6 +220,9 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
         # commitment (newest manifest, same code, current evidence), so a warm container cannot outlive its evidence
         db.deployment = {"environment": settings.environment, "deployment_id": deployment_id_for(manifest),
                          "code_sha256": own_code or manifest["gates"]["RECOVERY_WORKER"]["artifact_sha256"]}
+        # one line per container start (api and agent), so the rollout can verify what each function declares
+        log.info("booking evidence guard: this process declares environment=%s deployment=%s code=%s",
+                 db.deployment["environment"], db.deployment["deployment_id"], db.deployment["code_sha256"][:12])
     relay = InboundRelay(svc, inbound, sessions)
     app.state.service, app.state.sessions, app.state.inbound, app.state.relay = svc, sessions, inbound, relay
 

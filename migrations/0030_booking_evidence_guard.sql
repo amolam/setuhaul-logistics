@@ -77,8 +77,21 @@ RETURNS boolean LANGUAGE sql IMMUTABLE SET search_path = setuhaul, pg_catalog, p
      AND p_verified_at >= p_manifest_recorded_at
 $$;
 
--- Is one owner-approved exception current at time t for this environment? Its own scope only: never production, only
--- a pilot environment, a well-formed owner approval, and T33-P only on PostgreSQL 17.9–17.x. The (gate, code) pairs
+-- Strict environment classification, case-insensitive for production: 'production' if the name contains "prod" in ANY
+-- letter case (PROD, Prod, Production, pRoD-…); 'invalid' if it is not the canonical lower-case form the evidence
+-- tables accept ('^[a-z0-9-]{2,32}$'); 'pilot' for a canonical name starting with "pilot"; otherwise 'other'.
+-- Production is checked first, so no spelling of it can ever be classified as anything else.
+CREATE FUNCTION booking_environment_class(p_environment text) RETURNS text LANGUAGE sql IMMUTABLE
+  SET search_path = setuhaul, pg_catalog, pg_temp AS $$
+  SELECT CASE WHEN p_environment IS NULL THEN 'invalid'
+              WHEN p_environment ~* 'prod' THEN 'production'
+              WHEN p_environment !~ '^[a-z0-9-]{2,32}$' THEN 'invalid'
+              WHEN p_environment ~ '^pilot' THEN 'pilot'
+              ELSE 'other' END
+$$;
+
+-- Is one owner-approved exception current at time t for this environment? Its own scope only: never production (in
+-- any letter case), only a canonical pilot environment, a well-formed owner approval, and T33-P only on PostgreSQL 17.9–17.x. The (gate, code) pairs
 -- are already limited by deployment_exceptions' CHECK; the fingerprint is the start-up check's (it reads live AWS).
 CREATE FUNCTION booking_exception_current(p_environment text, p_gate text, p_code text, p_approval text,
                                           p_recorded_at timestamptz, p_expires_at timestamptz,
@@ -86,7 +99,7 @@ CREATE FUNCTION booking_exception_current(p_environment text, p_gate text, p_cod
 RETURNS boolean LANGUAGE sql STABLE SET search_path = setuhaul, pg_catalog, pg_temp AS $$
   SELECT p_expires_at > p_at
      AND p_recorded_at >= p_manifest_recorded_at
-     AND p_environment !~ 'prod' AND p_environment ~ '^pilot'
+     AND booking_environment_class(p_environment) = 'pilot'
      AND coalesce(p_approval, '') ~ '^OWNER-APPROVAL-20[0-9]{6}-[A-Za-z0-9-]{3,40}$'
      AND (p_gate, p_code) IN (('AURORA', 'T33-P'), ('WORKLOAD_IDENTITY', 'NO-LIVE-DRIFT-DETECTION'),
                               ('OUTBOUND_DELIVERY', 'META-DEFERRED-TEST-SINK-ONLY'))
@@ -104,8 +117,11 @@ BEGIN
   IF p_environment IS NULL OR p_deployment IS NULL OR p_code IS NULL THEN
     RETURN 'DEPLOYMENT_UNDECLARED: the transaction does not name its environment, deployment and code';
   END IF;
-  IF p_environment ~ 'prod' THEN
+  IF booking_environment_class(p_environment) = 'production' THEN
     RETURN 'PRODUCTION_DISABLED: no booking commitment is authorized for a production environment';
+  END IF;
+  IF booking_environment_class(p_environment) = 'invalid' THEN
+    RETURN 'ENVIRONMENT_INVALID: the declared environment is not a canonical environment name';
   END IF;
   SELECT deployment_id, artifact_sha256, recorded_at INTO m
     FROM deployment_manifests WHERE environment = p_environment ORDER BY manifest_id DESC LIMIT 1;
@@ -222,11 +238,13 @@ CREATE TRIGGER deployment_manifests_lock BEFORE INSERT ON deployment_manifests
 ALTER FUNCTION booking_evidence_verdict(text, text, text, timestamptz) OWNER TO setuhaul_rpc;
 ALTER FUNCTION trg_require_booking_evidence() OWNER TO setuhaul_rpc;
 GRANT SELECT ON booking_evidence_guard TO setuhaul_rpc;
-GRANT EXECUTE ON FUNCTION booking_evidence_current(text, timestamptz, timestamptz, timestamptz, timestamptz),
+GRANT EXECUTE ON FUNCTION booking_environment_class(text),
+                          booking_evidence_current(text, timestamptz, timestamptz, timestamptz, timestamptz),
                           booking_exception_current(text, text, text, text, timestamptz, timestamptz, timestamptz,
                                                     timestamptz)
   TO setuhaul_rpc;
-REVOKE EXECUTE ON FUNCTION booking_evidence_current(text, timestamptz, timestamptz, timestamptz, timestamptz),
+REVOKE EXECUTE ON FUNCTION booking_environment_class(text),
+                           booking_evidence_current(text, timestamptz, timestamptz, timestamptz, timestamptz),
                            booking_exception_current(text, text, text, text, timestamptz, timestamptz, timestamptz,
                                                      timestamptz),
                            booking_evidence_verdict(text, text, text, timestamptz),

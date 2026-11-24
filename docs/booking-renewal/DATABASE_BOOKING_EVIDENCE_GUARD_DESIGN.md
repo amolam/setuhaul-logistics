@@ -79,7 +79,11 @@ its start-up check accepted: `deployment_id_for(manifest)`, and its own Lambda C
 A declaration is **not a bypass**. The verdict requires, in order:
 
 1. all three declared, else `DEPLOYMENT_UNDECLARED`. This catches v0.3.0 code, which declares nothing.
-2. environment not production (`~ 'prod'`), else `PRODUCTION_DISABLED`.
+2. environment classified by `booking_environment_class` (strict, PR #6 review):
+   * any name containing "prod" in **any letter case** (`prod`, `PROD`, `Prod`, `Production`, `pRoD-…`, `preprod`) is
+     production → `PRODUCTION_DISABLED`. This is checked first, so no spelling escapes it;
+   * any other name that isn't the canonical lower-case form the evidence tables accept (`^[a-z0-9-]{2,32}$`) →
+     `ENVIRONMENT_INVALID`. The same check is applied to exceptions, which also need class `pilot`.
 3. a manifest recorded for the environment, else `NO_MANIFEST`.
 4. the declared deployment **is the newest** manifest of that environment, else `DEPLOYMENT_SUPERSEDED`. This catches a
    warm container of an older release, a deployment whose manifest was never recorded, and the stale side of a partial
@@ -126,7 +130,9 @@ settings. Evidence expiry bounds how long a start-up fingerprint verdict is reli
 
 Both build their database object in `create_app`. After the start-up check accepts the manifest, `db.deployment` is
 set, and every transaction declares it. `Db.tx` now sends all its transaction settings in one statement (one fewer
-round trip than before). `DataApiDb.tx` folds the declaration into its existing single setup statement. With the booking switch off, nothing is declared. On a guarded
+round trip than before). `DataApiDb.tx` folds the declaration into its existing single setup statement. Each container
+logs one line at start, `booking evidence guard: this process declares environment=… deployment=… code=…`, so the
+rollout can verify both the api and the agent (DATABASE_BOOKING_EVIDENCE_GUARD_RUNBOOK.md §5.2). With the booking switch off, nothing is declared. On a guarded
 database that process's commitments are refused, which matches the switch: the app already refuses booking tools and
 moves when booking is off.
 
@@ -138,12 +144,12 @@ moves when booking is off.
   touch it (tested).
 * **New functions:**
   * `booking_evidence_verdict` and `trg_require_booking_evidence`: definer, owner `setuhaul_rpc`;
-  * `booking_evidence_current` and `booking_exception_current`: invoker helpers;
+  * `booking_environment_class`, `booking_evidence_current` and `booking_exception_current`: invoker helpers;
   * `trg_manifest_waits_for_commitments` and `trg_booking_evidence_guard_one_way`: trigger functions.
 
   EXECUTE is revoked from PUBLIC on all of them, and no application role or the evidence identity may call the verdict
   (tested).
-* **Grants added:** SELECT on `booking_evidence_guard` and EXECUTE on the two helper functions, both to `setuhaul_rpc`
+* **Grants added:** SELECT on `booking_evidence_guard` and EXECUTE on the three helper functions, both to `setuhaul_rpc`
   only. Nothing for the console, agent, system, ingest, feasibility or deploy-evidence roles.
 * **Not changed:** no RLS policy, no BYPASSRLS, no new role, no kill-switch change, no owner-approval change, no
   exception scope change. Evidence authorizes a deployment, not a facility. Facility isolation still decides who may
@@ -153,7 +159,8 @@ moves when booking is off.
 
 ## 10. Production and pilot boundaries
 
-Production is refused outright (`PRODUCTION_DISABLED`), whatever evidence it has, and no exception can be recorded for it
+Production is refused outright (`PRODUCTION_DISABLED`), in any letter case, whatever evidence it has (tested with 14
+spellings, each with otherwise complete evidence), and no exception can be recorded for it
 (the 0026 CHECK). Exceptions apply only to a `pilot…` environment, with their original pairs and limits. The guard never
 turns booking on: it can only refuse a commitment. WhatsApp/Meta, LangSmith and the kill switch are untouched.
 
@@ -170,7 +177,7 @@ turns booking on: it can only refuse a commitment. WhatsApp/Meta, LangSmith and 
 
 ## 12. Migration and rollback
 
-* **0030 is additive:** one table, six functions, and six triggers: the two guards (`appointments`, `dock_occupancy`),
+* **0030 is additive:** one table, seven functions, and six triggers: the two guards (`appointments`, `dock_occupancy`),
   one lock trigger on `deployment_manifests`, and three protecting the new row. No change to earlier migrations,
   constraints or policies.
 * **Numbering:** PR #5 adds 0029. The two are independent, and the runner applies whichever versions are missing, so
@@ -181,7 +188,7 @@ turns booking on: it can only refuse a commitment. WhatsApp/Meta, LangSmith and 
 * **Rollback:** forward-only. The guard can't be turned off by data, so backing it out needs a new migration that drops
   the two `ab_booking_evidence_guard` triggers: an owner decision. Existing bookings are never affected, because the guard
   only judges new commitments. Forward recovery is always "record current evidence for the running deployment".
-* **Deployment order on the pilot:** apply 0030 only together with this code (it declares the deployment), through the
+* **Deployment order on the pilot:** see DATABASE_BOOKING_EVIDENCE_GUARD_RUNBOOK.md. In short: apply 0030 only together with this code (it declares the deployment), through the
   normal release with fresh evidence. Until both are live, booking commitments are refused, which is fail-closed.
 
 ## 13. Known limitations

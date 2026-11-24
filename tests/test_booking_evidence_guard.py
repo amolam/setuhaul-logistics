@@ -462,6 +462,50 @@ def test_production_is_refused_whatever_its_evidence(c, sch):
         exception(c, d, "OUTBOUND_DELIVERY", PILOT_EXC["OUTBOUND_DELIVERY"])
 
 
+PRODUCTION_NAMES = ["prod", "production", "PROD", "Prod", "Production", "PRODUCTION", "pRoD", "ProDuction",
+                    "prod-ap-south-1", "Prod-AP-South-1", "my-production", "my-PRODUCTION-2", "preprod", "pilot-prod"]
+
+
+@pytest.mark.parametrize("name", PRODUCTION_NAMES)
+def test_production_in_any_letter_case_is_refused_even_with_otherwise_valid_evidence(c, sch, name):
+    """Review fix (PR #6): production is recognised case-insensitively and refused before anything else. The evidence
+    tables accept only canonical lower-case names, so a mixed-case name can never have evidence of its own: the test
+    records complete, current evidence for its lower-case twin and declares the mixed-case name with that deployment."""
+    canonical = name.lower()
+    d = manifest(canonical)
+    record(c, d)
+    for g in REQUIRED_GATES:
+        evidence(c, d, g)                                          # complete, current PASS evidence
+    declare(c, d, env=name)
+    refused(lambda: book(c, start_h=60), "PRODUCTION_DISABLED")
+    if name != canonical:                                          # a mixed-case name cannot be recorded at all
+        with pytest.raises(psycopg.errors.CheckViolation):
+            record(c, {**manifest(canonical), "env": name, "m": {**d["m"], "environment": name}})
+    with pytest.raises(psycopg.errors.CheckViolation):            # and no exception for any production spelling
+        exception(c, {**d, "env": canonical}, "OUTBOUND_DELIVERY", PILOT_EXC["OUTBOUND_DELIVERY"])
+    assert c.execute("SELECT setuhaul.booking_exception_current(%s,'OUTBOUND_DELIVERY','META-DEFERRED-TEST-SINK-ONLY',"
+                     "%s, now(), now() + interval '1 day', now() - interval '1 hour', now())",
+                     (name, REF)).fetchone()[0] is False
+
+
+@pytest.mark.parametrize("name, cls", [("pilot-ap-southeast-2", "pilot"), ("test-env", "other"), ("PROD", "production"),
+                                       ("Pilot-ap-southeast-2", "invalid"), ("PILOT", "invalid"), ("Test-Env", "invalid"),
+                                       ("pilot env", "invalid"), ("", "invalid"), (None, "invalid"),
+                                       ("pilot-Production", "production"), ("x" * 33, "invalid")])
+def test_the_environment_classification_is_strict(c, name, cls):
+    assert c.execute("SELECT setuhaul.booking_environment_class(%s)", (name,)).fetchone()[0] == cls
+
+
+@pytest.mark.parametrize("name", ["Test-Env", "PILOT-AP-SOUTHEAST-2", "Pilot-ap-southeast-2"])
+def test_a_non_canonical_environment_is_refused_even_with_valid_evidence_for_its_twin(c, sch, name):
+    d = authorized(c, name.lower(), exceptions=PILOT_EXC if name.lower().startswith("pilot") else None)
+    h = 61 + 2 * ["Test-Env", "PILOT-AP-SOUTHEAST-2", "Pilot-ap-southeast-2"].index(name)
+    declare(c, d, env=name)
+    refused(lambda: book(c, start_h=h), "ENVIRONMENT_INVALID")
+    declare(c, d)                                                  # the canonical name with the same evidence books
+    book(c, start_h=h)
+
+
 def test_an_exception_cannot_be_widened_through_evidence_data(c):
     d = manifest(PILOT)
     record(c, d)
@@ -526,8 +570,10 @@ def test_no_role_can_call_the_guard_functions_or_switch_the_guard(dsn):
                               FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
                              WHERE n.nspname='setuhaul' AND p.proname IN ('booking_evidence_verdict',
                                    'trg_require_booking_evidence', 'booking_evidence_current', 'booking_exception_current',
-                                   'trg_manifest_waits_for_commitments', 'trg_booking_evidence_guard_one_way')""").fetchall()
+                                   'trg_manifest_waits_for_commitments', 'trg_booking_evidence_guard_one_way',
+                                   'booking_environment_class')""").fetchall()
         by = {r[0]: r[1:] for r in f}
+        assert len(by) == 7
         assert by["booking_evidence_verdict"][:2] == (True, "setuhaul_rpc")
         assert by["trg_require_booking_evidence"][:2] == (True, "setuhaul_rpc")
         assert not any(r[2] for r in by.values())                  # nothing executable by PUBLIC
@@ -636,12 +682,28 @@ def test_both_database_backends_declare_the_deployment_in_every_transaction(dsn)
         CORRELATION_ID.reset(tok)
 
 
-def test_the_app_declares_the_deployment_its_start_up_check_accepted(dsn):
+def test_a_guard_refusal_reaches_the_driver_and_the_planner_like_a_kill_switch_refusal():
+    """The runbook's promise for the rollout pause: the agent's booking tool gets ERROR with the guard's code (and so
+    escalates to a person, as for BOOKING_KILLED); the console maps it to a 400 naming the code."""
+    from setuhaul.domain.booking import map_db_error
+    msg = "BOOKING_EVIDENCE_DEPLOYMENT_UNDECLARED: the transaction does not name its environment, deployment and code"
+    assert map_db_error("P0001", msg) == map_db_error("P0001", "BOOKING_KILLED: x") == "ERROR"
+    assert msg.split(":")[0] == "BOOKING_EVIDENCE_DEPLOYMENT_UNDECLARED"
+
+
+def test_the_app_declares_the_deployment_its_start_up_check_accepted(dsn, caplog):
+    import logging
     from test_inbound_delivery import FakeSqs, URL, all_gates, app_db, booking_app, manifest as delivery_manifest
     from setuhaul.api.inbound import SqsFifoQueue, database_fingerprint
     man = delivery_manifest()
     q = SqsFifoQueue(URL, FakeSqs())
     all_gates(dsn, man, q.fingerprint(), database_fingerprint(app_db(dsn)))
-    app = booking_app(dsn, q, man=man)
+    with caplog.at_level(logging.INFO, logger="setuhaul.api"):
+        app = booking_app(dsn, q, man=man)
+    art = man["gates"]["RECOVERY_WORKER"]["artifact_sha256"]
     assert app.state.service.db.deployment == {"environment": "test-env", "deployment_id": deployment_id_for(man),
-                                               "code_sha256": man["gates"]["RECOVERY_WORKER"]["artifact_sha256"]}
+                                               "code_sha256": art}
+    # the rollout runbook checks this line in the api's and the agent's logs after each container start
+    line = f"booking evidence guard: this process declares environment=test-env deployment={deployment_id_for(man)} " \
+           f"code={art[:12]}"
+    assert any(r.getMessage() == line for r in caplog.records), [r.getMessage() for r in caplog.records]
