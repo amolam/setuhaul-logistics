@@ -5,6 +5,7 @@ No AWS call: the stack is synthesised in-process (aws-cdk-lib, requirements-infr
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -236,7 +237,8 @@ def test_each_function_can_read_only_its_own_database_logins(t, workload):
             if "secretsmanager:GetSecretValue" in (s["Action"] if isinstance(s["Action"], list) else [s["Action"]]):
                 res = s["Resource"] if isinstance(s["Resource"], list) else [s["Resource"]]
                 readable |= {r["Ref"] for r in res if isinstance(r, dict) and "Ref" in r}
-        got = {logins[r].removeprefix("setuhaul_login_") for r in readable if r in logins}
+        # M2 (0032): the booking roles' logins carry the release (setuhaul_login_<role>_<12 hex>)
+        got = {re.sub(r"_[0-9a-f]{12}$", "", logins[r].removeprefix("setuhaul_login_")) for r in readable if r in logins}
         assert got == set(WORKLOAD_ROLES[workload]), (name, got)
         assert "deploy_evidence" not in got and "owner" not in got
 
@@ -665,3 +667,26 @@ def test_g1_langsmith_opt_in_reaches_the_agent_only_with_an_explicit_empty_place
     with pytest.raises(ValueError):
         SetuHaulPilotStack(cdk.App(outdir=str(tmp_path / "o2")), "X", lambda_asset=str(zip_path),
                            langsmith_ui_url="https://evil.example.com/")
+
+
+# ================================================================ M2 (0032): a database identity and an IAM role per release
+def test_the_booking_logins_and_execution_roles_are_per_release(t, built):
+    import hashlib
+    from setuhaul_stack import RELEASE_DB_ROLES, RELEASE_FUNCTIONS
+    release = hashlib.sha256(built[2].read_bytes()).hexdigest()[:12]
+    logins = set(_login_secret_ids(t).values())
+    for role in RELEASE_DB_ROLES:
+        assert f"setuhaul_login_{role}_{release}" in logins and f"setuhaul_login_{role}" not in logins
+    for role in ("ingest", "feasibility", "system", "deploy_evidence"):
+        assert f"setuhaul_login_{role}" in logins                    # unchanged identities
+    fns = {p["FunctionName"]: p for r in resources(t, "AWS::Lambda::Function").values()
+           if (p := r["Properties"]).get("FunctionName")}
+    seen = set()
+    for name, p in fns.items():
+        role_id = p["Role"]["Fn::GetAtt"][0]
+        if name.removeprefix("setuhaul-pilot-") in RELEASE_FUNCTIONS:
+            assert release in role_id, (name, role_id)
+            seen.add(name)
+        else:
+            assert release not in role_id, (name, role_id)
+    assert seen == {f"setuhaul-pilot-{f}" for f in RELEASE_FUNCTIONS}

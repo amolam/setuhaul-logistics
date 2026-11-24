@@ -1,8 +1,12 @@
 # Option P: single-use provisional booking authorization (design only)
 
-Status: **design for review. Not implemented, not migrated, not activated.** The owner selected P on 24 Nov 2026 as the
-design direction; building it, applying its migration and using it in the pilot are separate owner decisions.
-Prerequisites: PR #6 (0030 guard) with M1 (0031), and PR #5 (renewal gate, smoke bound to the release SHA).
+Status (24 Nov 2026, later): **implemented in migration 0032 on `feature/option-p-m2`; not merged, not deployed, no
+authorization issued.** Owner-approved parameters: 60 min default, 2 h hard maximum, 2 per environment per 24 h, one
+open per environment, one per deployment and per approval, ops lead may revoke, M2 enforced before first use.
+Implementation differences from this design: the lifecycle is ISSUED -> CONSUMED | REVOKED | EXPIRED (booking is
+allowed from issuance; there is no separate activation step), and consumption is a trigger on the release's
+BOOKING_WORKFLOW evidence insert, so it is atomic with the evidence on every path. Runbook:
+OPTION_P_M2_RELEASE_RUNBOOK.md.
 
 ## 1. Problem
 

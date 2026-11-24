@@ -17,6 +17,7 @@ The booking switch is set to "false" on every function and nothing in this stack
 """
 from __future__ import annotations
 
+import hashlib
 import re
 
 import json
@@ -55,6 +56,14 @@ SCHEDULED = ("recovery", "outbound", "approval-relay")
 def schedule_rule_name(environment_name: str, fn_name: str) -> str:
     return f"setuhaul-{environment_name}-{fn_name}-every-minute"
 DB_ROLES = ("agent", "console", "ingest", "feasibility", "system")
+# M2 (0032): the only roles that make booking commitments, and the only functions holding their logins
+RELEASE_DB_ROLES = ("agent", "console")
+RELEASE_FUNCTIONS = ("api", "agent")
+
+
+def release_login(role: str, release: str) -> str:
+    """The database login of a role for one release (M2): per release for the booking roles, fixed for the others."""
+    return f"setuhaul_login_{role}_{release}" if role in RELEASE_DB_ROLES else f"setuhaul_login_{role}"
 # Database logins per workload: proven minimal by tests/test_aws.py (each handler runs with only these).
 WORKLOAD_ROLES = {
     "api": ("ingest", "console"),                            # /tools is off in staging and pilot (review IAM-02)
@@ -83,6 +92,11 @@ class SetuHaulPilotStack(Stack):
         if booking_approval and not BOOKING_APPROVAL.fullmatch(booking_approval):
             raise ValueError("booking_approval must look like OWNER-APPROVAL-YYYYMMDD-<ref> (the owner's written approval)")
         self.booking_enabled = bool(booking_approval)
+        # M2 (0032): the release identity = the first 12 hex of the Lambda artifact's SHA-256 (the manifest's
+        # artifact_sha256 and the functions' CodeSha256). The two booking roles' logins and the api's and agent's
+        # execution roles are named after it, so each release gets a new database identity and a new IAM role.
+        asset = Path(lambda_asset)
+        self.release = hashlib.sha256(asset.read_bytes()).hexdigest()[:12] if asset.is_file() else "0" * 12
         env_label = f"{environment_name}-{REGION}"
         for k, v in {"Project": "SetuHaul", "Environment": environment_name, "DataClass": "synthetic"}.items():
             Tags.of(self).add(k, v)
@@ -99,7 +113,7 @@ class SetuHaulPilotStack(Stack):
             self.login_secrets[role] = sm.Secret(
                 self, f"Login{role.title().replace('_', '')}", secret_name=f"setuhaul/{environment_name}/db/{role}",
                 encryption_key=key, generate_secret_string=sm.SecretStringGenerator(
-                    secret_string_template=json.dumps({"username": f"setuhaul_login_{role}", "engine": "postgres",
+                    secret_string_template=json.dumps({"username": release_login(role, self.release), "engine": "postgres",
                                                        "dbname": "setuhaul"}),
                     generate_string_key="password", exclude_punctuation=True, password_length=40))
         app_secret = sm.Secret(self, "AppSecret", secret_name=f"setuhaul/{environment_name}/app", encryption_key=key,
@@ -179,6 +193,15 @@ class SetuHaulPilotStack(Stack):
             "SETUHAUL_DB_RESUME_WAIT_S": "40"}           # wait for a paused Aurora to resume (the api overrides it)
         self.functions: dict[str, lambda_.Function] = {}
 
+        def release_role(name: str) -> iam.Role:
+            # M2: one execution role per release for the two booking functions. The logical id carries the release,
+            # so CloudFormation creates the new role, moves the function to it and then deletes the old role and its
+            # policy: an old container's credentials can no longer read the login secret or call the Data API.
+            return iam.Role(self, f"Fn{name.title()}Role{self.release}",
+                            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+                            managed_policies=[iam.ManagedPolicy.from_aws_managed_policy_name(
+                                "service-role/AWSLambdaBasicExecutionRole")])
+
         def fn(name: str, handler: str, workload: str, timeout_s: int = 30, memory: int = 512, extra=None):
             env = {**base_env, **(extra or {}), "SETUHAUL_DB_SECRET_ARNS": json.dumps(
                 {r: self.login_secrets[r].secret_arn for r in WORKLOAD_ROLES[workload]})}
@@ -186,6 +209,7 @@ class SetuHaulPilotStack(Stack):
                                  runtime=lambda_.Runtime.PYTHON_3_13, architecture=lambda_.Architecture.X86_64,
                                  handler=f"setuhaul.aws.lambdas.{handler}", code=code, memory_size=memory,
                                  timeout=Duration.seconds(timeout_s), environment=env,
+                                 role=release_role(name) if name in RELEASE_FUNCTIONS else None,
                                  tracing=lambda_.Tracing.ACTIVE,
                                  log_group=logs.LogGroup(self, f"Logs{name.title().replace('-', '')}",
                                                          retention=logs.RetentionDays.ONE_WEEK,

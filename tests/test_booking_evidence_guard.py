@@ -611,7 +611,10 @@ def test_valid_evidence_does_not_widen_facility_scope(dsn, sch):
 
 def test_the_guard_checks_the_same_gates_as_the_start_up_check(dsn):
     with psycopg.connect(dsn) as conn:
-        src = conn.execute("SELECT prosrc FROM pg_proc WHERE proname='booking_evidence_verdict'").fetchone()[0]
+        # 0032 moved the gate loop into booking_gate_problems, which the verdict (and the Option P issuer) call
+        verdict = [r[0] for r in conn.execute("SELECT prosrc FROM pg_proc WHERE proname='booking_evidence_verdict'")]
+        assert any("booking_gate_problems(" in v for v in verdict)
+        src = conn.execute("SELECT prosrc FROM pg_proc WHERE proname='booking_gate_problems'").fetchone()[0]
     gates = src.split("ARRAY[", 1)[1].split("]", 1)[0].replace("'", "").replace("\n", " ").split(",")
     assert tuple(g.strip() for g in gates) == REQUIRED_GATES
 
@@ -653,7 +656,7 @@ def test_0030_turns_the_guard_on_only_where_a_deployment_is_recorded(tmp_path):
     assert "0030_booking_evidence_guard" in migrate(d)
     with psycopg.connect(d, autocommit=True) as conn:
         row = conn.execute("SELECT enforced, reason FROM setuhaul.booking_evidence_guard").fetchone()
-        assert row[0] is True and "hosts a recorded deployment" in row[1]
+        assert row[0] is True and "hosts a" in row[1]          # 0030's reason, or 0032's when it also enforces M2
         declare(conn)                                              # v0.3.0 code declares nothing: refused at once
         with pytest.raises(psycopg.Error, match="BOOKING_EVIDENCE_DEPLOYMENT_UNDECLARED"):
             conn.execute("""INSERT INTO setuhaul.dock_occupancy (dock_id, facility_id, during, kind, ref_id, created_by)

@@ -289,7 +289,7 @@ def manifest_from_database(db, environment: str, code_sha256: str) -> dict:
 
 
 def check_booking_preconditions(db, queue, lease_s: int, environment: str | None, manifest: dict | None,
-                                deployment_id: str | None = None) -> dict[str, str]:
+                                deployment_id: str | None = None, provisional_out: dict | None = None) -> dict[str, str]:
     """S4-05 / R2.0 S4-R2-04 / R2.1: with the booking switch on, start only if the queue is durable and correctly
     configured, and every gate has a current evidence row for THIS environment and deployment, within its validity
     window. The deployment id comes from the deployment manifest. The queue and database fingerprints are computed
@@ -324,6 +324,12 @@ def check_booking_preconditions(db, queue, lease_s: int, environment: str | None
         if why is None:
             by_exception[g] = f"{e[0]} ({e[3]})"
             continue
+        if g == "BOOKING_WORKFLOW" and (window := provisional_window(db, environment, deployment_id, manifest)):
+            # 0032 (Option P): an OPEN provisional authorization stands in for BOOKING_WORKFLOW only, until its expiry;
+            # the database re-checks it on every commitment. Not an owner-approved exception: reported separately.
+            if provisional_out is not None:
+                provisional_out.update(window)
+            continue
         if g not in latest:
             problems.append(f"{g}: no evidence for this deployment"
                             + (f" and exception {e[0]} does not hold ({why})" if e else ""))
@@ -335,7 +341,27 @@ def check_booking_preconditions(db, queue, lease_s: int, environment: str | None
         raise BookingGateError("deployment gates not satisfied: " + "; ".join(problems))
     if by_exception:
         log.warning("booking switch ON with owner-approved pilot exceptions: %s", by_exception)
+    if provisional_out:
+        log.warning("booking switch ON under provisional authorization %s (BOOKING_WORKFLOW only) until %s",
+                    provisional_out.get("authorization_id"), provisional_out.get("expires_at"))
     return by_exception
+
+
+def provisional_window(db, environment: str, deployment_id: str, manifest: dict) -> dict | None:
+    """0032: the open provisional authorization of this deployment, or None. Open = ISSUED and inside its window by the
+    database clock, for this deployment's code, with deployment identity (M2) enforced. Any read failure (for example
+    a database without 0032) is None: fail closed."""
+    try:
+        with db.tx(gate_role(db), readonly=True) as c:
+            raw = c.execute("SELECT booking_provisional_snapshot(%s, %s)", (environment, deployment_id)).fetchone()[0]
+    except Exception:                                               # noqa: BLE001 — fail closed
+        return None
+    snap = json.loads(raw) if isinstance(raw, str) else raw
+    art = ((manifest.get("gates") or {}).get("RECOVERY_WORKER") or {}).get("artifact_sha256")
+    if not snap or not snap.get("open") or not snap.get("identity_enforced") or snap.get("code_sha256") != art:
+        return None
+    return {"authorization_id": snap["authorization_id"], "expires_at": snap["expires_at"],
+            "approval_ref": snap["approval_ref"], "release_sha": snap["release_sha"]}
 
 
 def exception_problem(gate: str, e: tuple, live_fp: str, environment: str, server_version: int) -> str | None:

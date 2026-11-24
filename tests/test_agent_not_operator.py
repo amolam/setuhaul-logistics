@@ -27,7 +27,10 @@ AGENT_FUNCTIONS = {"hold_option", "submit_booking_request", "release_hold", "rec
                    "reserve_model_call", "settle_model_call",
                    # 0026 (Option D): read-only snapshot for the booking switch's start-up check (gate rows, guard
                    # triggers, kill switch, recorded manifest); returns no facility, driver or booking data
-                   "booking_gate_snapshot"}
+                   "booking_gate_snapshot",
+                   # 0032 (Option P): read-only snapshot of one deployment's provisional authorization (status and
+                   # window only); no facility, driver or booking data
+                   "booking_provisional_snapshot"}
 # Never writable by the agent in any way.
 PROTECTED = {"dock_occupancy", "appointments", "approval_requests", "notifications", "facilities", "facility_config",
              "docks", "shipments", "appointment_slots", "dock_events", "drivers", "vehicles", "carriers",
@@ -132,7 +135,11 @@ def test_every_table_is_rls_forced_or_reasoned(conn):
              "evaluation_runs",
              # 0030: the single-row evidence-guard setting (enforced or not), like the kill switch: no facility data,
              # no application role has any privilege on it, read only by the guard trigger, changed only one way
-             "booking_evidence_guard"}
+             "booking_evidence_guard",
+             # 0032 (Option P): provisional authorizations and their append-only audit trail; deployment ids, release
+             # SHAs and approval references only (no facility data); no application role has any privilege on either,
+             # only the definer functions (issue, consume, revoke, expire, snapshot) use them
+             "provisional_authorizations", "provisional_authorization_events"}
     bad = [r[0] for r in conn.execute("""SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
                                          WHERE n.nspname='setuhaul' AND c.relkind='r'
                                            AND NOT (c.relrowsecurity AND c.relforcerowsecurity)""") if r[0] not in allow]
@@ -165,7 +172,8 @@ def test_ingest_role_allowlist(conn):
                                          "processed_at", "deliveries"}}
     assert funcs == {"attest_confirmation", "thread_lock", "scope_allows", "driver_or_staff",
                      "record_delivery_status",   # 0017 (B-WF-3): provider receipts from the signed webhook
-                     "booking_gate_snapshot"}    # 0026: read-only start-up check of the booking switch (the api)
+                     "booking_gate_snapshot",    # 0026: read-only start-up check of the booking switch (the api)
+                     "booking_provisional_snapshot"}  # 0032: the same check reads an open Option P window
 
 
 def test_feasibility_role_allowlist(conn):
@@ -208,7 +216,11 @@ def test_deploy_evidence_role_can_only_insert_evidence(conn):
     assert tables == {"INSERT": gate_tables, "SELECT": gate_tables} and cols == {}
     assert funcs <= {"scope_allows", "driver_or_staff", "evidence_max_validity",   # 0014: per-gate validity window
                      "booking_gate_snapshot",                                      # 0026: the database fingerprint
-                     "approval_execution_evidence"}                                # 0029: renewal, read-only, scoped
+                     "approval_execution_evidence",                                # 0029: renewal, read-only, scoped
+                     # 0032 (Option P): issue (all conditions re-checked in the database), revoke on a failed run,
+                     # mark expired windows, read one deployment's window; no table privilege
+                     "issue_provisional_authorization", "revoke_provisional_authorization",
+                     "expire_provisional_authorizations", "booking_provisional_snapshot"}
     r = conn.execute("SELECT rolsuper, rolbypassrls, rolcanlogin FROM pg_roles WHERE rolname='setuhaul_deploy_evidence'").fetchone()
     assert r == (False, False, False)
     n = conn.execute("""SELECT count(*) FROM pg_auth_members m JOIN pg_roles r ON r.oid = m.roleid
