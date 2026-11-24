@@ -108,6 +108,15 @@ def main() -> int:
     secrets = json.loads(p.out["LoginSecretArns"])
     db = DataApiDb(p.out["ClusterArn"], "setuhaul", {r: secrets[r] for r in ("agent", "console")},
                    boto3.client("rds-data", region_name=REGION), resume_wait_s=120)
+    # 0030/0032: the planner's decision below is a booking commitment made through the console login, so the smoke
+    # declares the deployment the database must recognise: the newest recorded manifest and the deployed code. The
+    # database then checks it like any other caller (newest manifest, same code, current evidence or an open
+    # provisional authorization, and with M2 the release's own login).
+    with db.tx("agent", readonly=True) as c:
+        snap = c.execute("SELECT booking_gate_snapshot(%s, NULL)", (ENVIRONMENT,)).fetchone()[0]
+    snap = json.loads(snap) if isinstance(snap, str) else snap
+    db.deployment = {"environment": ENVIRONMENT, "deployment_id": (snap.get("manifest") or {}).get("deployment_id"),
+                     "code_sha256": code["setuhaul-pilot-api"]}
     from setuhaul.ops.pilot_mode import from_stack
     mode = from_stack()
     ev, checks = {}, {}

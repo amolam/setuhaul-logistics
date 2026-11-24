@@ -71,9 +71,16 @@ def rows_from_report(report: dict, manifest: dict, environment: str, artifact_ur
         from setuhaul.ops.renewal import renewal_report_problems
         if problems := renewal_report_problems(report, manifest):
             raise EvidenceRefused("renewal report refused: " + "; ".join(problems))
-    dep, digest = deployment_id_for(manifest), hashlib.sha256(evidence).hexdigest()
+    return gate_rows(report, deployment_id_for(manifest), environment, artifact_uri, evidence, fingerprints,
+                     REQUIRED_GATES)
+
+
+def gate_rows(report: dict, dep: str, environment: str, artifact_uri: str, evidence: bytes,
+              fingerprints: dict[str, str], gates) -> tuple[list[dict], dict[str, str]]:
+    """Rows for the listed gates that PASSED in the report, and why each other one was refused."""
+    digest = hashlib.sha256(evidence).hexdigest()
     rows, refused = [], {}
-    for gate in REQUIRED_GATES:
+    for gate in gates:
         g = report.get("gates", {}).get(gate)
         if not isinstance(g, dict):
             refused[gate] = "not in the report"
@@ -154,6 +161,109 @@ def write_exceptions(conn, rows: list[dict]) -> int:
     return len(rows)
 
 
+PROVISIONAL_MINUTES = 60            # owner-approved default (24 Nov 2026); the database's hard maximum is 120
+SMOKE_ID = re.compile(r"SMOKE-(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z-")
+
+
+def snapshot(conn, sql: str, args: tuple) -> dict | None:
+    raw = conn.execute(sql, args).fetchone()[0]
+    return json.loads(raw) if isinstance(raw, str) else raw
+
+
+def provisional_report_problems(report: dict, predecessor_artifact: str | None, approval_ref: str,
+                                now=None) -> list[str]:
+    """Option P (0032): the gate report for a provisional release is a renewal report from the RUNNING release (the
+    predecessor, booking ON), fresh, naming this run's approval. Its five non-workflow gates are recorded for the new
+    release with the new release's live fingerprints, as every activation does; BOOKING_WORKFLOW is not recorded:
+    the provisional authorization stands in for it until the release's own smoke and renewal close it."""
+    from datetime import datetime, timezone
+    from setuhaul.ops.renewal import ENVIRONMENT, REPORT_MAX_AGE, parse_ts
+    now = now or datetime.now(timezone.utc)
+    p = []
+    if report.get("mode") != "renewal" or report.get("booking_enabled") is not True:
+        p.append("a provisional release needs a renewal report from the running pilot (booking ON)")
+    if report.get("environment") != ENVIRONMENT:
+        p.append(f"the report is for {report.get('environment')!r}, not {ENVIRONMENT!r}")
+    t = parse_ts(report.get("collected_utc"))
+    if not (t and 0 <= (now - t).total_seconds() <= REPORT_MAX_AGE.total_seconds()):
+        p.append(f"the report is not fresh (collected {report.get('collected_utc')})")
+    if report.get("approval_ref") != approval_ref:
+        p.append(f"the report names approval {report.get('approval_ref')!r}, not {approval_ref!r}")
+    if not predecessor_artifact or report.get("artifact_sha256") != predecessor_artifact:
+        p.append("the report was not collected on the running release (report "
+                 f"{str(report.get('artifact_sha256'))[:12]}, running {str(predecessor_artifact)[:12]})")
+    return p
+
+
+def provisional(conn, report: dict, raw_report: bytes, manifest: dict, environment: str, artifact_uri: str,
+                approval_ref: str, fingerprints: dict[str, str], server_version_num: int, outbound_env: dict,
+                release_sha: str, pipeline_run: str, minutes: int = PROVISIONAL_MINUTES) -> dict:
+    """Option P, one transaction on the deploy-evidence login: the new release's manifest, PASS evidence and the
+    owner-approved exceptions for the five gates other than BOOKING_WORKFLOW, then the provisional authorization.
+    The database re-checks everything (issue_provisional_authorization) and refuses the whole transaction otherwise."""
+    if problems := manifest_problems(manifest, environment):
+        raise EvidenceRefused("deployment manifest: " + "; ".join(problems))
+    if not artifact_uri.startswith(("s3://", "https://")):
+        raise EvidenceRefused("the evidence artifact must be stored at an s3:// or https:// location")
+    if not re.fullmatch(r"[0-9a-f]{40}", release_sha or ""):
+        raise EvidenceRefused("the release SHA must be the full 40-hex commit")
+    dep = deployment_id_for(manifest)
+    running = (snapshot(conn, "SELECT booking_gate_snapshot(%s, NULL)", (environment,)) or {}).get("manifest") or {}
+    if running.get("deployment_id") == dep:
+        raise EvidenceRefused("this release is already the newest recorded deployment: a provisional authorization "
+                              "is issued once, when the release is first recorded")
+    if problems := provisional_report_problems(report, running.get("artifact_sha256"), approval_ref):
+        raise EvidenceRefused("provisional report refused: " + "; ".join(problems))
+    others = [g for g in REQUIRED_GATES if g != "BOOKING_WORKFLOW"]
+    rows, refused = gate_rows(report, dep, environment, artifact_uri, raw_report, fingerprints, others)
+    exc, exc_refused = exception_rows(report, manifest, environment, approval_ref, fingerprints, server_version_num,
+                                      outbound_env)
+    covered = {r["gate"] for r in rows} | {r["gate"] for r in exc}
+    missing = {g: exc_refused.get(g) or refused.get(g) for g in others if g not in covered}
+    if missing:
+        raise EvidenceRefused("not every gate other than BOOKING_WORKFLOW is covered: "
+                              + "; ".join(f"{g}: {w}" for g, w in missing.items()))
+    record_manifest(conn, manifest, environment)
+    write(conn, rows)
+    write_exceptions(conn, exc)
+    auth = snapshot(conn, "SELECT issue_provisional_authorization(%s, %s, %s, %s, %s, %s)",
+                    (environment, dep, release_sha, approval_ref, pipeline_run, int(minutes)))
+    return {"deployment_id": dep, "evidence": sorted(r["gate"] for r in rows),
+            "exceptions": {r["gate"]: r["exception_code"] for r in exc}, "approval_ref": approval_ref,
+            "provisional": auth}
+
+
+def smoke_started(smoke: dict):
+    from datetime import datetime, timezone
+    m = SMOKE_ID.match(str(smoke.get("smoke_id") or ""))
+    return datetime(*map(int, m.groups()), tzinfo=timezone.utc) if m else None
+
+
+def provisional_window_problems(conn, report: dict, environment: str, dep: str) -> list[str]:
+    """Closing a provisional release (renewal mode): its release-bound smoke must have run INSIDE the authorization's
+    window. The database refuses the BOOKING_WORKFLOW row after the window anyway (trg_provisional_consumption)."""
+    from setuhaul.ops.renewal import parse_ts
+    if not conn.execute("SELECT to_regprocedure('setuhaul.booking_provisional_snapshot(text,text)') IS NOT NULL"
+                        ).fetchone()[0]:
+        return []                                                # a database without 0032: no window to check
+    snap = snapshot(conn, "SELECT booking_provisional_snapshot(%s, %s)", (environment, dep))
+    if not snap or snap.get("status") == "CONSUMED":
+        return []
+    if not snap.get("open"):
+        return [f"the provisional authorization is {snap.get('status')}: no renewal or extension"]
+    smoke = (((report.get("gates") or {}).get("BOOKING_WORKFLOW") or {}).get("evidence") or {}).get("fresh_smoke") or {}
+    started, done = smoke_started(smoke), parse_ts(smoke.get("collected_utc"))
+    issued, expires = parse_ts(snap.get("issued_at")), parse_ts(snap.get("expires_at"))
+    p = []
+    if not (started and issued and started >= issued.replace(microsecond=0)):
+        p.append(f"the smoke started {started} before the authorization was issued ({snap.get('issued_at')})")
+    if not (done and expires and done < expires):
+        p.append(f"the smoke finished {smoke.get('collected_utc')} outside the window (until {snap.get('expires_at')})")
+    if smoke.get("release_sha") != snap.get("release_sha"):
+        p.append("the smoke is not bound to the authorized release SHA")
+    return p
+
+
 def activate(conn, report: dict, raw_report: bytes, manifest: dict, environment: str, artifact_uri: str,
              approval_ref: str, fingerprints: dict[str, str], server_version_num: int, outbound_env: dict) -> dict:
     """One transaction on the deploy-evidence login: the manifest, the PASS evidence and the owner-approved exceptions.
@@ -162,6 +272,9 @@ def activate(conn, report: dict, raw_report: bytes, manifest: dict, environment:
         raise EvidenceRefused(f"the renewal report names approval {report.get('approval_ref')!r}, but this run is "
                               f"{approval_ref!r}")
     rows, refused = rows_from_report(report, manifest, environment, artifact_uri, raw_report, fingerprints)
+    if report.get("mode") == "renewal" and (
+            problems := provisional_window_problems(conn, report, environment, deployment_id_for(manifest))):
+        raise EvidenceRefused("provisional release: " + "; ".join(problems))
     exc, exc_refused = exception_rows(report, manifest, environment, approval_ref, fingerprints, server_version_num,
                                       outbound_env)
     covered = {r["gate"] for r in rows} | {r["gate"] for r in exc}
@@ -190,16 +303,28 @@ def write(conn, rows: list[dict]) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--report", required=True)
-    ap.add_argument("--manifest", required=True)
+    ap.add_argument("--report")
+    ap.add_argument("--manifest")
     ap.add_argument("--environment", default="pilot")
     ap.add_argument("--artifact-uri", required=True)
     ap.add_argument("--write", action="store_true", help="insert the rows (needs the deploy-evidence login)")
     ap.add_argument("--activate", metavar="OWNER-APPROVAL-YYYYMMDD-REF",
                     help="Option D: record the manifest, PASS evidence and the owner-approved exceptions (pipeline)")
     ap.add_argument("--template", help="the deployed CloudFormation template (for the sender's configuration)")
+    ap.add_argument("--provisional", metavar="OWNER-APPROVAL-YYYYMMDD-REF",
+                    help="Option P (0032): record the release with its five non-workflow gates and issue its single-use "
+                         "provisional authorization (pipeline)")
+    ap.add_argument("--release-sha", help="--provisional: the 40-hex commit being released")
+    ap.add_argument("--pipeline-run", help="--provisional: the pipeline run id (audit)")
+    ap.add_argument("--window-minutes", type=int, default=PROVISIONAL_MINUTES)
+    ap.add_argument("--revoke-provisional", metavar="REASON",
+                    help="Option P: revoke the environment's open provisional authorization at once (pipeline)")
     a = ap.parse_args(argv)
-    if a.activate:
+    if a.revoke_provisional:
+        return revoke_from_pipeline(a.environment, a.revoke_provisional)
+    if not (a.report and a.manifest):
+        ap.error("--report and --manifest are required")
+    if a.activate or a.provisional:
         return activate_from_pipeline(a)
     raw = Path(a.report).read_bytes()
     report, manifest = json.loads(raw), json.loads(Path(a.manifest).read_text(encoding="utf-8"))
@@ -268,8 +393,38 @@ def activate_from_pipeline(a) -> int:
     fps = live_fingerprints(manifest, queue, db)
     with _tx() as c:
         ver = int(c.execute("SELECT current_setting('server_version_num')").fetchone()[0])
-        out = activate(c, report, raw, manifest, a.environment, a.artifact_uri, a.activate, fps, ver, outbound_env)
+        if getattr(a, "provisional", None):
+            out = provisional(c, report, raw, manifest, a.environment, a.artifact_uri, a.provisional, fps, ver,
+                              outbound_env, a.release_sha, a.pipeline_run or "manual", a.window_minutes)
+        else:
+            out = activate(c, report, raw, manifest, a.environment, a.artifact_uri, a.activate, fps, ver, outbound_env)
     print(json.dumps(out, indent=1))
+    return 0
+
+
+
+def revoke_from_pipeline(environment: str, reason: str) -> int:
+    """Option P: the pipeline's failure step revokes the environment's open authorization (deploy-evidence login)."""
+    import os
+    import boto3
+    secrets = json.loads(os.environ["SETUHAUL_DB_SECRET_ARNS"])
+    if set(secrets) != {"deploy_evidence"}:
+        raise SystemExit("revocation runs only with the deploy-evidence login (SETUHAUL_DB_SECRET_ARNS)")
+    from setuhaul.aws.data_api import Connection, begin_with_resume
+    rds = boto3.client("rds-data")
+    kw = {"resourceArn": os.environ["SETUHAUL_DB_CLUSTER_ARN"], "secretArn": secrets["deploy_evidence"],
+          "database": os.environ.get("SETUHAUL_DB_NAME", "setuhaul")}
+    tid = begin_with_resume(rds, kw, 120)
+    c = Connection(rds, kw["resourceArn"], kw["secretArn"], kw["database"], tid)
+    try:
+        c.execute("SELECT set_config('role', 'setuhaul_deploy_evidence', true), "
+                  "set_config('search_path', 'setuhaul', true)")
+        n = c.execute("SELECT revoke_provisional_authorization(%s, %s)", (environment, reason)).fetchone()[0]
+    except BaseException:
+        rds.rollback_transaction(resourceArn=kw["resourceArn"], secretArn=kw["secretArn"], transactionId=tid)
+        raise
+    rds.commit_transaction(resourceArn=kw["resourceArn"], secretArn=kw["secretArn"], transactionId=tid)
+    print(json.dumps({"environment": environment, "revoked": n}))
     return 0
 
 

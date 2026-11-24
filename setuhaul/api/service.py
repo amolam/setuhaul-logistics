@@ -1241,6 +1241,14 @@ class BookingService:
         v = self._console_call(p, "SELECT set_booking_kill_switch(%s,%s,%s)", (engaged, f"staff:{p.sub}", reason))
         return {"engaged": bool(v)}
 
+    def revoke_provisional(self, p: Principal, environment: str, reason: str) -> dict:
+        """0032 (Option P): an ops_lead revokes the open provisional booking authorization at once. Audited in the
+        database; the same capability as the kill switch. Booking for that release stays refused afterwards."""
+        self.require(p, "booking_kill_switch")
+        n = self._console_call(p, "SELECT revoke_provisional_authorization_staff(%s,%s,%s)",
+                               (environment, f"staff:{p.sub}", reason))
+        return {"revoked": int(n or 0)}
+
     def pause(self, p: Principal, facility: str, paused: bool, reason: str) -> bool:
         self.require(p, "pause")
         with self.db.tx("console", self._scope(p, facility), staff=self._staff(p)) as c:

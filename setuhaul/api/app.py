@@ -93,6 +93,11 @@ class Decision(BaseModel):
     note: str | None = Field(default=None, max_length=500)
 
 
+class Revoke(BaseModel):
+    model_config = {"extra": "forbid"}
+    reason: str = Field(min_length=5, max_length=300)
+
+
 class KillSwitch(BaseModel):
     model_config = {"extra": "forbid"}
     engaged: bool
@@ -214,8 +219,10 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
             manifest = manifest_from_database(db, settings.environment, own_code)
         else:
             manifest = load_manifest(settings.deployment_manifest) if settings.deployment_manifest else None
+        app.state.provisional = {}
         app.state.gate_exceptions = check_booking_preconditions(db, inbound, settings.processing_lease_s,
-                                                                settings.environment, manifest, settings.deployment_id)
+                                                                settings.environment, manifest, settings.deployment_id,
+                                                                provisional_out=app.state.provisional)
         # 0030: declare the accepted deployment in every transaction; the database re-checks it at each booking
         # commitment (newest manifest, same code, current evidence), so a warm container cannot outlive its evidence
         db.deployment = {"environment": settings.environment, "deployment_id": deployment_id_for(manifest),
@@ -248,6 +255,8 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
             except Exception:                                       # noqa: BLE001 — reported, never fatal here
                 body["booking_kill_switch"] = "unknown"
             body["gate_exceptions"] = sorted(getattr(app.state, "gate_exceptions", None) or {})
+            if prov := getattr(app.state, "provisional", None):            # 0032: Option P window, never an exception
+                body["booking_provisional_until"] = prov.get("expires_at")
         return JSONResponse(body, status_code=200 if database == "ok" else 503)
 
     def staff(authorization: str | None = Header(default=None)) -> Principal:
@@ -360,6 +369,11 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
     def kill_switch_set(body: KillSwitch, p: Principal = Depends(staff)):
         """0026: an ops_lead engages (or disengages) the database's booking kill switch. Audited; no deployment."""
         return svc.set_kill_switch(p, body.engaged, body.reason)
+
+    @app.post("/console/provisional-authorization/revoke")
+    def provisional_revoke(body: Revoke, p: Principal = Depends(staff)):
+        """0032: an ops_lead revokes the open provisional booking authorization (Option P). Audited; no deployment."""
+        return svc.revoke_provisional(p, settings.environment or "", body.reason)
 
     @app.post("/console/facilities/{facility_id}/pause")
     def pause(facility_id: str, body: Pause, p: Principal = Depends(staff)):

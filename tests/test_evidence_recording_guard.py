@@ -247,9 +247,10 @@ def test_a_database_that_already_holds_evidence_has_its_guard_turned_on_by_the_m
         assert guard_on(c) is False
         evidence(c, d, "AWS_QUEUE")                          # allowed before 0031
         from setuhaul.db.migrate import migrate
-        assert migrate(dsn_) == ["0031_evidence_recording_requires_guard"]
+        assert migrate(dsn_)[0] == "0031_evidence_recording_requires_guard"
         assert guard_on(c) is True
-        assert "0031" in c.execute("SELECT reason FROM setuhaul.booking_evidence_guard").fetchone()[0]
+        assert c.execute("SELECT reason FROM setuhaul.booking_evidence_guard").fetchone()[0].startswith(
+            ("migration 0031", "migration 0032"))       # 0032 then also enforces M2 on a guarded database
 
 
 def test_an_unreadable_or_missing_guard_row_refuses_recording(tmp_path):

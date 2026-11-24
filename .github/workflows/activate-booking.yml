@@ -29,11 +29,11 @@ on:
         description: "Type 'activate-synthetic-pilot-booking'"
         required: true
       mode:
-        description: "activation = the pre-activation gate report (booking OFF); renewal = the active pilot's renewal report (docs/release/evidence/renewal_gates.json)"
+        description: "activation = the pre-activation gate report (booking OFF); renewal = the active pilot's renewal report (docs/release/evidence/renewal_gates.json); provisional = Option P: record a NEW release with its five non-workflow gates and issue its single-use provisional authorization (docs/release/evidence/provisional_gates.json, a renewal report from the running release)"
         required: true
         default: activation
         type: choice
-        options: [activation, renewal]
+        options: [activation, renewal, provisional]
 
 permissions:
   contents: read
@@ -85,7 +85,7 @@ jobs:
       - name: Refuse without the typed confirmation or a well-formed approval reference
         run: |
           [ "$CONFIRM" = "activate-synthetic-pilot-booking" ] || { echo "REFUSED: confirmation" >&2; exit 1; }
-          case "$MODE" in activation|renewal) ;; *) echo "REFUSED: mode" >&2; exit 1 ;; esac
+          case "$MODE" in activation|renewal|provisional) ;; *) echo "REFUSED: mode" >&2; exit 1 ;; esac
           echo "$APPROVAL_REF" | grep -Eq '^OWNER-APPROVAL-20[0-9]{6}-[A-Za-z0-9-]{3,40}$' || { echo "REFUSED: approval reference" >&2; exit 1; }
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262        # v4.4.0
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065    # v5.6.0
@@ -180,7 +180,8 @@ jobs:
           export SETUHAUL_DB_CLUSTER_ARN=$(jq -r '.SetuHaulPilot.ClusterArn' outputs.json)
           export SETUHAUL_DB_OWNER_SECRET_ARN=$(jq -r '.SetuHaulPilot.OwnerSecretArn' outputs.json)
           export SETUHAUL_DB_SECRET_ARNS=$(jq -r '.SetuHaulPilot.LoginSecretArns' outputs.json)
-          python -m setuhaul.aws.provision_logins
+          # M2 (0032): the agent and console secrets must already name this release's logins, or stop here
+          python -m setuhaul.aws.provision_logins --expect-release "$(sha256sum build/lambda.zip | cut -c1-12)"
       - name: Deployment manifest from the deployed assembly
         run: |
           python -m setuhaul.ops.manifest cdk.out outputs.json > manifest.json
@@ -204,13 +205,25 @@ jobs:
           case "$MODE" in
             activation) REPORT=docs/release/evidence/step6_gates.json ;;
             renewal) REPORT=docs/release/evidence/renewal_gates.json ;;
+            provisional) REPORT=docs/release/evidence/provisional_gates.json ;;
             *) echo "REFUSED: mode" >&2; exit 1 ;;
           esac
-          python -m setuhaul.ops.gate_evidence --activate "$APPROVAL_REF" \
-            --report "$REPORT" --manifest manifest.json \
-            --template cdk.out/SetuHaulPilot.template.json --environment pilot-ap-southeast-2 \
-            --artifact-uri "https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_SHA}/${REPORT}" \
-            | tee activation.json
+          if [ "$MODE" = "provisional" ]; then
+            # Option P (0032): one transaction records the new release (manifest, five gates, exceptions) and issues
+            # its single-use authorization; the database refuses all of it unless every 0032 condition holds
+            python -m setuhaul.ops.gate_evidence --provisional "$APPROVAL_REF" \
+              --release-sha "$GITHUB_SHA" --pipeline-run "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" --window-minutes 60 \
+              --report "$REPORT" --manifest manifest.json \
+              --template cdk.out/SetuHaulPilot.template.json --environment pilot-ap-southeast-2 \
+              --artifact-uri "https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_SHA}/${REPORT}" \
+              | tee activation.json
+          else
+            python -m setuhaul.ops.gate_evidence --activate "$APPROVAL_REF" \
+              --report "$REPORT" --manifest manifest.json \
+              --template cdk.out/SetuHaulPilot.template.json --environment pilot-ap-southeast-2 \
+              --artifact-uri "https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_SHA}/${REPORT}" \
+              | tee activation.json
+          fi
       - name: The api starts with booking ON (fail-closed check passed)
         run: |
           URL=$(jq -r '.SetuHaulPilot.ApiUrl' outputs.json)
@@ -220,6 +233,33 @@ jobs:
             sleep 10
           done
           echo "the api did not start with booking ON" >&2; exit 1
+      - name: Option P failure path - revoke the provisional authorization at once
+        if: failure() && env.MODE == 'provisional'
+        run: |
+          export SETUHAUL_DB_CLUSTER_ARN=$(jq -r '.SetuHaulPilot.ClusterArn' outputs.json)
+          export SETUHAUL_DB_SECRET_ARNS=$(jq -c '.SetuHaulPilot.LoginSecretArns | fromjson | {deploy_evidence}' outputs.json)
+          python -m setuhaul.ops.gate_evidence --environment pilot-ap-southeast-2 \
+            --revoke-provisional "pipeline run ${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} failed after issuance"
+      - name: On failure, re-provision the database logins from the secrets CloudFormation left (rollback safety)
+        # M2 (0032): a CloudFormation rollback regenerates the agent and console secrets (and may restore the previous
+        # usernames). Provisioning from whatever the secrets now say keeps the database logins and the secrets in
+        # step: a rolled-back stack gets its previous logins back, a completed one keeps the release logins. Idempotent.
+        if: failure()
+        run: |
+          # the stack's outputs are read through the CDK lookup role (ReadOnlyAccess); the deploy role cannot describe
+          # stacks itself (infra/github_deploy_role_policy.json). Provisioning then runs with the deploy role.
+          ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+          CREDS=$(aws sts assume-role --role-arn "arn:aws:iam::${ACCOUNT}:role/cdk-hnb659fds-lookup-role-${ACCOUNT}-${AWS_REGION}" \
+                    --role-session-name setuhaul-rollback-read --query Credentials --output json)
+          echo "::add-mask::$(echo "$CREDS" | jq -r .SecretAccessKey)"
+          echo "::add-mask::$(echo "$CREDS" | jq -r .SessionToken)"
+          OUT=$(AWS_ACCESS_KEY_ID=$(echo "$CREDS" | jq -r .AccessKeyId) AWS_SECRET_ACCESS_KEY=$(echo "$CREDS" | jq -r .SecretAccessKey) \
+                AWS_SESSION_TOKEN=$(echo "$CREDS" | jq -r .SessionToken) \
+                aws cloudformation describe-stacks --stack-name SetuHaulPilot --query 'Stacks[0].Outputs' --output json)
+          export SETUHAUL_DB_CLUSTER_ARN=$(echo "$OUT" | jq -r '.[] | select(.OutputKey=="ClusterArn") | .OutputValue')
+          export SETUHAUL_DB_OWNER_SECRET_ARN=$(echo "$OUT" | jq -r '.[] | select(.OutputKey=="OwnerSecretArn") | .OutputValue')
+          export SETUHAUL_DB_SECRET_ARNS=$(echo "$OUT" | jq -r '.[] | select(.OutputKey=="LoginSecretArns") | .OutputValue')
+          python -m setuhaul.aws.provision_logins
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         if: always()
         with:
