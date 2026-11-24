@@ -130,7 +130,7 @@ Guard tests: **68** (39 before review + 29).
 | guard + security pins + kill switch + booking switch + migrations (targeted) | local | 18.6 | 127 passed |
 | full regression | local | 18.6 | **1379 passed, 0 failed, 2 skipped** (26 min 51 s; = 1350 + the 29 review tests; pre-existing skips) |
 | GitHub CI run [45334016050](https://github.com/amolam/setuhaul-logistics/actions/runs/45334016050) on `e68f3b6` (before review) | GitHub Actions | **17.9** (`postgres:17.9`) | `test`: **1351 passed, 1 skipped** (full suite, incl. the 39 guard tests and the T33-P path on 17.9) + Data API step **559 passed**; `synth` passed; `deploy` skipped |
-| GitHub CI on the review commit | GitHub Actions | 17.9 | «CI2» |
+| GitHub CI run [45342743363](https://github.com/amolam/setuhaul-logistics/actions/runs/45342743363) on `1b8df47` (review commit) | GitHub Actions | **17.9** (`postgres:17.9`) | `test`: **1380 passed, 1 skipped** (full suite incl. the 68 guard tests, the 14 production spellings and the T33-P path on 17.9) + Data API step **559 passed**; `synth` passed; `deploy` skipped |
 
 Local and CI results are kept separate. The T33-P exception rule is exercised on PostgreSQL 17.9 only in CI
 (`test_t33p_is_accepted_only_on_postgresql_17` and the pilot positive test take the 17.x branch there).
