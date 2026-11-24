@@ -24,7 +24,7 @@ from pydantic import AwareDatetime, BaseModel, Field, model_validator
 
 from .db import CORRELATION_ID, Db
 from .inbound import (InboundRelay, LocalQueue, SqsFifoQueue, booking_killed, check_booking_preconditions,
-                      load_manifest, manifest_from_database, own_code_sha256)
+                      deployment_id_for, load_manifest, manifest_from_database, own_code_sha256)
 from .security import AuthError, CognitoVerifier, Principal, SessionTokens, meta_signature_ok
 from .service import BookingService, ServiceError
 
@@ -208,12 +208,18 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
     if settings.booking_enabled and not settings.local_test_harness:
         # S4-05: the switch fails closed. Durable FIFO queue with a dead-letter queue and a visibility timeout that
         # covers the processing lease, plus recorded evidence for every deployment gate, or the service does not start.
+        own_code = None
         if settings.manifest_source == "database" and settings.environment:
-            manifest = manifest_from_database(db, settings.environment, own_code_sha256())
+            own_code = own_code_sha256()
+            manifest = manifest_from_database(db, settings.environment, own_code)
         else:
             manifest = load_manifest(settings.deployment_manifest) if settings.deployment_manifest else None
         app.state.gate_exceptions = check_booking_preconditions(db, inbound, settings.processing_lease_s,
                                                                 settings.environment, manifest, settings.deployment_id)
+        # 0030: declare the accepted deployment in every transaction; the database re-checks it at each booking
+        # commitment (newest manifest, same code, current evidence), so a warm container cannot outlive its evidence
+        db.deployment = {"environment": settings.environment, "deployment_id": deployment_id_for(manifest),
+                         "code_sha256": own_code or manifest["gates"]["RECOVERY_WORKER"]["artifact_sha256"]}
     relay = InboundRelay(svc, inbound, sessions)
     app.state.service, app.state.sessions, app.state.inbound, app.state.relay = svc, sessions, inbound, relay
 
