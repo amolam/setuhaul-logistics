@@ -692,3 +692,67 @@ def test_the_database_refuses_even_when_a_container_believes_booking_is_on(c, sc
     refused(lambda: book(c, d), "provisional authorization is REVOKED")
     st = c.execute("SELECT setuhaul.booking_authorization_status(%s,%s,%s)", (env, d["dep"], d["art"])).fetchone()[0]
     assert st["authorized"] is False and "REVOKED" in st["verdict"] and st["provisional_open"] is False
+
+
+# ================================================================ check 1 (owner review): the D2 correction is inert
+def test_an_attestation_can_never_relabel_a_decision(dsn, c):  # noqa: F811
+    """H1: the kind always comes from the immutable decided_by. An attestation that agrees changes nothing; one that
+    disagrees reads as attestation_conflict, which matches no record (so even the owner cannot relabel a drill)."""
+    drill, console = _approval(c, "staff:step6-drill-planner"), _approval(c, UUID_DECIDER)
+    for aid, kind in ((drill, "console_user"), (console, "console_user")):
+        c.execute("""INSERT INTO setuhaul.approval_decider_attestations (approval_id, decider_kind, basis, evidence_ref)
+                     VALUES (%s, %s, 'test: an attestation written directly by the owner', 'test-ref')""", (aid, kind))
+    assert _kinds(dsn, [drill, console]) == {drill: "attestation_conflict", console: "console_user"}
+
+
+def _collector():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("step6_collector", ROOT / "scripts" / "step6_gate_evidence.py")
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+class FakeLogs:
+    def __init__(self, events, retention=7):
+        self.events, self.retention, self.calls = events, retention, []
+
+    def describe_log_groups(self, logGroupNamePrefix):
+        return {"logGroups": [{"logGroupName": logGroupNamePrefix, "retentionInDays": self.retention}]}
+
+    def filter_log_events(self, **kw):
+        self.calls.append(kw)
+        rid = kw["filterPattern"].strip('"')
+        return {"events": [e for e in self.events if rid in e["message"]
+                           and kw["startTime"] <= e["timestamp"] <= kw["endTime"]]}
+
+
+def test_the_collector_corroborates_owner_requests_only_from_the_stacks_own_api_log(tmp_path):
+    from datetime import datetime, timezone
+    m = _collector()
+    owner = json.loads((ROOT / "docs" / "release" / "evidence" / "owner_attribution_20261123.json").read_text(
+        encoding="utf-8"))
+    c2 = "29ffac03-d8bd-4dac-b35c-66b0f8ebf24b"
+    req = next(e for e in owner["executions"] if e["approval_id"] == c2)["cloudwatch"]["requests"][0]
+    t = datetime.fromisoformat(req["t_utc"].replace("Z", "+00:00"))
+    line = {"timestamp": int(t.timestamp() * 1000), "message": f"[INFO]\t{req['t_utc']}\t{req['request_id']}\t{req['line']}"}
+    now = datetime(2026, 11, 25, tzinfo=timezone.utc)
+    group = "SetuHaulPilot-LogsApi-from-the-stack"
+    fake = FakeLogs([line])
+    got = m.owner_api_log_corroboration(owner, group, now, logs=fake, evidence_dir=tmp_path)
+    assert got[c2]["status"] == "verified" and got[c2]["events"][0]["request_id"] == req["request_id"]
+    assert fake.calls and all(call["logGroupName"] == group for call in fake.calls)   # never the record's own group
+    forged = {**line, "message": line["message"].replace(" 200", " 500")}         # same id, different outcome
+    assert m.owner_api_log_corroboration(owner, group, now, logs=FakeLogs([forged]),
+                                         evidence_dir=tmp_path)[c2]["status"] == "missing"
+    assert m.owner_api_log_corroboration(owner, group, now, logs=FakeLogs([]),
+                                         evidence_dir=tmp_path)[c2]["status"] == "missing"
+    late = datetime(2026, 12, 5, tzinfo=timezone.utc)                              # past the 7-day retention
+    assert m.owner_api_log_corroboration(owner, group, late, logs=FakeLogs([line]),
+                                         evidence_dir=tmp_path)[c2]["status"] == "beyond_retention_unverified"
+    (tmp_path / "renewal_gates.json").write_text(json.dumps({"gates": {"BOOKING_WORKFLOW": {"evidence": {
+        "api_log_corroboration": {c2: got[c2]}}}}}), encoding="utf-8")
+    assert m.owner_api_log_corroboration(owner, group, late, logs=FakeLogs([]),
+                                         evidence_dir=tmp_path)[c2]["status"] == "previously_verified"
+    assert m.owner_api_log_corroboration(owner, None, now, logs=FakeLogs([line]),
+                                         evidence_dir=tmp_path)[c2]["status"] == "missing"

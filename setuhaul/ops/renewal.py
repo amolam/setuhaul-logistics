@@ -256,10 +256,19 @@ def _owner_expectations(entry: dict, row: dict, execution: dict) -> list[str]:
     return bad
 
 
+API_LOG_ACCEPTED = ("verified", "previously_verified")
+
+
 def attribute_executions(executions: list[dict], records: dict[str, dict], smoke_records: list[dict],
-                         owner_record: dict | None) -> tuple[list[dict], list[str]]:
+                         owner_record: dict | None, api_log: dict[str, dict] | None = None
+                         ) -> tuple[list[dict], list[str]]:
     """executions: [{"name" (= approval id), "status", "start", "arn"}] from Step Functions.
     records: approval_id -> the row from approval_execution_evidence (migration 0029), facility-scoped.
+    api_log: approval_id -> the API-log corroboration of the owner record's console requests (Recovery Release A,
+    check 1): {"status": verified | previously_verified | missing | beyond_retention_unverified, ...}. Category C needs
+    verified (the live API log has every request line the record names) or previously_verified (the log is past its
+    retention and an earlier committed report verified the same lines). Anything else, or no corroboration at all,
+    fails closed: an owner record alone can never attribute an execution.
     Returns (one verdict per execution, record-level problems)."""
     owner, owner_problems = load_owner_attributions(owner_record)
     claims = smoke_claims(smoke_records)
@@ -306,6 +315,10 @@ def attribute_executions(executions: list[dict], records: dict[str, dict], smoke
                                 else " (23 Nov format: release SHA not recorded)")))
         if aid in owner:
             ob = _owner_expectations(owner[aid], row, e)
+            corr = (api_log or {}).get(aid) or {"status": "not checked"}
+            if corr.get("status") not in API_LOG_ACCEPTED:
+                ob.append(f"the API log does not corroborate the recorded console requests ({corr.get('status')}"
+                          + (f": {corr['detail']}" if corr.get("detail") else "") + ")")
             if ob:
                 hard += [f"owner-confirmed record does not match the database: {b}" for b in ob]
             else:

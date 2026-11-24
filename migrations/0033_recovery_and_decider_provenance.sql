@@ -5,7 +5,8 @@
 --
 --   D2  approval_execution_evidence classifies a person who decided through the console (staff:<Cognito sub UUID>) as
 --       console_user and only named identities (staff:<name>: drills, smokes, probes) as drill_staff. Owner-attested
---       corrections live in a new append-only table with their provenance; 0033 records the one for the owner's 23 Nov
+--       corrections live in a new append-only table with their provenance (they confirm the rule and can never change
+--       a classification: a disagreeing one reads as attestation_conflict); 0033 records the one for the owner's 23 Nov
 --       console decision (approval 29ffac03-…), only where that approval exists as a staff:<UUID> human decision.
 --   D4  booking_authorization_status: the database's verdict for one deployment, its code and its release identity,
 --       now, with the kill switch and any open provisional window. /health reads it on every call.
@@ -42,7 +43,9 @@ CREATE FUNCTION decider_kind_of(p_decided_by text, p_decided_by_type text) RETUR
               ELSE 'console_user' END
 $$;
 
--- 0029's function, same signature and grants; only decider_kind changes (an owner attestation, else the rule above).
+-- 0029's function, same signature and grants; only decider_kind changes. The kind ALWAYS comes from the rule above, on
+-- the immutable decided_by: an attestation records provenance and can only agree with it. An attestation that
+-- disagrees yields 'attestation_conflict', which matches no record, so no attestation can relabel a decision.
 CREATE OR REPLACE FUNCTION approval_execution_evidence(p_approval_ids uuid[])
 RETURNS TABLE (approval_id uuid, kind text, facility_id text, shipment_id text, shipment_is_synthetic boolean,
                appointment_id text, appointment_status text, status text, decided_by_type text, decided_by_role text,
@@ -59,9 +62,10 @@ BEGIN
   RETURN QUERY
     SELECT r.approval_id, r.kind, r.facility_id, r.shipment_id, coalesce(r.shipment_id LIKE 'SYN-%', false),
            r.appointment_id, a.status, r.status, r.decided_by_type, r.decided_by_role,
-           CASE WHEN r.decided_by IS NULL THEN NULL
-                WHEN r.decided_by_type = 'SYSTEM' THEN 'system'
-                ELSE coalesce(att.decider_kind, decider_kind_of(r.decided_by, r.decided_by_type)) END,
+           CASE WHEN att.decider_kind IS NOT NULL
+                     AND att.decider_kind IS DISTINCT FROM decider_kind_of(r.decided_by, r.decided_by_type)
+                THEN 'attestation_conflict'
+                ELSE decider_kind_of(r.decided_by, r.decided_by_type) END,
            r.outcome_reason, r.created_at, r.decided_at, r.expires_at, r.task_token IS NOT NULL
       FROM approval_requests r
       LEFT JOIN appointments a ON a.appointment_id = r.appointment_id

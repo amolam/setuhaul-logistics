@@ -500,6 +500,66 @@ def smoke_records() -> list[dict]:
     return [json.loads(f.read_text(encoding="utf-8")) for f in files if f.exists()]
 
 
+def owner_api_log_corroboration(owner: dict | None, api_log_group: str | None, now: datetime,
+                                logs=None, evidence_dir: Path | None = None) -> dict[str, dict]:
+    """Recovery Release A (check 1): every console request an owner record names must appear in the API function's OWN
+    log group (read from the deployed stack, never from the record): the same request id and the same line, within
+    two minutes of the recorded time. Once the log is past its retention, an earlier COMMITTED report must have verified
+    exactly the same request ids; otherwise the record is not corroborated (fail closed)."""
+    out: dict[str, dict] = {}
+    if not owner:
+        return out
+    logs = logs or c("logs")
+    retention_days = None
+    if api_log_group:
+        g = logs.describe_log_groups(logGroupNamePrefix=api_log_group).get("logGroups") or []
+        retention_days = next((x.get("retentionInDays") for x in g if x.get("logGroupName") == api_log_group), None)
+    prior = {}
+    for f in sorted((evidence_dir or EVIDENCE).glob("*.json")):
+        try:
+            rep_ = json.loads(f.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            continue
+        bw = ((rep_.get("gates") if isinstance(rep_, dict) else None) or {}).get("BOOKING_WORKFLOW")
+        prior_corr = ((bw.get("evidence") if isinstance(bw, dict) else None) or {}).get("api_log_corroboration")
+        for aid, v in (prior_corr if isinstance(prior_corr, dict) else {}).items():
+            if isinstance(v, dict) and v.get("status") == "verified":
+                prior[aid] = {"file": f.name, "request_ids": sorted(v.get("request_ids") or [])}
+    for e in owner.get("executions") or []:
+        aid = str(e.get("approval_id"))
+        reqs = ((e.get("cloudwatch") or {}).get("requests")) or []
+        ids = sorted(str(r.get("request_id")) for r in reqs)
+        if not reqs or not api_log_group:
+            out[aid] = {"status": "missing", "request_ids": ids,
+                        "detail": "the record names no console request" if not reqs else "no API log group"}
+            continue
+        states, found = [], []
+        for r in reqs:
+            t = datetime.fromisoformat(str(r["t_utc"]).replace("Z", "+00:00"))
+            if retention_days is not None and now - t > timedelta(days=retention_days) - timedelta(hours=1):
+                states.append("beyond_retention")
+                continue
+            ev = logs.filter_log_events(logGroupName=api_log_group, filterPattern=f'"{r["request_id"]}"',
+                                        startTime=int((t - timedelta(minutes=2)).timestamp() * 1000),
+                                        endTime=int((t + timedelta(minutes=2)).timestamp() * 1000)).get("events") or []
+            hit = next((x for x in ev if r["request_id"] in x.get("message", "") and r["line"] in x.get("message", "")),
+                       None)
+            states.append("verified" if hit else "missing")
+            if hit:
+                found.append({"request_id": r["request_id"], "timestamp_ms": hit.get("timestamp"), "line": r["line"]})
+        if "missing" in states:
+            out[aid] = {"status": "missing", "request_ids": ids, "detail": "a recorded request is not in the API log"}
+        elif "beyond_retention" in states:
+            pv = prior.get(aid)
+            out[aid] = ({"status": "previously_verified", "request_ids": ids, "detail": f"verified in {pv['file']}"}
+                        if pv and pv["request_ids"] == ids else
+                        {"status": "beyond_retention_unverified", "request_ids": ids,
+                         "detail": "the API log is past its retention and no committed report verified these requests"})
+        else:
+            out[aid] = {"status": "verified", "request_ids": ids, "log_group": api_log_group, "events": found}
+    return out
+
+
 def renewal_gate(out, fns, res, approval_ref: str, release_sha: str, fresh_smoke: dict | None,
                  expected_kill_switch: str) -> tuple[dict, str | None]:
     """BOOKING_WORKFLOW in renewal mode (setuhaul/ops/renewal.py judges; this function only reads)."""
@@ -522,13 +582,16 @@ def renewal_gate(out, fns, res, approval_ref: str, release_sha: str, fresh_smoke
         smokes.append(fresh_smoke)
     owner_file = EVIDENCE / "owner_attribution_20261123.json"
     owner = json.loads(owner_file.read_text(encoding="utf-8")) if owner_file.exists() else None
-    attribution = R.attribute_executions(execs, records, smokes, owner)
     now = datetime.now(timezone.utc)
+    api_group = (by_name.get("setuhaul-pilot-api") or {}).get("log_group")
+    api_log = owner_api_log_corroboration(owner, api_group, now)
+    attribution = R.attribute_executions(execs, records, smokes, owner, api_log)
     smoke = R.fresh_smoke_checks(fresh_smoke, release_sha, artifact, now)
     g = R.booking_workflow_renewal(base, config, attribution, smoke, fresh_smoke)
     g["evidence"]["activation_facts"] = {k: ev_act.get(k) for k in ("state_machine", "alias_routes_to_version",
                                                                       "live_definition_sha256", "repo_definition_sha256")}
     g["evidence"]["executions_total"] = len(execs)
+    g["evidence"]["api_log_corroboration"] = api_log
     if blocker:
         g["diagnostics"].insert(0, f"BOOKING_WORKFLOW: {g['status']} — {blocker}")
         g["evidence"]["record_access_blocker"] = blocker
