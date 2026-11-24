@@ -172,5 +172,5 @@ new environment's first activation could switch booking on without per-commitmen
 **Results (executed):**
 * Local PostgreSQL 18.6: full suite **1392 passed, 2 skipped**; affected files 142 passed.
 * Data API emulator suite: **559 passed**.
-* GitHub CI on PostgreSQL 17.9: see the PR's checks for this commit.
+* GitHub CI on PostgreSQL 17.9 (run 45363384871, head d3ffeda): **1393 passed, 1 skipped**; Data API **559 passed**; synth passed. The first run (7102ad3) failed one test that only takes its 17.9 path in CI; fixed in d3ffeda.
 * **Not validated live:** nothing was applied to the pilot database.
