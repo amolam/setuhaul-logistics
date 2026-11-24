@@ -325,10 +325,11 @@ def test_the_pipeline_command_runs_as_a_module_and_refuses_any_other_login(tmp_p
     assert r.returncode != 0 and "activation runs only with the deploy-evidence login" in r.stderr, r.stderr[-500:]
 
 
-def test_the_pipeline_activation_runs_end_to_end_through_the_data_api(dsn, tmp_path, monkeypatch):
+def test_the_pipeline_activation_runs_end_to_end_through_the_data_api(guarded_dsn, tmp_path, monkeypatch):
     """The exact pipeline function (activate_from_pipeline) through the emulated RDS Data API: deploy-evidence login,
     queue read through the lookup session, template read for the sender. On PostgreSQL 17.9 (CI, the pilot's engine)
     it records the manifest, PASS evidence and the three exceptions; on 18 it must refuse T33-P and write nothing."""
+    dsn = guarded_dsn          # records evidence: needs a database whose guard is on (0031, M1)
     import argparse
     import boto3
     from data_api_emulator import EmulatedRdsData
