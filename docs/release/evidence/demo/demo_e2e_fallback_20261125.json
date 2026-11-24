@@ -1,0 +1,45 @@
+[
+  {
+    "case": "A6",
+    "scenario": "daily model budget spent: no paid call, the rules reader answers",
+    "input": "wamid.SYN.8fdc6e0176cf4cfd923071bc5cf2145c",
+    "evidence": {
+      "driver_id": "SYN-DRV-A8B2D960",
+      "vehicle_id": "SYN-VEH-A8B2D960",
+      "shipment_id": "SYN-SHP-A8B2D960",
+      "phone": "+99906404006702",
+      "message_id": "wamid.SYN.8fdc6e0176cf4cfd923071bc5cf2145c",
+      "status": 200,
+      "body": "{\"status\":\"received\"}",
+      "api_request_id": "eab7faff-c2c1-42f8-94a5-c97f42ed808e",
+      "stored_driver_message": 389,
+      "agent_reply": "Do you mean you will now reach the gate around 8:28 AM? Reply YES, or send your arrival time.",
+      "agent_reply_id": 390,
+      "agent_log": [],
+      "model_usage_recent": [
+        [
+          "BUDGET_EXHAUSTED",
+          "budget_exhausted",
+          "0"
+        ],
+        [
+          "OK",
+          "",
+          "0.003695"
+        ],
+        [
+          "OK",
+          "",
+          "0.003703"
+        ]
+      ]
+    },
+    "checks": {
+      "reply stored": true,
+      "no attempt settled as OK": false,
+      "refused by the budget": true
+    },
+    "status": "FAIL",
+    "at": "2026-11-24T23:59:11+00:00"
+  }
+]

@@ -1,0 +1,202 @@
+[
+  {
+    "case": "A1",
+    "scenario": "delay message: extraction, policy, feasibility against Aurora, options returned",
+    "input": "wamid.SYN.16acde4159984573b5e6ae1342558b40",
+    "evidence": {
+      "driver_id": "SYN-DRV-B4E39568",
+      "vehicle_id": "SYN-VEH-B4E39568",
+      "shipment_id": "SYN-SHP-B4E39568",
+      "phone": "+99901939580877",
+      "message_id": "wamid.SYN.16acde4159984573b5e6ae1342558b40",
+      "status": 200,
+      "body": "{\"status\":\"received\"}",
+      "api_request_id": "4e9b588e-f41e-4a6a-b4a6-98f59ddbe625",
+      "stored_driver_message": 381,
+      "agent_reply": "Available slots:\n1. Dock D1, 10:00 AM on 25 Nov\n2. Dock D2, 10:00 AM on 25 Nov\n3. Dock D3, 10:00 AM on 25 Nov\nReply with the number you want.",
+      "agent_reply_id": 382,
+      "agent_log": [],
+      "read_back": "Do you mean you will now reach the gate around 8:24 AM? Reply YES, or send your arrival time.",
+      "model_usage_recent": [
+        [
+          "OK",
+          "",
+          "extract",
+          "anthropic/claude-haiku-4.5"
+        ],
+        [
+          "OK",
+          "",
+          "extract",
+          "anthropic/claude-haiku-4.5"
+        ]
+      ],
+      "eta_signal": [
+        [
+          "DRIVER_DECLARED",
+          "2026-11-25 02:54:48.754589+00:00"
+        ]
+      ],
+      "shown_options": 3,
+      "appointments": 0
+    },
+    "checks": {
+      "webhook accepted (200)": true,
+      "delay read back for confirmation": true,
+      "driver message stored": true,
+      "agent reply stored": true,
+      "driver ETA recorded": true,
+      "options computed and stored": true,
+      "no booking": true
+    },
+    "status": "PASS",
+    "at": "2026-11-24T23:55:34+00:00"
+  },
+  {
+    "case": "A3",
+    "scenario": "the agent's reply goes to the internal test sink (not WhatsApp)",
+    "input": "wamid.SYN.724bbf19513149d38371163298b9cc70",
+    "evidence": {
+      "driver_id": "SYN-DRV-FCDF3D48",
+      "vehicle_id": "SYN-VEH-FCDF3D48",
+      "shipment_id": "SYN-SHP-FCDF3D48",
+      "phone": "+99907373700442",
+      "message_id": "wamid.SYN.724bbf19513149d38371163298b9cc70",
+      "status": 200,
+      "body": "{\"status\":\"received\"}",
+      "api_request_id": "8e3ae071-0c66-4720-b6ec-2ba3b0ed4c99",
+      "stored_driver_message": 383,
+      "agent_reply": "Do you mean you will now reach the gate around 7:55 AM? Reply YES, or send your arrival time.",
+      "agent_reply_id": 384,
+      "agent_log": [],
+      "notification": [
+        [
+          "SENT",
+          "testsink.f23d27791a6f46deb98b75d7a0d9a74c",
+          1
+        ]
+      ]
+    },
+    "checks": {
+      "reply stored": true,
+      "notification SENT": true,
+      "test-sink id, not a WhatsApp id": true
+    },
+    "status": "PASS",
+    "at": "2026-11-24T23:56:16+00:00"
+  },
+  {
+    "case": "A4",
+    "scenario": "a notification the sink refuses fails safely and a person is told",
+    "input": "wamid.SYN.6badccf0bec6401ab9b5097527f2dc61",
+    "evidence": {
+      "driver_id": "SYN-DRV-8569E2AE",
+      "vehicle_id": "SYN-VEH-7D17F7CA",
+      "shipment_id": "SYN-SHP-7D17F7CA",
+      "phone": "+99900000009999",
+      "message_id": "wamid.SYN.6badccf0bec6401ab9b5097527f2dc61",
+      "status": 200,
+      "body": "{\"status\":\"received\"}",
+      "api_request_id": "0e4dc4cb-9ea5-43da-9f57-0926ec53b7d9",
+      "stored_driver_message": 385,
+      "agent_reply": "What time do you expect to reach the warehouse gate?",
+      "agent_reply_id": 386,
+      "agent_log": [],
+      "notification": [
+        [
+          "FAILED",
+          "TEST_SINK_REFUSED",
+          "feb8a13d-e3a3-a84a-9d45-65665650e04a"
+        ]
+      ],
+      "escalation": [
+        [
+          "NOTIFICATION_FAILED",
+          "DECIDE"
+        ]
+      ],
+      "driver_reused": true
+    },
+    "checks": {
+      "notification FAILED": true,
+      "reason recorded": true,
+      "escalation raised": true
+    },
+    "status": "PASS",
+    "at": "2026-11-24T23:57:20+00:00"
+  },
+  {
+    "case": "A5",
+    "scenario": "model unavailable (OpenRouter refuses the key): the rules reader answers",
+    "input": "wamid.SYN.f712984166b144e9a6d572f9a1193151",
+    "evidence": {
+      "driver_id": "SYN-DRV-9C3492E9",
+      "vehicle_id": "SYN-VEH-9C3492E9",
+      "shipment_id": "SYN-SHP-9C3492E9",
+      "phone": "+99901035637857",
+      "message_id": "wamid.SYN.f712984166b144e9a6d572f9a1193151",
+      "status": 200,
+      "body": "{\"status\":\"received\"}",
+      "api_request_id": "706c44ad-76fc-4c2e-83db-5e900259a954",
+      "stored_driver_message": 387,
+      "agent_reply": "Do you mean you will now reach the gate around 8:27 AM? Reply YES, or send your arrival time.",
+      "agent_reply_id": 388,
+      "agent_log": [],
+      "fallback_log": [],
+      "model_usage_recent": [
+        [
+          "OK",
+          ""
+        ],
+        [
+          "OK",
+          ""
+        ],
+        [
+          "OK",
+          ""
+        ]
+      ]
+    },
+    "checks": {
+      "reply stored": true,
+      "model attempt settled as an error": false,
+      "rules reader used": false,
+      "not a ledger failure": true
+    },
+    "status": "FAIL",
+    "at": "2026-11-24T23:57:42+00:00"
+  },
+  {
+    "case": "S1",
+    "scenario": "protections kept without WAF, against the live API",
+    "input": "probes",
+    "evidence": {
+      "status_codes": {
+        "unsigned": 401,
+        "wrong_signature": 401,
+        "signed": 200,
+        "console_no_token": 401,
+        "console_forged_token": 401,
+        "malformed_input": 401,
+        "tools_route": 404
+      },
+      "stage_throttling": {
+        "throttlingRateLimit": 20.0,
+        "throttlingBurstLimit": 40
+      }
+    },
+    "checks": {
+      "unsigned webhook refused (401)": true,
+      "wrong signature refused (401)": true,
+      "signed webhook accepted (200)": true,
+      "console without a token refused (401)": true,
+      "console with a forged token refused (401)": true,
+      "malformed input refused (401/422)": true,
+      "/tools is off (404)": true,
+      "stage throttling 20/40": true
+    },
+    "status": "PASS",
+    "at": "2026-11-24T23:57:47+00:00"
+  }
+]
