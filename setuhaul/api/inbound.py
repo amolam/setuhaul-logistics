@@ -236,7 +236,13 @@ GUARD_TRIGGERS = {("deployment_evidence", "deployment_evidence_append_only"),
                   ("deployment_exceptions", "deployment_exceptions_append_only"),
                   ("deployment_exceptions", "deployment_exceptions_clock"),
                   ("dock_occupancy", "aa_booking_kill_switch"),
-                  ("appointments", "aa_booking_kill_switch")}
+                  ("appointments", "aa_booking_kill_switch"),
+                  # 0030: the per-commitment evidence guard; 0031 (M1): no evidence is recorded while it is off
+                  ("dock_occupancy", "ab_booking_evidence_guard"),
+                  ("appointments", "ab_booking_evidence_guard"),
+                  ("deployment_manifests", "aa_evidence_requires_guard"),
+                  ("deployment_evidence", "aa_evidence_requires_guard"),
+                  ("deployment_exceptions", "aa_evidence_requires_guard")}
 
 
 def evidence_triggers_enabled(db) -> bool:

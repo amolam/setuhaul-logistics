@@ -29,7 +29,8 @@ def as_writer(dsn_, rows):
             return write(c, rows)
 
 
-def test_only_passed_gates_become_evidence_and_the_switch_then_starts(dsn):
+def test_only_passed_gates_become_evidence_and_the_switch_then_starts(guarded_dsn):
+    dsn = guarded_dsn          # records evidence: needs a database whose guard is on (0031, M1)
     man, q = manifest(), SqsFifoQueue(URL, FakeSqs())
     fps = live_fingerprints(man, q, app_db(dsn))
     partial = report(AURORA={"status": "FAIL", "checks": {"engine is Aurora PostgreSQL 18.3+ (T33)": False}, "not_shown": []},

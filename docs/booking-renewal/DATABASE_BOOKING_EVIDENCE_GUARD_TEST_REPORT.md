@@ -134,3 +134,43 @@ Guard tests: **68** (39 before review + 29).
 
 Local and CI results are kept separate. The T33-P exception rule is exercised on PostgreSQL 17.9 only in CI
 (`test_t33p_is_accepted_only_on_postgresql_17` and the pilot positive test take the 17.x branch there).
+
+## 8. M1 remediation (migration 0031, 24 Nov 2026)
+
+**Finding (LLD review M1):** the guard is OFF on a fresh database and nothing in the activation path checked it, so a
+new environment's first activation could switch booking on without per-commitment enforcement (fail-open).
+
+**Change:**
+* 0031 adds `aa_evidence_requires_guard` (BEFORE INSERT, first by name) on `deployment_manifests`,
+  `deployment_evidence` and `deployment_exceptions`. It refuses with `EVIDENCE_GUARD_OFF` unless the guard is
+  enforced, for every role including the owner.
+* The function is SECURITY DEFINER as `setuhaul_rpc`, which already had SELECT on the guard row from 0030. **No grant
+  to any application role.**
+* 0031 also turns the guard on in any database already holding evidence, an exception or a manifest.
+* `GUARD_TRIGGERS` (start-up check) now requires the 0030 and 0031 triggers.
+* Twelve existing tests that record evidence now use a guard-on test database (`guarded_dsn`). Their assertions are
+  unchanged.
+
+**New tests (`tests/test_evidence_recording_guard.py`, 13):**
+
+| Requirement | Test |
+|---|---|
+| Fresh database fails closed (manifest, evidence, exception refused) | `test_a_fresh_database_starts_with_the_guard_off_and_records_nothing` |
+| Owner/superuser cannot write around it | `test_the_owner_cannot_record_evidence_either_while_the_guard_is_off` |
+| Transaction rollback: a refused pipeline activation leaves nothing; renewal-only evidence refused | `test_a_full_pipeline_activation_on_a_fresh_database_writes_nothing` |
+| Unauthorized access (negative permission), guard off and on | `test_unauthorized_roles_are_still_refused_by_privilege_first` |
+| Positive permission: the pipeline records with the guard on | `test_with_the_guard_on_the_pipeline_records_manifest_evidence_and_exceptions` |
+| Existing rules unchanged | `test_the_existing_evidence_rules_still_apply_with_the_guard_on` |
+| Concurrency: an uncommitted enable isn't seen and doesn't block; a rolled-back enable changes nothing; commit enables; one-way | `test_turning_the_guard_on_is_atomic_with_what_the_transaction_records` |
+| Concurrency: a refused manifest never waits on the manifest lock | `test_a_refused_manifest_never_takes_or_waits_for_the_manifest_lock` |
+| Concurrency: 18 parallel writers all refused | `test_concurrent_pipeline_writers_are_all_refused_while_off` |
+| Migration turns the guard on where evidence exists | `test_a_database_that_already_holds_evidence_has_its_guard_turned_on_by_the_migration` |
+| Missing guard row reads as OFF | `test_an_unreadable_or_missing_guard_row_refuses_recording` |
+| Least privilege: definer owner, no EXECUTE or guard-table access for any app role, trigger first | `test_the_m1_trigger_adds_no_privilege_to_any_role` |
+| Start-up check refuses a missing or disabled 0030/0031 trigger | `test_the_start_up_check_refuses_if_the_m1_trigger_is_missing_or_disabled` |
+
+**Results (executed):**
+* Local PostgreSQL 18.6: full suite **1392 passed, 2 skipped**; affected files 142 passed.
+* Data API emulator suite: **559 passed**.
+* GitHub CI on PostgreSQL 17.9: see the PR's checks for this commit.
+* **Not validated live:** nothing was applied to the pilot database.

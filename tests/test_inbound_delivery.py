@@ -480,7 +480,8 @@ def app_db(dsn_):
     return Db(dsn_)
 
 
-def test_s4_05_the_booking_switch_fails_closed(dsn):
+def test_s4_05_the_booking_switch_fails_closed(guarded_dsn):
+    dsn = guarded_dsn          # records evidence: needs a database whose guard is on (0031, M1)
     man = manifest()
     with pytest.raises(BookingGateError, match="durable FIFO queue"):
         booking_app(dsn, man=man)                                                    # LocalQueue
@@ -504,7 +505,8 @@ def test_s4_05_the_booking_switch_fails_closed(dsn):
     assert off is not None                                                           # switch off: nothing needed
 
 
-def test_s4_r2_04_evidence_must_be_for_this_deployment_fresh_and_for_this_configuration(dsn):
+def test_s4_r2_04_evidence_must_be_for_this_deployment_fresh_and_for_this_configuration(guarded_dsn):
+    dsn = guarded_dsn          # records evidence: needs a database whose guard is on (0031, M1)
     q = SqsFifoQueue(URL, FakeSqs())
     qfp, dbfp = q.fingerprint(), database_fingerprint(app_db(dsn))
     old = manifest()
@@ -532,7 +534,8 @@ def test_s4_r2_04_evidence_must_be_for_this_deployment_fresh_and_for_this_config
         booking_app(dsn, q, man=wrong_db)
 
 
-def test_s4_r2_05_only_the_evidence_writer_can_add_and_nobody_can_change(dsn):
+def test_s4_r2_05_only_the_evidence_writer_can_add_and_nobody_can_change(guarded_dsn):
+    dsn = guarded_dsn          # records evidence: needs a database whose guard is on (0031, M1)
     dep = f"dep-{uuid.uuid4().hex[:8]}"
     write_evidence(dsn, "test-env", dep, "AURORA")
     with psycopg.connect(dsn, autocommit=True) as c:
@@ -556,9 +559,10 @@ def test_s4_r2_05_only_the_evidence_writer_can_add_and_nobody_can_change(dsn):
         write_evidence(dsn, "test-env", dep, "AURORA", expires="40 days")            # at most 30 days
 
 
-def test_s4_r3_01_future_dated_evidence_is_refused(dsn):
+def test_s4_r3_01_future_dated_evidence_is_refused(guarded_dsn):
     """R2.1: the reviewer's example. Verified "1 Jan 2027", expiring "31 Jan 2027", written in November 2026: 0013's
     check (expiry within 30 days of verification) accepted it. The insert trigger checks against the database clock."""
+    dsn = guarded_dsn          # records evidence: needs a database whose guard is on (0031, M1)
     dep = f"dep-{uuid.uuid4().hex[:8]}"
     for ahead in ("43 days", "1 hour", "6 minutes"):
         with pytest.raises(psycopg.Error, match="EVIDENCE_FUTURE_DATED"):
@@ -572,7 +576,8 @@ def test_s4_r3_01_future_dated_evidence_is_refused(dsn):
     assert n == 2
 
 
-def test_s4_r3_02_operational_evidence_expires_after_seven_days(dsn):
+def test_s4_r3_02_operational_evidence_expires_after_seven_days(guarded_dsn):
+    dsn = guarded_dsn          # records evidence: needs a database whose guard is on (0031, M1)
     dep = f"dep-{uuid.uuid4().hex[:8]}"
     for gate in ("RECOVERY_WORKER", "OUTBOUND_DELIVERY"):
         with pytest.raises(psycopg.Error, match="EVIDENCE_TOO_LONG"):
@@ -582,10 +587,11 @@ def test_s4_r3_02_operational_evidence_expires_after_seven_days(dsn):
         write_evidence(dsn, "test-env", dep, gate, expires="30 days")
 
 
-def test_s4_r3_02_every_gate_is_bound_to_the_deployment_manifest(dsn):
+def test_s4_r3_02_every_gate_is_bound_to_the_deployment_manifest(guarded_dsn):
     """R2.1: a change to the worker artifact, the state machine, an IAM policy or the sender's configuration is a new
     manifest, so a new deployment id; evidence for the old deployment no longer counts. And a gate's evidence must
     carry its own manifest section's fingerprint."""
+    dsn = guarded_dsn          # records evidence: needs a database whose guard is on (0031, M1)
     q = SqsFifoQueue(URL, FakeSqs())
     qfp, dbfp = q.fingerprint(), database_fingerprint(app_db(dsn))
     base = manifest(release="r1")
@@ -623,8 +629,9 @@ def test_r2_1_the_dead_letter_queue_itself_is_verified():
     SqsFifoQueue(URL, FakeSqs()).verify(120)
 
 
-def test_r2_1_a_disabled_evidence_trigger_blocks_the_switch(dsn):
+def test_r2_1_a_disabled_evidence_trigger_blocks_the_switch(guarded_dsn):
     """R2.1 §3: the triggers stop ordinary DML; an owner could disable them. The service refuses to start then."""
+    dsn = guarded_dsn          # records evidence: needs a database whose guard is on (0031, M1)
     q = SqsFifoQueue(URL, FakeSqs())
     man = manifest()
     all_gates(dsn, man, q.fingerprint(), database_fingerprint(app_db(dsn)))

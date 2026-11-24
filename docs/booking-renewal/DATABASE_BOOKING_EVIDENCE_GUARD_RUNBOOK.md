@@ -45,7 +45,7 @@ The workflow's existing order already does the right thing:
 |---|---|---|
 | 1 | test (full suite on PostgreSQL 17.9), synth (booking ON for api and agent, test sink, no WhatsApp) | unchanged (old code serving) |
 | 2 | CDK deploy: the new code goes to every function | new containers can't start booking (no manifest for their code yet); warm v0.3.0 containers keep serving |
-| 3 | **Migrations: 0030 applied, guard ON** | **paused**: warm v0.3.0 containers are undeclared, so every commitment is refused |
+| 3 | **Migrations: 0030 and 0031 applied, guard ON** (the pilot holds manifests, so both migrations leave it on; 0031 then lets step 5 record evidence) | **paused**: warm v0.3.0 containers are undeclared, so every commitment is refused |
 | 4 | Logins, manifest built | paused |
 | 5 | Evidence step: the new manifest, then its **fresh** evidence and exceptions, in one transaction | paused until this transaction commits |
 | 6 | New containers start (start-up check passes) and declare the deployment; `/health` shows booking ON | **resumes** |
@@ -65,6 +65,9 @@ throughout. During the pause:
 SELECT enforced, changed_at, reason FROM setuhaul.booking_evidence_guard;
 -- expect: true | <migration time> | migration 0030: this database hosts a recorded deployment
 ```
+If the evidence step (4, row 5) fails with `EVIDENCE_GUARD_OFF`, the guard is off in this database: **stop**. Nothing
+was recorded and booking stays paused (fail-closed). On the pilot this can't happen (it holds manifests); in a new
+environment it means the owner's one-way enablement step was skipped.
 
 **5.2 Both functions declare the right deployment.** Each container logs one line at start:
 ```

@@ -185,6 +185,13 @@ turns booking on: it can only refuse a commitment. WhatsApp/Meta, LangSmith and 
 * **Enablement:** ON at migration time if the database already hosts a recorded deployment (the pilot); OFF on a fresh
   database (local and test). For a new environment, the owner turns it on, one way, before its first activation:
   `UPDATE setuhaul.booking_evidence_guard SET enforced = true, reason = '…'`.
+* **Enforced by 0031 (M1, review of 24 Nov 2026):** the database refuses to record a manifest, gate evidence or an
+  owner-approved exception while the guard is off (`EVIDENCE_GUARD_OFF`, trigger `aa_evidence_requires_guard`, for
+  every role, the owner included). Without evidence the start-up check refuses the booking switch, so a new environment
+  whose owner forgot the step fails **closed**. 0031 also turns the guard on in any database that already holds
+  evidence, an exception or a manifest, so "evidence exists ⇒ guard on" holds everywhere. The trigger function runs as
+  `setuhaul_rpc`, which already reads the guard row: no privilege is granted to any application role. The start-up
+  check now also requires the 0030 guard triggers and the 0031 triggers to be present and enabled (`GUARD_TRIGGERS`).
 * **Rollback:** forward-only. The guard can't be turned off by data, so backing it out needs a new migration that drops
   the two `ab_booking_evidence_guard` triggers: an owner decision. Existing bookings are never affected, because the guard
   only judges new commitments. Forward recovery is always "record current evidence for the running deployment".
@@ -199,4 +206,4 @@ turns booking on: it can only refuse a commitment. WhatsApp/Meta, LangSmith and 
 * Configuration fingerprints are verified at start-up, not per commitment (see §5).
 * `REQUIRED_GATES` is repeated in SQL; a test keeps it equal to the Python constant.
 * A fresh environment starts OFF until the owner enables it, so the first activation of any new environment must
-  include that step.
+  include that step. Since 0031 a forgotten step is a refused activation (`EVIDENCE_GUARD_OFF`), not a fail-open.
