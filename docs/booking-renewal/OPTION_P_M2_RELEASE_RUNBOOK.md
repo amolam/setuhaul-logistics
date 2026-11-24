@@ -140,3 +140,76 @@ Also check:
   * so it's booking OFF in effect, and needs the release branch reset (owner authorization).
 * **Database:** migrations are forward-only and additive. The guard and identity enforcement are one-way by design.
   Backing them out is a new migration (owner decision). No existing data is changed by 0028–0032.
+
+## 7. Recovery Release A: the way back after a revoked window (migration 0033)
+
+**Situation on 24 Nov 2026:**
+* release `a17e74df1203` (deployment `m-36e59dde…`) is live;
+* its authorization **1** was REVOKED at 16:06:47 UTC;
+* booking is refused by the database.
+
+Design: `RECOVERY_RELEASE_A_DESIGN.md`.
+
+### 7.1 What changes from §3
+
+* **The provisional run passes `-f recovery_of=1`.** The database then accepts the revoked release as the predecessor,
+  once, within 7 days of the revocation, and only if:
+  * authorization 1 is REVOKED;
+  * it was not itself a recovery;
+  * its ISSUED and REVOKED audit events are intact;
+  * that release lacks only BOOKING_WORKFLOW.
+  
+  Everything else in §3 applies unchanged.
+* **A new single-use approval reference.** `OWNER-APPROVAL-20261124-OPTION-P` is used up.
+* **The 2-per-24 h limit counts authorization 1** (issued 24 Nov 15:58:30 UTC):
+  * a recovery issued **before 25 Nov 15:58:30 UTC** is the second of the 24 h, and no third is possible until then;
+  * the 7-day recovery limit ends **1 Dec 16:06:47 UTC**.
+* **`/health` now reports the database's verdict** (D4):
+  * `booking_state`: `off`, `authorized`, `refused` or `unknown`;
+  * `booking_enabled`: true only when `authorized`;
+  * `booking_refusal`: why.
+  
+  The workflow's health step requires `booking_state == "authorized"`.
+* **A failed or cancelled provisional run** revokes, then fails loudly if any window is still open (D3). Every step
+  runs with `pipefail` (D5).
+
+### 7.2 Sequence
+
+`REF` is the new approval, for example `OWNER-APPROVAL-20261125-RECOVERY-A`. `RUN_SHA` is the commit the step-3 run
+deploys.
+
+1. Merge the Recovery Release A PR into `main`, then fast-forward `release/fde-sydney-pilot` (owner).
+2. Wake the workers. Then collect the five-gate report from the **running** release `a17e74df1203` and commit it as
+   `docs/release/evidence/provisional_gates.json`:
+   ```
+   python -m setuhaul.ops.pilot_mode wake
+   python scripts/step6_gate_evidence.py --mode renewal --approval-ref REF \
+     --release-sha 21b25cc009b8fa8feda392df795450ad9e725231 --out docs/release/evidence/provisional_gates.json
+   ```
+   * The AURORA gate now checks the complete trigger set (D1).
+   * BOOKING_WORKFLOW is FAIL here; that's expected, and the authorization stands in for it.
+3. Run the provisional workflow:
+   ```
+   gh workflow run activate-booking.yml --ref release/fde-sydney-pilot -f mode=provisional -f approval_ref=REF \
+     -f recovery_of=1 -f confirm=activate-synthetic-pilot-booking
+   ```
+4. Run the smoke, the renewal report and the commit, then close the window (`mode=renewal`) and sleep the workers, as in
+   §3.3–§3.6. The renewal attributes:
+   * the 24 Nov smoke execution (`e95e30a0`), from the record now committed under `docs/release/evidence/smoke/`;
+   * the owner's 23 Nov console decision (`29ffac03`), now classified `console_user` by 0033 (D2).
+
+### 7.3 Verification additions (read-only)
+
+```sql
+SELECT authorization_id, status, recovery_of FROM setuhaul.provisional_authorizations ORDER BY 1;  -- 1 REVOKED; 2 CONSUMED, recovery_of 1
+SELECT approval_id, decider_kind, evidence_ref FROM setuhaul.approval_decider_attestations;        -- 29ffac03… console_user
+SELECT version FROM setuhaul_meta.schema_migrations ORDER BY version DESC LIMIT 1;                 -- 0033
+```
+
+`/health` must show `booking_state: authorized` and `booking_enabled: true`, with no `booking_provisional_until`
+after the window closes.
+
+### 7.4 If the recovery attempt fails too
+
+A recovery can't be recovered (no second hop). The window is revoked and booking stays refused. The way back after
+that is a full `mode=activation` release: an owner decision.

@@ -19,6 +19,7 @@ evidence (DEPLOYMENT_GATES.md). Nothing here can turn it on.
 """
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import os
@@ -88,9 +89,20 @@ def load_whatsapp_token(env: dict, client=None) -> str:
 def runtime():
     """Built once per Lambda container: the app (and through it the service, sessions, queue and relay)."""
     from ..api.app import Settings, create_app
+    from ..api.inbound import BookingGateError
     env = load_app_secrets(dict(os.environ))
     os.environ.update({k: env[k] for k in SECRET_KEYS if k in env})   # Settings.from_env reads the process env
-    return create_app(Settings.from_env())
+    settings = Settings.from_env()
+    try:
+        return create_app(settings)
+    except BookingGateError as e:
+        # D4 (Recovery Release A): a container whose booking gates fail no longer refuses to start (that took the whole
+        # API, console included, down). It runs booking-OFF, which is fail-closed for booking (and the database refuses
+        # every commitment of an undeclared or unauthorized deployment anyway, 0030/0032), and /health says why.
+        log.error("ALERT booking gates not satisfied at start-up; this container runs booking-OFF: %s", e)
+        app = create_app(dataclasses.replace(settings, booking_enabled=False))
+        app.state.booking_gate = {"switch": True, "ok": False, "reason": str(e)[:300]}
+        return app
 
 
 # ---------------------------------------------------------------- E1: the HTTP API

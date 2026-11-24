@@ -256,6 +256,15 @@ def guards_enabled(snap: dict) -> bool:
     return GUARD_TRIGGERS <= {(r[0], r[1]) for r in snap["guards"]}
 
 
+def booking_authorization(db, environment: str | None, deployment_id: str | None, code_sha256: str | None) -> dict:
+    """D4 (0033): the database's verdict now for one declared deployment, its code and its release identity, with the
+    kill switch and any open provisional window. Read through the ingest login (EXECUTE only; no table grants)."""
+    with db.tx("ingest", readonly=True) as c:
+        raw = c.execute("SELECT booking_authorization_status(%s, %s, %s)",
+                        (environment, deployment_id, code_sha256)).fetchone()[0]
+    return json.loads(raw) if isinstance(raw, str) else raw
+
+
 def booking_killed(db) -> bool:
     """The kill switch (0026). Read for /health; the database itself refuses commitments while it is engaged."""
     return bool(gate_snapshot(db)["kill_switch"])

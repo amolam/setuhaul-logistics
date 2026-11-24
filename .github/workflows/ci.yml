@@ -36,6 +36,12 @@ on:
 permissions:
   contents: read
 
+# D5 (Recovery Release A): an explicit bash shell runs every step with -eo pipefail, so a failing command piped
+# into tee (the evidence, issuance and assembly steps) fails its step instead of reporting tee's success.
+defaults:
+  run:
+    shell: bash
+
 env:
   CDK_CLI: aws-cdk@2.1148.0                  # exact CDK CLI version (released 5 Nov 2026); reads aws-cdk-lib 2.278.0
 

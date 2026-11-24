@@ -197,7 +197,8 @@ def provisional_report_problems(report: dict, predecessor_artifact: str | None, 
 
 def provisional(conn, report: dict, raw_report: bytes, manifest: dict, environment: str, artifact_uri: str,
                 approval_ref: str, fingerprints: dict[str, str], server_version_num: int, outbound_env: dict,
-                release_sha: str, pipeline_run: str, minutes: int = PROVISIONAL_MINUTES) -> dict:
+                release_sha: str, pipeline_run: str, minutes: int = PROVISIONAL_MINUTES,
+                recovery_of: int | None = None) -> dict:
     """Option P, one transaction on the deploy-evidence login: the new release's manifest, PASS evidence and the
     owner-approved exceptions for the five gates other than BOOKING_WORKFLOW, then the provisional authorization.
     The database re-checks everything (issue_provisional_authorization) and refuses the whole transaction otherwise."""
@@ -226,8 +227,12 @@ def provisional(conn, report: dict, raw_report: bytes, manifest: dict, environme
     record_manifest(conn, manifest, environment)
     write(conn, rows)
     write_exceptions(conn, exc)
-    auth = snapshot(conn, "SELECT issue_provisional_authorization(%s, %s, %s, %s, %s, %s)",
-                    (environment, dep, release_sha, approval_ref, pipeline_run, int(minutes)))
+    if recovery_of is None:
+        auth = snapshot(conn, "SELECT issue_provisional_authorization(%s, %s, %s, %s, %s, %s)",
+                        (environment, dep, release_sha, approval_ref, pipeline_run, int(minutes)))
+    else:                       # Recovery Release A (0033): the database checks every recovery condition
+        auth = snapshot(conn, "SELECT issue_provisional_authorization(%s, %s, %s, %s, %s, %s, %s)",
+                        (environment, dep, release_sha, approval_ref, pipeline_run, int(minutes), int(recovery_of)))
     return {"deployment_id": dep, "evidence": sorted(r["gate"] for r in rows),
             "exceptions": {r["gate"]: r["exception_code"] for r in exc}, "approval_ref": approval_ref,
             "provisional": auth}
@@ -306,7 +311,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--report")
     ap.add_argument("--manifest")
     ap.add_argument("--environment", default="pilot")
-    ap.add_argument("--artifact-uri", required=True)
+    ap.add_argument("--artifact-uri", help="where the evidence report is stored (s3:// or https://); required for "
+                                           "recording, never for --revoke-provisional (D3)")
     ap.add_argument("--write", action="store_true", help="insert the rows (needs the deploy-evidence login)")
     ap.add_argument("--activate", metavar="OWNER-APPROVAL-YYYYMMDD-REF",
                     help="Option D: record the manifest, PASS evidence and the owner-approved exceptions (pipeline)")
@@ -317,13 +323,26 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--release-sha", help="--provisional: the 40-hex commit being released")
     ap.add_argument("--pipeline-run", help="--provisional: the pipeline run id (audit)")
     ap.add_argument("--window-minutes", type=int, default=PROVISIONAL_MINUTES)
+    ap.add_argument("--recovery-of", type=int, default=None,
+                    help="--provisional, Recovery Release A (0033): the REVOKED authorization of the previous release "
+                         "that this release recovers from (owner-approved; the database checks every condition)")
     ap.add_argument("--revoke-provisional", metavar="REASON",
                     help="Option P: revoke the environment's open provisional authorization at once (pipeline)")
+    ap.add_argument("--assert-no-open-provisional", action="store_true",
+                    help="D3: exit 1 if the newest deployment still has an OPEN provisional authorization (pipeline)")
     a = ap.parse_args(argv)
+    if a.assert_no_open_provisional:
+        snap = open_provisional_from_pipeline(a.environment)
+        print(json.dumps({"environment": a.environment, "open_provisional": snap}, default=str))
+        return 1 if snap else 0
     if a.revoke_provisional:
         return revoke_from_pipeline(a.environment, a.revoke_provisional)
     if not (a.report and a.manifest):
         ap.error("--report and --manifest are required")
+    if not a.artifact_uri:
+        ap.error("--artifact-uri is required to record evidence")
+    if a.recovery_of is not None and not a.provisional:
+        ap.error("--recovery-of applies only to --provisional")
     if a.activate or a.provisional:
         return activate_from_pipeline(a)
     raw = Path(a.report).read_bytes()
@@ -395,12 +414,39 @@ def activate_from_pipeline(a) -> int:
         ver = int(c.execute("SELECT current_setting('server_version_num')").fetchone()[0])
         if getattr(a, "provisional", None):
             out = provisional(c, report, raw, manifest, a.environment, a.artifact_uri, a.provisional, fps, ver,
-                              outbound_env, a.release_sha, a.pipeline_run or "manual", a.window_minutes)
+                              outbound_env, a.release_sha, a.pipeline_run or "manual", a.window_minutes,
+                              getattr(a, "recovery_of", None))
         else:
             out = activate(c, report, raw, manifest, a.environment, a.artifact_uri, a.activate, fps, ver, outbound_env)
     print(json.dumps(out, indent=1))
     return 0
 
+
+
+def open_provisional_from_pipeline(environment: str) -> dict | None:
+    """D3: the newest deployment's provisional authorization if it is still OPEN (deploy-evidence login, read-only),
+    else None. The workflow's last failure step uses it so a failed or cancelled run can never leave a window open
+    silently."""
+    import os
+    import boto3
+    secrets = json.loads(os.environ["SETUHAUL_DB_SECRET_ARNS"])
+    if set(secrets) != {"deploy_evidence"}:
+        raise SystemExit("the check runs only with the deploy-evidence login (SETUHAUL_DB_SECRET_ARNS)")
+    from setuhaul.aws.data_api import Connection, begin_with_resume
+    rds = boto3.client("rds-data")
+    kw = {"resourceArn": os.environ["SETUHAUL_DB_CLUSTER_ARN"], "secretArn": secrets["deploy_evidence"],
+          "database": os.environ.get("SETUHAUL_DB_NAME", "setuhaul")}
+    tid = begin_with_resume(rds, kw, 120)
+    c = Connection(rds, kw["resourceArn"], kw["secretArn"], kw["database"], tid)
+    try:
+        c.execute("SELECT set_config('role', 'setuhaul_deploy_evidence', true), "
+                  "set_config('search_path', 'setuhaul', true)")
+        dep = ((snapshot(c, "SELECT booking_gate_snapshot(%s, NULL)", (environment,)) or {}).get("manifest")
+               or {}).get("deployment_id")
+        snap = snapshot(c, "SELECT booking_provisional_snapshot(%s, %s)", (environment, dep)) if dep else None
+    finally:
+        rds.rollback_transaction(resourceArn=kw["resourceArn"], secretArn=kw["secretArn"], transactionId=tid)
+    return snap if snap and snap.get("open") else None
 
 
 def revoke_from_pipeline(environment: str, reason: str) -> int:

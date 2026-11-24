@@ -23,8 +23,8 @@ from starlette.concurrency import run_in_threadpool
 from pydantic import AwareDatetime, BaseModel, Field, model_validator
 
 from .db import CORRELATION_ID, Db
-from .inbound import (InboundRelay, LocalQueue, SqsFifoQueue, booking_killed, check_booking_preconditions,
-                      deployment_id_for, load_manifest, manifest_from_database, own_code_sha256)
+from .inbound import (InboundRelay, LocalQueue, SqsFifoQueue, booking_authorization,
+                      check_booking_preconditions, deployment_id_for, load_manifest, manifest_from_database, own_code_sha256)
 from .security import AuthError, CognitoVerifier, Principal, SessionTokens, meta_signature_ok
 from .service import BookingService, ServiceError
 
@@ -210,6 +210,9 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
     # = driver, deduplication id = WhatsApp message id); locally an in-process LocalQueue. The session token travels
     # only on this internal queue and is never returned to the webhook caller.
     inbound = queue if queue is not None else (SqsFifoQueue(settings.queue_url) if settings.queue_url else LocalQueue())
+    # D4 (Recovery Release A): what this container passed at start-up. /health combines it with the database's verdict
+    # now; lambdas.runtime() replaces it when a cold start fails its gates and the container runs booking-OFF instead.
+    app.state.booking_gate = {"switch": settings.booking_enabled, "ok": settings.booking_enabled, "reason": None}
     if settings.booking_enabled and not settings.local_test_harness:
         # S4-05: the switch fails closed. Durable FIFO queue with a dead-letter queue and a visibility timeout that
         # covers the processing lease, plus recorded evidence for every deployment gate, or the service does not start.
@@ -239,25 +242,50 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
 
     @app.get("/health")
     def health():
-        """Readiness for the load balancer and the pilot run sheet (Phase G). Public and read-only: it reports whether
-        the database answers and how the booking switch is set, and nothing else (no DSN, key, queue URL or data)."""
+        """Readiness for the load balancer and the pilot run sheet (Phase G). Public and read-only: whether the database
+        answers and whether booking is enabled, and nothing else (no DSN, key, queue URL or data).
+
+        D4 (Recovery Release A): booking_enabled is the DATABASE's answer now, not the start-up snapshot: the switch is
+        on, this container passed its gates, the database authorizes this deployment, its code and its release identity
+        (booking_authorization_status, 0033) and the kill switch is off. booking_state says which: off | authorized |
+        refused | unknown. Anything that cannot be verified is unknown and booking_enabled false (fail closed), so a
+        warm container and a cold one report the same thing."""
         try:
             with db.tx("ingest", readonly=True) as c:              # a role the API workload has anyway (E3)
                 c.execute("SELECT 1")
             database = "ok"
         except psycopg.Error:
             database = "unreachable"
-        body = {"status": "ok" if database == "ok" else "degraded", "database": database,
-                "booking_enabled": settings.booking_enabled, "environment": settings.environment, "version": app.version}
-        if settings.booking_enabled and database == "ok":
-            try:                                                    # 0026: what the database will refuse now
-                body["booking_kill_switch"] = "ENGAGED" if booking_killed(db) else "disengaged"
-            except Exception:                                       # noqa: BLE001 — reported, never fatal here
-                body["booking_kill_switch"] = "unknown"
+        gate = getattr(app.state, "booking_gate", None) or {"switch": False, "ok": False, "reason": None}
+        body = {"status": "ok" if database == "ok" else "degraded", "database": database, "booking_enabled": False,
+                "booking_state": "off", "environment": settings.environment, "version": app.version}
+        if not gate["switch"]:
+            return JSONResponse(body, status_code=200 if database == "ok" else 503)
+        body["booking_switch"] = "on"
+        if database != "ok":
+            body["booking_state"] = "unknown"
+            return JSONResponse(body, status_code=503)
+        if not gate["ok"]:
+            body.update(booking_state="refused", booking_refusal=f"start-up gates not satisfied: {gate['reason']}"[:400])
+        else:
             body["gate_exceptions"] = sorted(getattr(app.state, "gate_exceptions", None) or {})
-            if prov := getattr(app.state, "provisional", None):            # 0032: Option P window, never an exception
-                body["booking_provisional_until"] = prov.get("expires_at")
-        return JSONResponse(body, status_code=200 if database == "ok" else 503)
+        declared = getattr(db, "deployment", None) or {}
+        try:
+            st = booking_authorization(db, declared.get("environment") or settings.environment,
+                                       declared.get("deployment_id"), declared.get("code_sha256"))
+        except Exception:                                           # noqa: BLE001 — unverifiable: fail closed
+            body.update(booking_state="unknown", booking_kill_switch="unknown")
+            return JSONResponse(body, status_code=200)
+        body["booking_kill_switch"] = "ENGAGED" if st.get("kill_switch") else "disengaged"
+        if gate["ok"]:
+            if st.get("authorized") is True:
+                body.update(booking_enabled=True, booking_state="authorized")
+            else:
+                body.update(booking_state="refused",
+                            booking_refusal=(st.get("verdict") or "the booking kill switch is engaged")[:400])
+        if st.get("provisional_open") and st.get("provisional_until"):     # 0032: an open Option P window, never an exception
+            body["booking_provisional_until"] = st["provisional_until"]
+        return JSONResponse(body, status_code=200)
 
     def staff(authorization: str | None = Header(default=None)) -> Principal:
         if not authorization or not authorization.startswith("Bearer "):

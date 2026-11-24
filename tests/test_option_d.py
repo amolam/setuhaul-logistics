@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from datetime import timedelta
 from pathlib import Path
@@ -218,8 +219,12 @@ def test_the_switch_starts_with_pass_evidence_plus_the_accepted_exceptions(guard
         assert set(app.state.gate_exceptions) == {"WORKLOAD_IDENTITY", "OUTBOUND_DELIVERY"}
     from fastapi.testclient import TestClient
     h = TestClient(app).get("/health").json()
-    assert h["booking_enabled"] is True and h["booking_kill_switch"] == "disengaged"
-    assert "WORKLOAD_IDENTITY" in h["gate_exceptions"]
+    # D4 (Recovery Release A): the container passed its start-up gates from a manifest FILE, but this database holds no
+    # recorded deployment for it, so the database refuses its commitments (0030) and /health says so instead of
+    # repeating the start-up snapshot
+    assert h["booking_enabled"] is False and h["booking_state"] == "refused" and h["booking_switch"] == "on"
+    assert re.search("NO_MANIFEST|DEPLOYMENT_SUPERSEDED", h["booking_refusal"]), h
+    assert h["booking_kill_switch"] == "disengaged" and "WORKLOAD_IDENTITY" in h["gate_exceptions"]
     # an exception never applies to another environment, even with the same deployment id
     with pytest.raises(BookingGateError):
         booking_app(dsn, q, env="pilot-other", man={**man, "environment": "pilot-other"})

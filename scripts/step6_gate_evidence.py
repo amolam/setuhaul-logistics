@@ -27,6 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from setuhaul.aws.data_api import DataApiDb  # noqa: E402
 from setuhaul.aws.migrate_data_api import OwnerSession  # noqa: E402
+from setuhaul.ops.evidence_triggers import QUERY as EVIDENCE_TRIGGER_QUERY, trigger_problems  # noqa: E402
 
 REGION, STACK, ENV = "ap-southeast-2", "SetuHaulPilot", "pilot"
 MASK = re.compile(r"\b\d{12}\b")
@@ -386,8 +387,9 @@ def gate_aurora(out):
     live = dict(owner.query("SELECT version, sha256 FROM setuhaul_meta.schema_migrations ORDER BY version"))
     local = {p.stem.split("_", 1)[0]: sha(p.read_bytes()) for p in sorted((ROOT / "migrations").glob("*.sql"))}
     live_n = {k.split("_", 1)[0]: v for k, v in live.items()}
-    triggers = owner.query("""SELECT tgname::text, tgenabled::text FROM pg_trigger WHERE tgrelid = 'setuhaul.deployment_evidence'::regclass
-                               AND NOT tgisinternal ORDER BY 1""")
+    # D1 (Recovery Release A): every trigger on the evidence and booking-commitment tables, not just two names
+    triggers = owner.query(EVIDENCE_TRIGGER_QUERY)
+    trigger_issues = trigger_problems(triggers)
     rls = owner.query("""SELECT count(*) FILTER (WHERE c.relrowsecurity AND c.relforcerowsecurity), count(*)
                            FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
                           WHERE n.nspname = 'setuhaul' AND c.relkind = 'r'""")[0]
@@ -397,11 +399,12 @@ def gate_aurora(out):
           "migrations_live": len(live), "migrations_in_repo": len(local),
           "hash_mismatches": sorted(k for k, v in deployed.items() if live_n.get(k) != v),
           "repo_only_migrations": sorted(set(local) - set(live_n)),
-          "evidence_triggers": dict(triggers), "tables_with_forced_rls": rls[0], "tables": rls[1]}
+          "evidence_triggers": {f"{t}.{n}": [e, f, ty] for t, n, e, f, ty in triggers},
+          "evidence_trigger_problems": trigger_issues, "tables_with_forced_rls": rls[0], "tables": rls[1]}
     major = int(str(cl["EngineVersion"]).split(".")[0])
     checks = {
         "every deployed migration's hash matches the repository": not ev["hash_mismatches"],
-        "both evidence triggers enabled": {t: e for t, e in triggers} == {"deployment_evidence_append_only": "O", "deployment_evidence_fresh": "O"},
+        "evidence and booking guard triggers: exactly the expected set, enabled and configured": not trigger_issues,
         "Data API connectivity behind Db.tx()": True,
     }
     # T33 (production): 18.3+. T33-P (owner, 23 Nov 2026): 17.9 is permitted for the synthetic Free-plan pilot only,

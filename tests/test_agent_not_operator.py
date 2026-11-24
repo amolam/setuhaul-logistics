@@ -139,7 +139,10 @@ def test_every_table_is_rls_forced_or_reasoned(conn):
              # 0032 (Option P): provisional authorizations and their append-only audit trail; deployment ids, release
              # SHAs and approval references only (no facility data); no application role has any privilege on either,
              # only the definer functions (issue, consume, revoke, expire, snapshot) use them
-             "provisional_authorizations", "provisional_authorization_events"}
+             "provisional_authorizations", "provisional_authorization_events",
+             # 0033 (Recovery Release A): owner-attested decider kinds (approval id, kind, provenance; no facility
+             # data); append-only, no application role has any privilege, read only by approval_execution_evidence
+             "approval_decider_attestations"}
     bad = [r[0] for r in conn.execute("""SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
                                          WHERE n.nspname='setuhaul' AND c.relkind='r'
                                            AND NOT (c.relrowsecurity AND c.relforcerowsecurity)""") if r[0] not in allow]
@@ -173,7 +176,8 @@ def test_ingest_role_allowlist(conn):
     assert funcs == {"attest_confirmation", "thread_lock", "scope_allows", "driver_or_staff",
                      "record_delivery_status",   # 0017 (B-WF-3): provider receipts from the signed webhook
                      "booking_gate_snapshot",    # 0026: read-only start-up check of the booking switch (the api)
-                     "booking_provisional_snapshot"}  # 0032: the same check reads an open Option P window
+                     "booking_provisional_snapshot",  # 0032: the same check reads an open Option P window
+                     "booking_authorization_status"}  # 0033 (D4): /health reads the database's booking verdict now
 
 
 def test_feasibility_role_allowlist(conn):

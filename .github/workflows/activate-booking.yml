@@ -34,9 +34,19 @@ on:
         default: activation
         type: choice
         options: [activation, renewal, provisional]
+      recovery_of:
+        description: "provisional only, Recovery Release A (0033): the REVOKED authorization id of the previous release to recover from (owner-approved; empty = the normal no-chaining rule)"
+        required: false
+        default: ""
 
 permissions:
   contents: read
+
+# D5 (Recovery Release A): an explicit bash shell runs every step with -eo pipefail, so a failing command piped
+# into tee (the evidence, issuance and assembly steps) fails its step instead of reporting tee's success.
+defaults:
+  run:
+    shell: bash
 
 env:
   CDK_CLI: aws-cdk@2.1148.0
@@ -81,12 +91,17 @@ jobs:
       APPROVAL_REF: ${{ github.event.inputs.approval_ref }}
       CONFIRM: ${{ github.event.inputs.confirm }}
       MODE: ${{ github.event.inputs.mode }}
+      RECOVERY_OF: ${{ github.event.inputs.recovery_of }}
     steps:
       - name: Refuse without the typed confirmation or a well-formed approval reference
         run: |
           [ "$CONFIRM" = "activate-synthetic-pilot-booking" ] || { echo "REFUSED: confirmation" >&2; exit 1; }
           case "$MODE" in activation|renewal|provisional) ;; *) echo "REFUSED: mode" >&2; exit 1 ;; esac
           echo "$APPROVAL_REF" | grep -Eq '^OWNER-APPROVAL-20[0-9]{6}-[A-Za-z0-9-]{3,40}$' || { echo "REFUSED: approval reference" >&2; exit 1; }
+          if [ -n "$RECOVERY_OF" ]; then
+            [ "$MODE" = "provisional" ] || { echo "REFUSED: recovery_of applies only to mode=provisional" >&2; exit 1; }
+            echo "$RECOVERY_OF" | grep -Eq '^[1-9][0-9]{0,9}$' || { echo "REFUSED: recovery_of must be an authorization id" >&2; exit 1; }
+          fi
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262        # v4.4.0
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065    # v5.6.0
         with:
@@ -143,6 +158,7 @@ jobs:
       AWS_REGION: ap-southeast-2
       APPROVAL_REF: ${{ github.event.inputs.approval_ref }}
       MODE: ${{ github.event.inputs.mode }}
+      RECOVERY_OF: ${{ github.event.inputs.recovery_of }}
     steps:
       - name: Refuse any ref outside the deployment branch allow-list
         env:
@@ -216,6 +232,7 @@ jobs:
               --report "$REPORT" --manifest manifest.json \
               --template cdk.out/SetuHaulPilot.template.json --environment pilot-ap-southeast-2 \
               --artifact-uri "https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_SHA}/${REPORT}" \
+              ${RECOVERY_OF:+--recovery-of "$RECOVERY_OF"} \
               | tee activation.json
           else
             python -m setuhaul.ops.gate_evidence --activate "$APPROVAL_REF" \
@@ -229,22 +246,33 @@ jobs:
           URL=$(jq -r '.SetuHaulPilot.ApiUrl' outputs.json)
           for i in $(seq 1 12); do
             H=$(curl -s "${URL%/}/health" || true); echo "$H"
-            echo "$H" | jq -e '.booking_enabled == true and .status == "ok"' >/dev/null && exit 0
+            # D4: booking_enabled is the database's verdict now (authorized, kill switch off), not the start-up snapshot
+            echo "$H" | jq -e '.booking_enabled == true and .booking_state == "authorized" and .status == "ok"' >/dev/null && exit 0
             sleep 10
           done
           echo "the api did not start with booking ON" >&2; exit 1
       - name: Option P failure path - revoke the provisional authorization at once
-        if: failure() && env.MODE == 'provisional'
+        # D3: also when the run is cancelled; nothing to revoke if the deploy left no outputs
+        if: (failure() || cancelled()) && env.MODE == 'provisional'
         run: |
+          [ -f outputs.json ] || { echo "no deploy outputs: no authorization can have been issued"; exit 0; }
           export SETUHAUL_DB_CLUSTER_ARN=$(jq -r '.SetuHaulPilot.ClusterArn' outputs.json)
           export SETUHAUL_DB_SECRET_ARNS=$(jq -c '.SetuHaulPilot.LoginSecretArns | fromjson | {deploy_evidence}' outputs.json)
           python -m setuhaul.ops.gate_evidence --environment pilot-ap-southeast-2 \
             --revoke-provisional "pipeline run ${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} failed after issuance"
+      - name: Option P failure path - no provisional authorization may stay open (fails the run loudly otherwise)
+        if: (failure() || cancelled()) && env.MODE == 'provisional'
+        run: |
+          [ -f outputs.json ] || { echo "no deploy outputs: nothing was issued"; exit 0; }
+          export SETUHAUL_DB_CLUSTER_ARN=$(jq -r '.SetuHaulPilot.ClusterArn' outputs.json)
+          export SETUHAUL_DB_SECRET_ARNS=$(jq -c '.SetuHaulPilot.LoginSecretArns | fromjson | {deploy_evidence}' outputs.json)
+          python -m setuhaul.ops.gate_evidence --environment pilot-ap-southeast-2 --assert-no-open-provisional \
+            || { echo "::error::a provisional authorization is still OPEN after a failed run: ops lead must revoke it now" >&2; exit 1; }
       - name: On failure, re-provision the database logins from the secrets CloudFormation left (rollback safety)
         # M2 (0032): a CloudFormation rollback regenerates the agent and console secrets (and may restore the previous
         # usernames). Provisioning from whatever the secrets now say keeps the database logins and the secrets in
         # step: a rolled-back stack gets its previous logins back, a completed one keeps the release logins. Idempotent.
-        if: failure()
+        if: failure() || cancelled()
         run: |
           # the stack's outputs are read through the CDK lookup role (ReadOnlyAccess); the deploy role cannot describe
           # stacks itself (infra/github_deploy_role_policy.json). Provisioning then runs with the deploy role.
