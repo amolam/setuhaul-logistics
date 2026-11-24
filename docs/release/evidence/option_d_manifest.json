@@ -3,8 +3,8 @@
   "gates": {
     "BOOKING_WORKFLOW": {
       "definition_sha256": "766bc69495cb9fa2b27b624192222d2e817ae924994ca00643c8db13e08f957b",
-      "state_machine_arn": "arn:aws:states:ap-southeast-2:668310558428:stateMachine:setuhaul-pilot-approval:live",
-      "state_machine_version": "arn:aws:states:ap-southeast-2:668310558428:stateMachine:setuhaul-pilot-approval:1"
+      "state_machine_arn": "arn:aws:states:ap-southeast-2:************:stateMachine:setuhaul-pilot-approval:live",
+      "state_machine_version": "arn:aws:states:ap-southeast-2:************:stateMachine:setuhaul-pilot-approval:1"
     },
     "OUTBOUND_DELIVERY": {
       "artifact_sha256": "e4028c5f3207f2e2a14d80382af0998cfa4e7fbae9239b76fd747506c7c0e11f",
