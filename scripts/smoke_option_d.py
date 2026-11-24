@@ -1,6 +1,11 @@
 """Option D post-activation smoke test on the deployed SYNTHETIC Sydney pilot (owner approval, 23 Nov 2026).
 
-    python scripts/smoke_option_d.py [--out docs/release/evidence/option_d_smoke.json]
+    python scripts/smoke_option_d.py --release-sha <40-hex commit the pilot runs> [--out <file>]
+
+Renewal (docs/booking-renewal/RENEWAL_SMOKE_TEST.md): every run is bound to a release. The record carries a smoke id, the
+environment, the release SHA, the deployed code hash (the api's and agent's CodeSha256, which must agree) and the
+approval execution(s) it created, so the renewal gate can attribute each one (category B). Each run writes a NEW file
+under docs/release/evidence/smoke/ by default; the 23 Nov record (option_d_smoke.json) is never overwritten.
 
 Everything is synthetic: SYN- drivers, shipments and vehicles, +999 phone numbers no real phone can have, replies to
 the internal test sink (WhatsApp is off). Nothing is sent to Meta. Booking commitments are made by the DEPLOYED agent
@@ -87,10 +92,19 @@ def conversation_to_yes(p: Pilot, d: dict, eta_text: str = "Traffic on the highw
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--out", default=str(ROOT / "docs" / "release" / "evidence" / "option_d_smoke.json"))
+    ap.add_argument("--release-sha", required=True, help="the git commit the deployed pilot runs (40 hex)")
+    ap.add_argument("--out", default=None, help="default: docs/release/evidence/smoke/option_d_smoke_<UTC stamp>.json")
     a = ap.parse_args()
+    if not re.fullmatch(r"[0-9a-f]{40}", a.release_sha):
+        raise SystemExit("--release-sha must be the full 40-hex commit")
+    smoke_id = "SMOKE-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8]
+    a.out = a.out or str(ROOT / "docs" / "release" / "evidence" / "smoke" / f"option_d_smoke_{smoke_id[6:22]}.json")
     p = Pilot()
     lam = boto3.client("lambda", region_name=REGION)
+    from setuhaul.ops.renewal import ENVIRONMENT, code_sha256_hex
+    code = {f: code_sha256_hex(lam.get_function_configuration(FunctionName=f)["CodeSha256"])
+            for f in ("setuhaul-pilot-api", "setuhaul-pilot-agent")}
+    executions: list[dict] = []
     secrets = json.loads(p.out["LoginSecretArns"])
     db = DataApiDb(p.out["ClusterArn"], "setuhaul", {r: secrets[r] for r in ("agent", "console")},
                    boto3.client("rds-data", region_name=REGION), resume_wait_s=120)
@@ -130,6 +144,9 @@ def main() -> int:
                  if e["name"] == approval]
         ev["workflow"] = {"relay": relay, "task_token_recorded": bool(tok), "executions_for_request": len(execs),
                           "execution_arn": execs[0]["executionArn"] if execs else None}
+        executions.append({"approval_id": approval, "execution_arn": MASK.sub("************", execs[0]["executionArn"])
+                           if execs else None, "shipment_id": d["shipment_id"], "appointment_id": appt,
+                           "facility_id": FAC})
         checks["2b the relay started one execution, waiting for a person"] = bool(tok) and len(execs) == 1
 
         def decide(decision, key):
@@ -250,8 +267,12 @@ def main() -> int:
         except Exception as e:                 # noqa: BLE001
             ev["final_kill_switch"] = {"error": str(e)[:200]}
         note("sleep", mode=mode.sleep()["after"]["mode"])
-    report = {"collected_utc": now(), "evidence": ev, "checks": checks, "all_pass": bool(checks) and all(checks.values()),
+    report = {"smoke_id": smoke_id, "environment": ENVIRONMENT, "release_sha": a.release_sha,
+              "deployed_code_sha256": code["setuhaul-pilot-api"] if len(set(code.values())) == 1 else None,
+              "deployed_code_by_function": code, "facility_id": FAC, "executions": executions,
+              "collected_utc": now(), "evidence": ev, "checks": checks, "all_pass": bool(checks) and all(checks.values()),
               "log": LOG}
+    Path(a.out).parent.mkdir(parents=True, exist_ok=True)
     Path(a.out).write_text(MASK.sub("************", json.dumps(report, indent=1, default=str)) + "\n", encoding="utf-8")
     for k, v in checks.items():
         print(("ok " if v else "NO ") + k, flush=True)

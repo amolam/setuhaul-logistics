@@ -25,6 +25,10 @@ Option D activation (migration 0026; OWNER-APPROVAL-20261123-OPTION-D) adds, in 
     WORKLOAD_IDENTITY  NO-LIVE-DRIFT-DETECTION      every check passes and the only item not shown is drift detection;
     OUTBOUND_DELIVERY  META-DEFERRED-TEST-SINK-ONLY the deployed sender is the internal test sink with WhatsApp off;
 - never for a production environment (the database refuses it too).
+
+Renewal (docs/booking-renewal/RENEWAL_GATE_DESIGN.md): a report from the ACTIVE pilot (booking on) is accepted only in
+renewal mode, collected on this deployment's code, at most 24 h old, naming this run's approval, with BOOKING_WORKFLOW
+passing the renewal criteria (setuhaul/ops/renewal.py). Every other rule above applies unchanged.
 """
 from __future__ import annotations
 
@@ -59,7 +63,14 @@ def rows_from_report(report: dict, manifest: dict, environment: str, artifact_ur
     if not artifact_uri.startswith(("s3://", "https://")):
         raise EvidenceRefused("the evidence artifact must be stored at an s3:// or https:// location")
     if report.get("booking_enabled") is not False:
-        raise EvidenceRefused("the report must come from a run with the booking switch off")
+        # Renewal (docs/booking-renewal/RENEWAL_GATE_DESIGN.md): an active pilot's report is accepted only in renewal
+        # mode, collected on THIS deployment's code, fresh, with BOOKING_WORKFLOW passing its renewal criteria. Any
+        # other report with booking on is refused exactly as before.
+        if report.get("mode") != "renewal":
+            raise EvidenceRefused("the report must come from a run with the booking switch off")
+        from setuhaul.ops.renewal import renewal_report_problems
+        if problems := renewal_report_problems(report, manifest):
+            raise EvidenceRefused("renewal report refused: " + "; ".join(problems))
     dep, digest = deployment_id_for(manifest), hashlib.sha256(evidence).hexdigest()
     rows, refused = [], {}
     for gate in REQUIRED_GATES:
@@ -147,6 +158,9 @@ def activate(conn, report: dict, raw_report: bytes, manifest: dict, environment:
              approval_ref: str, fingerprints: dict[str, str], server_version_num: int, outbound_env: dict) -> dict:
     """One transaction on the deploy-evidence login: the manifest, the PASS evidence and the owner-approved exceptions.
     Every gate must be covered by one or the other, or nothing is written."""
+    if report.get("mode") == "renewal" and report.get("approval_ref") != approval_ref:
+        raise EvidenceRefused(f"the renewal report names approval {report.get('approval_ref')!r}, but this run is "
+                              f"{approval_ref!r}")
     rows, refused = rows_from_report(report, manifest, environment, artifact_uri, raw_report, fingerprints)
     exc, exc_refused = exception_rows(report, manifest, environment, approval_ref, fingerprints, server_version_num,
                                       outbound_env)
