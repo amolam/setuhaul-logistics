@@ -126,7 +126,7 @@ Also check:
 | Migration fails after the deploy | booking paused (0030 may be applied: old containers undeclared; new ones can't start booking) | fix forward, or §6 |
 | `--expect-release` refuses | stop before evidence; booking paused | investigate the secret; §6 |
 | Issuance refused (predecessor, gates, rate limit, approval reuse) | nothing recorded (one transaction) | correct the cause; a new approval if one was used |
-| Smoke fails, or the window passes without close | revoked by the pipeline, or expired by the clock: **every commitment refused**; new API/agent cold starts fail the start-up check | §6; a new release and **new approval** for another window (max 2 per 24 h) |
+| Smoke fails, the renewal fails, or a run is cancelled | **revoked at once**: by the pipeline (both modes), or by the operator with the §7.5 command. Expiry is only the last backstop, never the plan. Every commitment is then refused, and API/agent containers stay or return booking-OFF. | §7.5 checklist, then §6. A new release and a **new approval** for another window (max 2 per 24 h) |
 | Anything wrong at any time | ops lead: **kill switch** (console) or **revoke** (`POST /console/provisional-authorization/revoke`) | then §6 |
 
 ## 6. Rollback
@@ -172,6 +172,20 @@ Design: `RECOVERY_RELEASE_A_DESIGN.md`.
   The workflow's health step requires `booking_state == "authorized"`.
 * **A failed or cancelled provisional run** revokes, then fails loudly if any window is still open (D3). Every step
   runs with `pipefail` (D5).
+* **Owner-review hardening (25 Nov):**
+  * **H-1.** An API or agent container that cold-started before the authorization existed runs booking-OFF. It no
+    longer stays that way until AWS recycles it: at most every 30 s it re-runs the same start-up check against the
+    database, and switches to booking-ON only when that check passes.
+  * **M-1.** A failed or cancelled **renewal** run also revokes at once (`close-window-on-failure` job). Every other
+    failure has the §7.5 operator procedure.
+  * **M-2.** Gate reports record the booking state **observed** on the pilot's `/health`, with its source and time:
+    `off`, `refused` (enabled but not authorized) or `authorized`. A report that couldn't observe it is refused.
+    - The Recovery A step-2 report must observe `off` or `refused`. The live pilot (release `a17e74df1203`, `/health`
+      before D4) reports `booking_enabled: false`, which is `off`.
+    - The renewal report must observe `authorized`.
+  * **M-3.** After the API log's 7-day retention, an owner-confirmed decision is accepted only through a **committed,
+    unmodified** `provisional_gates.json` or `renewal_gates.json` whose git history (from HEAD) verified exactly the
+    same request IDs. Any other evidence JSON claiming an API-log verification makes the check fail closed.
 
 ### 7.2 Sequence
 
@@ -188,6 +202,11 @@ deploys.
    ```
    * The AURORA gate now checks the complete trigger set (D1).
    * BOOKING_WORKFLOW is FAIL here; that's expected, and the authorization stands in for it.
+   * The collector prints `booking state observed at …/health: off` (M-2). Anything else (`authorized`,
+     `unavailable`): **stop**.
+   * Its BOOKING_WORKFLOW evidence must show `api_log_corroboration` `verified` for `87915a37` and `29ffac03`.
+     **Commit it unmodified before 30 Nov 07:11 UTC** (M-3). After that the log lines are gone, and only this
+     committed version can vouch for them.
 3. Run the provisional workflow:
    ```
    gh workflow run activate-booking.yml --ref release/fde-sydney-pilot -f mode=provisional -f approval_ref=REF \
@@ -213,3 +232,72 @@ after the window closes.
 
 A recovery can't be recovered (no second hop). The window is revoked and booking stays refused. The way back after
 that is a full `mode=activation` release: an owner decision.
+
+### 7.5 Any failure after issuance: revoke at once (M-1)
+
+This applies from the moment step 3 issues the authorization until the `mode=renewal` run has consumed it (the
+BOOKING_WORKFLOW evidence row closes the window in the same transaction). **Expiry is never the plan**: an open window
+is revoked as soon as anything fails.
+
+**What is automatic:**
+
+| Failure | What revokes |
+|---|---|
+| Any step of the provisional run (step 3), or its cancellation | the `activate` job's failure steps, then the `close-window-on-failure` job's guard |
+| Any job of the renewal run (tests, synth, deploy, evidence, health), or its cancellation | the `close-window-on-failure` job. It reads the stack outputs itself, so it works even when no deploy happened. |
+| A revoke that fails | the guard step after it fails the run with `::error::… still OPEN …` |
+
+**What the operator does, for every other failure:**
+- the release-bound smoke fails or can't run;
+- the renewal report can't be collected, or isn't PASS;
+- the commit or push fails;
+- a run was force-cancelled (a second cancel can stop the cleanup jobs too);
+- anything looks wrong.
+
+Steps:
+
+1. **Stop.** Don't run another activation step, and don't retry the smoke or the renewal.
+2. **Revoke immediately.** Run from the repository root with the operator's AWS credentials (Secrets Manager read
+   on the deploy-evidence login secret, plus `rds-data` on the cluster). Take the two ARNs from the stack outputs
+   `ClusterArn` and `LoginSecretArns` (the `deploy_evidence` entry only, never the owner secret):
+   ```
+   $env:SETUHAUL_DB_CLUSTER_ARN = "<ClusterArn>"
+   $env:SETUHAUL_DB_SECRET_ARNS = '{"deploy_evidence": "<LoginSecretArns.deploy_evidence>"}'
+   ```
+   ```
+python -m setuhaul.ops.gate_evidence --environment pilot-ap-southeast-2 --revoke-provisional "recovery attempt stopped: <what failed>"
+   ```
+   It prints `{"revoked": 1}`. A `0` means nothing was open: it was already consumed, revoked or expired.
+
+   **Fallback, if the command can't run:** an ops lead signs in to the staff console and revokes there
+   (`POST /console/provisional-authorization/revoke`, which records the ops lead's verified identity). The kill switch
+   (console, or `python -m setuhaul.ops.kill_switch engage --reason "..."`) refuses every commitment in the meantime.
+3. **Verify the database records REVOKED** (read-only, same credentials):
+   ```
+   python -m setuhaul.ops.gate_evidence --environment pilot-ap-southeast-2 --provisional-status
+   python -m setuhaul.ops.gate_evidence --environment pilot-ap-southeast-2 --assert-no-open-provisional
+   ```
+   The first must show `"status": "REVOKED", "open": false`; the second must exit 0.
+4. **Verify the append-only audit event** (read-only `SELECT`, owner secret, Data API):
+   ```sql
+   SELECT authorization_id, action, principal, recorded_at FROM setuhaul.provisional_authorization_events
+    ORDER BY event_id DESC LIMIT 4;   -- the new authorization: ISSUED, then REVOKED
+   ```
+5. **Verify booking is refused.** `GET <ApiUrl>/health` shows `booking_enabled: false`, `booking_state: refused`, and a
+   `booking_refusal` naming REVOKED or the missing evidence. It also shows `booking_kill_switch`.
+6. **Verify the kill switch is still effective.** `SELECT engaged, changed_by, changed_at FROM
+   setuhaul.booking_kill_switch` reads as expected, and nothing changed it.
+7. **Put the workers to sleep:** `python -m setuhaul.ops.pilot_mode sleep`. Then `python -m setuhaul.ops.pilot_mode
+   status` shows every schedule DISABLED.
+8. **Record the reason and the evidence:**
+   - the outputs of steps 2–7, with the run IDs;
+   - a short note in `docs/release/evidence/` (committed);
+   - a message to the owner.
+
+**If the revoke itself fails** (step 2 errors, or step 3 still shows `open: true`):
+- **Stop all remaining activation steps. Don't attempt another authorization.**
+- Escalate to the owner and the ops lead **immediately**. The ops lead revokes in the console and/or engages the kill
+  switch.
+- Re-check the open state read-only with step 3, or with
+  `SELECT authorization_id, status, expires_at FROM setuhaul.provisional_authorizations WHERE status = 'ISSUED'`.
+- Nothing else happens until the owner or operator explicitly intervenes.

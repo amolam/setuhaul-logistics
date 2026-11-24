@@ -501,7 +501,7 @@ def test_the_open_window_guard_exits_nonzero_only_when_a_window_is_open(monkeypa
 def _steps(job: str) -> list[str]:
     t = (ROOT / ".github" / "workflows" / "activate-booking.yml").read_text(encoding="utf-8")
     body = t[t.index(f"\n  {job}:\n"):]
-    nxt = re.search(r"\n  [a-z]+:\n", body[3:])
+    nxt = re.search(r"\n  [a-z-]+:\n", body[3:])
     body = body[:nxt.start() + 3] if nxt else body
     return ["      - " + s for s in body.split("\n      - ")[1:]]
 
@@ -739,20 +739,31 @@ def test_the_collector_corroborates_owner_requests_only_from_the_stacks_own_api_
     now = datetime(2026, 11, 25, tzinfo=timezone.utc)
     group = "SetuHaulPilot-LogsApi-from-the-stack"
     fake = FakeLogs([line])
-    got = m.owner_api_log_corroboration(owner, group, now, logs=fake, evidence_dir=tmp_path)
+    got = m.owner_api_log_corroboration(owner, group, now, logs=fake, repo_root=tmp_path)
     assert got[c2]["status"] == "verified" and got[c2]["events"][0]["request_id"] == req["request_id"]
     assert fake.calls and all(call["logGroupName"] == group for call in fake.calls)   # never the record's own group
     forged = {**line, "message": line["message"].replace(" 200", " 500")}         # same id, different outcome
     assert m.owner_api_log_corroboration(owner, group, now, logs=FakeLogs([forged]),
-                                         evidence_dir=tmp_path)[c2]["status"] == "missing"
+                                         repo_root=tmp_path)[c2]["status"] == "missing"
     assert m.owner_api_log_corroboration(owner, group, now, logs=FakeLogs([]),
-                                         evidence_dir=tmp_path)[c2]["status"] == "missing"
+                                         repo_root=tmp_path)[c2]["status"] == "missing"
     late = datetime(2026, 12, 5, tzinfo=timezone.utc)                              # past the 7-day retention
     assert m.owner_api_log_corroboration(owner, group, late, logs=FakeLogs([line]),
-                                         evidence_dir=tmp_path)[c2]["status"] == "beyond_retention_unverified"
-    (tmp_path / "renewal_gates.json").write_text(json.dumps({"gates": {"BOOKING_WORKFLOW": {"evidence": {
+                                         repo_root=tmp_path)[c2]["status"] == "beyond_retention_unverified"
+    import subprocess                                                              # M-3: committed in git
+    git = lambda *a: subprocess.run(["git", "-C", str(tmp_path), *a], check=True, capture_output=True)  # noqa: E731
+    git("init", "-q")
+    git("config", "user.email", "test@example.invalid")
+    git("config", "user.name", "test")
+    rel = tmp_path / "docs" / "release" / "evidence" / "renewal_gates.json"
+    rel.parent.mkdir(parents=True)
+    rel.write_text(json.dumps({"gates": {"BOOKING_WORKFLOW": {"evidence": {
         "api_log_corroboration": {c2: got[c2]}}}}}), encoding="utf-8")
     assert m.owner_api_log_corroboration(owner, group, late, logs=FakeLogs([]),
-                                         evidence_dir=tmp_path)[c2]["status"] == "previously_verified"
+                                         repo_root=tmp_path)[c2]["status"] == "beyond_retention_unverified"
+    git("add", "-A")
+    git("commit", "-q", "-m", "renewal report")
+    assert m.owner_api_log_corroboration(owner, group, late, logs=FakeLogs([]),
+                                         repo_root=tmp_path)[c2]["status"] == "previously_verified"
     assert m.owner_api_log_corroboration(owner, None, now, logs=FakeLogs([line]),
-                                         evidence_dir=tmp_path)[c2]["status"] == "missing"
+                                         repo_root=tmp_path)[c2]["status"] == "missing"

@@ -89,3 +89,41 @@ The new authorization is ordinary in every other way:
 
 See `OPTION_P_M2_RELEASE_RUNBOOK.md` §7. It's the same as §3 of that runbook, with `-f recovery_of=1` on the provisional
 run and a new approval reference.
+
+## 5. Owner-review hardening (25 Nov 2026): H-1, M-1, M-2, M-3
+
+The Check 2 review found four ways the one recovery attempt could be wasted, or its evidence weakened. None
+of them changes migration 0033 or any database rule.
+
+| ID | Problem | Change | Where | Tests (`tests/test_recovery_release_a_hardening.py`) |
+|---|---|---|---|---|
+| **H-1** | A Lambda container that cold-started between `cdk deploy` and the issuing transaction cached its booking-OFF fallback for its whole life. The health step or the smoke could then fail, revoke, and burn the recovery. | `_Runtime` details below. `_asgi` and `_orchestrator` rebuild only when a new app is published. | `setuhaul/aws/lambdas.py` | API and agent fallback → authorized lifecycle (the same warm container); persistent failure and throttling; unexpected retry error; 13 concurrent callers with exactly one rebuild and no partial app; kill switch, revocation and wrong identity after recovery; revoked and expired windows; production; switch off |
+| **M-1** | The `activate` job's failure steps run only in provisional mode. Failures in the smoke, the renewal report or the renewal run left the window open for up to 60 minutes. | A new `close-window-on-failure` job (`needs: [test, synth, activate]`, `failure() \|\| cancelled()`). In renewal mode it revokes at once. Then, always: the open-window guard, which fails the run loudly, and a read-only `--provisional-status`. It reads the stack outputs through the CDK lookup role, so it works with no deploy. Runbook §7.5 covers every manual failure and a failed revoke. | `.github/workflows/activate-booking.yml`, `setuhaul/ops/gate_evidence.py`, runbook §5 and §7.5 | job structure; smoke failure and evidence failure through the runbook's exact command (REVOKED, ISSUED→REVOKED audit, booking refused, kill switch effective); revoke failure is loud; a revoke after consumption changes nothing |
+| **M-2** | The collector wrote `booking_enabled: true` into every renewal-mode report. | `observe_booking_state` reads `/health` once and records the source, time, HTTP status and state (`off`, `refused`, `authorized`), or `unavailable` with the reason. It understands `/health` before D4 (`booking_enabled: false` means `off`). Validation details below. | `setuhaul/ops/renewal.py`, `setuhaul/ops/gate_evidence.py`, `scripts/step6_gate_evidence.py` | off / pre-D4 off / refused / authorized; unavailable, HTTP 503, not JSON, not an object, inconsistent, unknown state, pre-D4 switch on |
+| **M-3** | `previously_verified` trusted any `docs/release/evidence/*.json` in the working tree. | `committed_prior_verifications` details below. | `scripts/step6_gate_evidence.py` | committed and unchanged; older committed version; untracked; modified; staged; missing; wrong approval; wrong, extra or `VERIFIED` request IDs or status; malformed; duplicate key; unexpected file; no git |
+
+**H-1: how `_Runtime` retries.**
+- While the app is in fallback (`booking_gate.switch and not ok`), at most one caller per 30 s re-runs `create_app`
+  with the booking switch on. That is the same start-up check, and the database decides.
+- The caller holds a non-blocking lock. Other callers keep the current app and never wait.
+- Only a complete app replaces the fallback. A failed retry keeps the fallback and records why.
+
+**M-2: how reports are validated.**
+- A report must carry a verified observation, and its `booking_enabled` must equal what was observed.
+- A **renewal** report must observe `authorized`.
+- A **provisional** report must observe `authorized`, or, for a **recovery**, `off` or `refused`.
+- A renewal-mode report is never handled as an activation report.
+
+**M-3: what `committed_prior_verifications` accepts.**
+- Only the two fixed report paths, and only when they are git-tracked and identical to HEAD.
+- Each committed version is read from HEAD's history with strict JSON (duplicate keys are refused).
+- Only `status == "verified"` entries for the two owner-confirmed IDs, with exactly the recorded request IDs.
+- Any other evidence JSON that carries a corroboration makes the check fail closed, as does missing git.
+- Neither a path nor a commit can be supplied by a caller.
+
+**What stays authoritative:**
+- The database still judges every booking commitment (0030/0032).
+- `/health` still reports the database's verdict on every call (0033).
+- A booking-ON container still stops booking the moment the database refuses: revocation, expiry, kill switch,
+  identity mismatch or a superseded deployment.
+- H-1 adds no authorization path. It only lets a container that *failed* its start-up check ask again.

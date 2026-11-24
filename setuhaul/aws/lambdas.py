@@ -85,31 +85,138 @@ def load_whatsapp_token(env: dict, client=None) -> str:
     return str(raw)
 
 
-@lru_cache(maxsize=1)
-def runtime():
-    """Built once per Lambda container: the app (and through it the service, sessions, queue and relay)."""
-    from ..api.app import Settings, create_app
-    from ..api.inbound import BookingGateError
-    env = load_app_secrets(dict(os.environ))
-    os.environ.update({k: env[k] for k in SECRET_KEYS if k in env})   # Settings.from_env reads the process env
-    settings = Settings.from_env()
-    try:
-        return create_app(settings)
-    except BookingGateError as e:
-        # D4 (Recovery Release A): a container whose booking gates fail no longer refuses to start (that took the whole
-        # API, console included, down). It runs booking-OFF, which is fail-closed for booking (and the database refuses
-        # every commitment of an undeclared or unauthorized deployment anyway, 0030/0032), and /health says why.
-        log.error("ALERT booking gates not satisfied at start-up; this container runs booking-OFF: %s", e)
+def in_booking_fallback(app) -> bool:
+    """True when this app runs booking-OFF only because its start-up booking gates failed (the switch is on)."""
+    gate = getattr(getattr(app, "state", None), "booking_gate", None) or {}
+    return bool(gate.get("switch")) and not gate.get("ok")
+
+
+class _Runtime:
+    """The container's app, built once (H-1, Recovery Release A).
+
+    With the booking switch on and the start-up gates failing, the container runs booking-OFF (D4). A container that
+    started before its release was recorded or authorized must not stay booking-OFF until AWS recycles it: while it is
+    in that fallback, at most once every RETRY_S seconds, one caller re-runs the SAME start-up check (create_app with
+    the booking switch on, which reads the database's evidence and authorization). Only a complete, successfully built
+    app replaces the fallback; a failed retry leaves the fallback in place. The retry decides nothing itself: create_app
+    asks the database, and the database still judges every booking commitment (0030/0032) and every /health (0033).
+    Other callers never wait for a retry: they keep the current app (non-blocking lock), so there is no retry storm."""
+    RETRY_S = 30.0
+
+    def __init__(self, clock=None):
+        import threading
+        import time
+        self._lock = threading.Lock()
+        self._clock = clock or time.monotonic
+        self.reset()
+
+    def reset(self) -> None:
+        self._app, self._settings, self._next_retry = None, None, 0.0
+        self.generation, self.retries, self.last_retry_error = 0, 0, None
+
+    def _build(self):
+        from ..api.app import Settings, create_app
+        from ..api.inbound import BookingGateError
+        env = load_app_secrets(dict(os.environ))
+        os.environ.update({k: env[k] for k in SECRET_KEYS if k in env})   # Settings.from_env reads the process env
+        settings = Settings.from_env()
+        self._settings = settings
+        try:
+            return create_app(settings)
+        except BookingGateError as e:
+            # D4: a container whose booking gates fail no longer refuses to start (that took the whole API, console
+            # included, down). It runs booking-OFF, which is fail-closed for booking (and the database refuses every
+            # commitment of an undeclared or unauthorized deployment anyway, 0030/0032), and /health says why.
+            log.error("ALERT booking gates not satisfied at start-up; this container runs booking-OFF: %s", e)
+            self._next_retry = self._clock() + self.RETRY_S
+            return self._fallback(create_app, settings, e)
+
+    @staticmethod
+    def _fallback(create_app, settings, e):
         app = create_app(dataclasses.replace(settings, booking_enabled=False))
         app.state.booking_gate = {"switch": True, "ok": False, "reason": str(e)[:300]}
         return app
 
+    def _retry(self, current):
+        """One booking-ON rebuild. Returns the new app, or None (the fallback stays)."""
+        from ..api.app import create_app
+        from ..api.inbound import BookingGateError
+        self.retries += 1
+        try:
+            app = create_app(self._settings)
+        except BookingGateError as e:
+            self.last_retry_error = str(e)[:300]
+            current.state.booking_gate = {**current.state.booking_gate, "reason": self.last_retry_error}
+            log.info("booking gates still not satisfied (retry %s); booking stays OFF: %s", self.retries, e)
+            return None
+        except Exception as e:                                      # noqa: BLE001 — anything else: stay fail-closed
+            self.last_retry_error = f"{type(e).__name__}: {e}"[:300]
+            log.error("ALERT booking-ON rebuild failed (%s); booking stays OFF", type(e).__name__)
+            return None
+        log.warning("booking gates now satisfied: this container switches from booking-OFF to the booking-ON app "
+                    "(retry %s)", self.retries)
+        return app
+
+    def get(self):
+        app = self._app
+        if app is None:
+            with self._lock:
+                if self._app is None:
+                    self._app = self._build()
+                    self.generation += 1
+                return self._app
+        if not in_booking_fallback(app) or self._settings is None or self._clock() < self._next_retry:
+            return app
+        if not self._lock.acquire(blocking=False):                 # another caller is retrying: keep the fallback
+            return app
+        try:
+            if self._app is app and self._clock() >= self._next_retry:
+                self._next_retry = self._clock() + self.RETRY_S    # throttle before the attempt (success or not)
+                new = self._retry(app)
+                if new is not None:
+                    self._app = new                                 # only a complete app is ever published
+                    self.generation += 1
+            return self._app
+        finally:
+            self._lock.release()
+
+
+_RUNTIME = _Runtime()
+
+
+def runtime():
+    """The container's app (and through it the service, sessions, queue and relay). Built once; while it runs
+    booking-OFF because its start-up gates failed, re-checked at most every _Runtime.RETRY_S seconds (H-1)."""
+    return _RUNTIME.get()
+
+
+runtime.cache_clear = _RUNTIME.reset
+
+
+def _per_app(build):
+    """Cache build(app) for the current runtime() app; rebuilt only when runtime() publishes a new app (H-1)."""
+    import threading
+    state, lock = {"app": None, "value": None}, threading.Lock()
+
+    def get():
+        app = runtime()
+        if state["app"] is not app:
+            with lock:
+                if state["app"] is not app:
+                    state["value"], state["app"] = build(app), app
+        return state["value"]
+
+    get.cache_clear = lambda: state.update(app=None, value=None)
+    return get
+
 
 # ---------------------------------------------------------------- E1: the HTTP API
-@lru_cache(maxsize=1)
-def _asgi():
+def _build_asgi(app):
     from mangum import Mangum
-    return Mangum(runtime(), lifespan="off")
+    return Mangum(app, lifespan="off")
+
+
+_asgi = _per_app(_build_asgi)
 
 
 def api_handler(event, context):
@@ -117,13 +224,11 @@ def api_handler(event, context):
 
 
 # ---------------------------------------------------------------- E2: workers
-@lru_cache(maxsize=1)
-def _orchestrator():
+def _build_orchestrator(app):
     from ..agent.models import DeferredModel, model_for
     from ..agent.orchestrator import Orchestrator
     from ..observability import tracing
     from ..observability.langsmith import tracer_from_env
-    app = runtime()
     lease = int(os.environ.get("SETUHAUL_PROCESSING_LEASE_S", "120"))
     env, db = dict(os.environ), app.state.service.db
     # G.1 (G3-C2): a missing, empty or unreadable OpenRouter secret, or a budget-configuration problem, no longer stops
@@ -138,6 +243,9 @@ def _orchestrator():
         model = None                                                # G.1 fix: never wrap "no model" in a client
     tracing.install(tracer_from_env(env))                           # off unless SETUHAUL_LANGSMITH_TRACING=on
     return Orchestrator(app.state.service, app.state.sessions, model, lease_s=lease)
+
+
+_orchestrator = _per_app(_build_orchestrator)
 
 
 def _flush_traces() -> None:

@@ -556,6 +556,9 @@ def test_the_pipeline_records_the_release_and_issues_in_one_transaction_or_nothi
     report, _ = live_report()
     ref = fresh_ref()
     report.update({"mode": "renewal", "booking_enabled": True, "environment": env, "approval_ref": ref,
+                   "booking_observed": {"source": "https://api.example/health", "http_status": 200,
+                                        "observed_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                                        "booking_state": "authorized", "booking_enabled": True},
                    "collected_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                    "artifact_sha256": running["art"]})
     raw = json.dumps(report).encode()

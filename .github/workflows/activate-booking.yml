@@ -295,3 +295,66 @@ jobs:
           path: |
             manifest.json
             activation.json
+
+  # M-1 (Recovery Release A hardening): a provisional authorization may stay open after the provisional run only until
+  # the renewal run consumes it. If the renewal run fails or is cancelled in ANY job (tests, synth, deploy, evidence,
+  # health), the window is revoked here at once, before the run reports its failure; expiry is never relied on. The
+  # stack's outputs are read through the read-only CDK lookup role, so this works even when the deploy left no
+  # outputs.json. A provisional run is also checked: its own failure steps revoke what it issued (activate job); this
+  # job fails the run loudly if any window is still open. Successful consumption is atomic with the BOOKING_WORKFLOW
+  # evidence row (trg_provisional_consumption, 0032), so a revoke after it finds nothing ISSUED and changes nothing.
+  # A FORCED second cancel can stop this job too: the runbook (§7.5) then has the operator revoke by hand.
+  close-window-on-failure:
+    needs: [test, synth, activate]
+    if: (failure() || cancelled()) && github.ref == 'refs/heads/release/fde-sydney-pilot' && (github.event.inputs.mode == 'renewal' || github.event.inputs.mode == 'provisional')
+    runs-on: ubuntu-24.04
+    environment: pilot
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: ap-southeast-2
+      MODE: ${{ github.event.inputs.mode }}
+    steps:
+      - name: Refuse any ref outside the deployment branch allow-list
+        env:
+          DEPLOY_REF: ${{ github.ref }}
+        run: |
+          [ "$DEPLOY_REF" = "refs/heads/release/fde-sydney-pilot" ] || { echo "REFUSED: $DEPLOY_REF" >&2; exit 1; }
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262        # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065    # v5.6.0
+        with:
+          python-version: "3.13"
+      - run: pip install -r requirements-aws.txt
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a  # v4.3.1
+        with:
+          role-to-assume: ${{ vars.SETUHAUL_DEPLOY_ROLE_ARN }}
+          aws-region: ap-southeast-2
+      - name: Read the stack's database outputs (CDK lookup role, read-only; deploy-evidence secret only)
+        run: |
+          ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+          CREDS=$(aws sts assume-role --role-arn "arn:aws:iam::${ACCOUNT}:role/cdk-hnb659fds-lookup-role-${ACCOUNT}-${AWS_REGION}" \
+                    --role-session-name setuhaul-close-window-read --query Credentials --output json)
+          echo "::add-mask::$(echo "$CREDS" | jq -r .SecretAccessKey)"
+          echo "::add-mask::$(echo "$CREDS" | jq -r .SessionToken)"
+          OUT=$(AWS_ACCESS_KEY_ID=$(echo "$CREDS" | jq -r .AccessKeyId) AWS_SECRET_ACCESS_KEY=$(echo "$CREDS" | jq -r .SecretAccessKey) \
+                AWS_SESSION_TOKEN=$(echo "$CREDS" | jq -r .SessionToken) \
+                aws cloudformation describe-stacks --stack-name SetuHaulPilot --query 'Stacks[0].Outputs' --output json)
+          CLUSTER=$(echo "$OUT" | jq -er '.[] | select(.OutputKey=="ClusterArn") | .OutputValue')
+          SECRETS=$(echo "$OUT" | jq -er '.[] | select(.OutputKey=="LoginSecretArns") | .OutputValue | fromjson | {deploy_evidence}')
+          echo "$SECRETS" | jq -e '.deploy_evidence | strings' >/dev/null
+          echo "SETUHAUL_DB_CLUSTER_ARN=$CLUSTER" >> "$GITHUB_ENV"
+          echo "SETUHAUL_DB_SECRET_ARNS=$(echo "$SECRETS" | jq -c .)" >> "$GITHUB_ENV"
+      - name: Renewal failed or was cancelled before consumption - revoke the provisional authorization at once
+        if: env.MODE == 'renewal'
+        run: |
+          python -m setuhaul.ops.gate_evidence --environment pilot-ap-southeast-2 \
+            --revoke-provisional "renewal run ${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} failed or was cancelled before consuming the window"
+      - name: No provisional authorization may stay open (fails the run loudly otherwise)
+        if: always()
+        run: |
+          python -m setuhaul.ops.gate_evidence --environment pilot-ap-southeast-2 --assert-no-open-provisional \
+            || { echo "::error::a provisional authorization is still OPEN after a failed run: stop, ops lead must revoke it now (runbook §7.5)" >&2; exit 1; }
+      - name: What the database now records for the newest deployment (read-only)
+        if: always()
+        run: python -m setuhaul.ops.gate_evidence --environment pilot-ap-southeast-2 --provisional-status

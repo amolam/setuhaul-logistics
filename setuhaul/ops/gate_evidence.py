@@ -62,7 +62,7 @@ def rows_from_report(report: dict, manifest: dict, environment: str, artifact_ur
         raise EvidenceRefused("deployment manifest: " + "; ".join(problems))
     if not artifact_uri.startswith(("s3://", "https://")):
         raise EvidenceRefused("the evidence artifact must be stored at an s3:// or https:// location")
-    if report.get("booking_enabled") is not False:
+    if report.get("mode") == "renewal" or report.get("booking_enabled") is not False:
         # Renewal (docs/booking-renewal/RENEWAL_GATE_DESIGN.md): an active pilot's report is accepted only in renewal
         # mode, collected on THIS deployment's code, fresh, with BOOKING_WORKFLOW passing its renewal criteria. Any
         # other report with booking on is refused exactly as before.
@@ -171,17 +171,23 @@ def snapshot(conn, sql: str, args: tuple) -> dict | None:
 
 
 def provisional_report_problems(report: dict, predecessor_artifact: str | None, approval_ref: str,
-                                now=None) -> list[str]:
+                                now=None, recovery: bool = False) -> list[str]:
     """Option P (0032): the gate report for a provisional release is a renewal report from the RUNNING release (the
-    predecessor, booking ON), fresh, naming this run's approval. Its five non-workflow gates are recorded for the new
+    predecessor), fresh, naming this run's approval. Its five non-workflow gates are recorded for the new
     release with the new release's live fingerprints, as every activation does; BOOKING_WORKFLOW is not recorded:
-    the provisional authorization stands in for it until the release's own smoke and renewal close it."""
+    the provisional authorization stands in for it until the release's own smoke and renewal close it.
+
+    M-2: the running pilot's booking state is the one OBSERVED on its /health. Normally it is booking ON and
+    authorized. For a recovery (0033) the predecessor's window was revoked, so it can only be off or refused."""
     from datetime import datetime, timezone
-    from setuhaul.ops.renewal import ENVIRONMENT, REPORT_MAX_AGE, parse_ts
+    from setuhaul.ops.renewal import ENVIRONMENT, REPORT_MAX_AGE, booking_observation_problems, parse_ts
     now = now or datetime.now(timezone.utc)
     p = []
-    if report.get("mode") != "renewal" or report.get("booking_enabled") is not True:
-        p.append("a provisional release needs a renewal report from the running pilot (booking ON)")
+    if report.get("mode") != "renewal":
+        p.append("a provisional release needs a renewal report from the running pilot")
+    p += booking_observation_problems(
+        report, ("off", "refused") if recovery else ("authorized",),
+        "a recovery follows a revoked window" if recovery else "a provisional release follows an authorized pilot")
     if report.get("environment") != ENVIRONMENT:
         p.append(f"the report is for {report.get('environment')!r}, not {ENVIRONMENT!r}")
     t = parse_ts(report.get("collected_utc"))
@@ -213,7 +219,8 @@ def provisional(conn, report: dict, raw_report: bytes, manifest: dict, environme
     if running.get("deployment_id") == dep:
         raise EvidenceRefused("this release is already the newest recorded deployment: a provisional authorization "
                               "is issued once, when the release is first recorded")
-    if problems := provisional_report_problems(report, running.get("artifact_sha256"), approval_ref):
+    if problems := provisional_report_problems(report, running.get("artifact_sha256"), approval_ref,
+                                               recovery=recovery_of is not None):
         raise EvidenceRefused("provisional report refused: " + "; ".join(problems))
     others = [g for g in REQUIRED_GATES if g != "BOOKING_WORKFLOW"]
     rows, refused = gate_rows(report, dep, environment, artifact_uri, raw_report, fingerprints, others)
@@ -330,7 +337,13 @@ def main(argv: list[str] | None = None) -> int:
                     help="Option P: revoke the environment's open provisional authorization at once (pipeline)")
     ap.add_argument("--assert-no-open-provisional", action="store_true",
                     help="D3: exit 1 if the newest deployment still has an OPEN provisional authorization (pipeline)")
+    ap.add_argument("--provisional-status", action="store_true",
+                    help="M-1: print the newest deployment's provisional authorization (status, window), read-only")
     a = ap.parse_args(argv)
+    if a.provisional_status:
+        snap = newest_provisional_from_pipeline(a.environment)
+        print(json.dumps({"environment": a.environment, "provisional": snap}, default=str))
+        return 0
     if a.assert_no_open_provisional:
         snap = open_provisional_from_pipeline(a.environment)
         print(json.dumps({"environment": a.environment, "open_provisional": snap}, default=str))
@@ -427,6 +440,13 @@ def open_provisional_from_pipeline(environment: str) -> dict | None:
     """D3: the newest deployment's provisional authorization if it is still OPEN (deploy-evidence login, read-only),
     else None. The workflow's last failure step uses it so a failed or cancelled run can never leave a window open
     silently."""
+    snap = newest_provisional_from_pipeline(environment)
+    return snap if snap and snap.get("open") else None
+
+
+def newest_provisional_from_pipeline(environment: str) -> dict | None:
+    """M-1: the newest deployment's provisional authorization, whatever its status (deploy-evidence login, read-only,
+    rolled back): what a failure path prints after revoking, so the run log shows the database's own answer."""
     import os
     import boto3
     secrets = json.loads(os.environ["SETUHAUL_DB_SECRET_ARNS"])
@@ -446,7 +466,7 @@ def open_provisional_from_pipeline(environment: str) -> dict | None:
         snap = snapshot(c, "SELECT booking_provisional_snapshot(%s, %s)", (environment, dep)) if dep else None
     finally:
         rds.rollback_transaction(resourceArn=kw["resourceArn"], secretArn=kw["secretArn"], transactionId=tid)
-    return snap if snap and snap.get("open") else None
+    return snap
 
 
 def revoke_from_pipeline(environment: str, reason: str) -> int:

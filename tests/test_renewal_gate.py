@@ -335,6 +335,8 @@ def renewal_report(**over):
     bw = gate(execs, recs)
     other = {"checks": {"c": True}, "not_shown": [], "status": "PASS", "evidence": {}}
     r = {"mode": "renewal", "booking_enabled": True, "environment": "pilot-ap-southeast-2", "release_sha": SHA,
+         "booking_observed": {"source": "https://api.example/health", "observed_utc": datetime.now(timezone.utc).isoformat(),
+                              "http_status": 200, "booking_state": "authorized", "booking_enabled": True},
          "approval_ref": REF, "artifact_sha256": ART, "collected_utc": (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat(),
          "gates": {"AWS_QUEUE": other, "RECOVERY_WORKER": other, "BOOKING_WORKFLOW": bw,
                    "AURORA": {**other, "status": "PASS WITH PILOT EXCEPTION (T33-P)"},
