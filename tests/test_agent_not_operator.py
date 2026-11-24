@@ -129,7 +129,10 @@ def test_every_table_is_rls_forced_or_reasoned(conn):
              "deployment_manifests", "deployment_exceptions", "booking_kill_switch",
              # 0027 (Phase G2): evaluation run summaries; synthetic evaluation totals only, no facility, driver or
              # booking data; written only by record_evaluation_run (system role), read by console and system
-             "evaluation_runs"}
+             "evaluation_runs",
+             # 0030: the single-row evidence-guard setting (enforced or not), like the kill switch: no facility data,
+             # no application role has any privilege on it, read only by the guard trigger, changed only one way
+             "booking_evidence_guard"}
     bad = [r[0] for r in conn.execute("""SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
                                          WHERE n.nspname='setuhaul' AND c.relkind='r'
                                            AND NOT (c.relrowsecurity AND c.relforcerowsecurity)""") if r[0] not in allow]

@@ -30,9 +30,21 @@ FENCED_ROLES = ("agent", "feasibility")
 CORRELATION_ID: ContextVar[str | None] = ContextVar("setuhaul_correlation_id", default=None)
 
 
+def deployment_settings(deployment: dict | None) -> tuple[str, str, str, str]:
+    """(environment, deployment id, code hash, correlation id) for the transaction's app.* settings (0030). Empty
+    strings when this process declared no deployment: the guard then treats the caller as undeclared."""
+    d = deployment or {}
+    return (str(d.get("environment") or ""), str(d.get("deployment_id") or ""), str(d.get("code_sha256") or ""),
+            str(CORRELATION_ID.get() or ""))
+
+
 class Db:
     def __init__(self, dsn: str):
         self.dsn = dsn
+        # 0030: the deployment this process runs, declared in every transaction for the database's booking evidence
+        # guard ({"environment", "deployment_id", "code_sha256"}). Set by create_app once the start-up check accepted
+        # the manifest; None otherwise (then a guarded database refuses this process's booking commitments).
+        self.deployment: dict | None = None
 
     @contextmanager
     def tx(self, role: str, scope: tuple[str, ...] | list[str] | None = None, driver: str | None = None,
@@ -50,8 +62,11 @@ class Db:
                 c.execute(f"SET LOCAL ROLE {ROLES[role]}")
                 c.execute("SET LOCAL search_path = setuhaul")
                 c.execute("SET LOCAL TimeZone = 'Asia/Kolkata'")
-                c.execute("SELECT set_config('app.facility_scope', %s, true)", (",".join(scope or ()),))
-                c.execute("SELECT set_config('app.driver_id', %s, true)", (driver or "",))
+                # one round trip for all transaction settings (0030 added the deployment declaration to it)
+                c.execute("SELECT set_config('app.facility_scope', %s, true), set_config('app.driver_id', %s, true), "
+                          "set_config('app.environment', %s, true), set_config('app.deployment_id', %s, true), "
+                          "set_config('app.code_sha256', %s, true), set_config('app.correlation_id', %s, true)",
+                          (",".join(scope or ()), driver or "", *deployment_settings(self.deployment)))
                 if staff is not None:
                     principal, roles, facilities = staff
                     c.execute("SELECT begin_staff_context(%s,%s,%s)", (principal, sorted(roles), list(facilities)))

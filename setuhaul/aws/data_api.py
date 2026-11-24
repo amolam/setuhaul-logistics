@@ -368,6 +368,7 @@ class DataApiDb:
         self.cluster_arn, self.database, self.secret_arns, self.client = cluster_arn, database, dict(secret_arns), client
         self.resume_wait_s = resume_wait_s
         self.dsn = f"rds-data:{database}"                              # for log lines; carries no credential
+        self.deployment: dict | None = None                            # 0030: see setuhaul/api/db.Db.deployment
 
     @classmethod
     def from_env(cls, env: dict | None = None, client=None) -> "DataApiDb":
@@ -401,9 +402,13 @@ class DataApiDb:
             c.execute("SET LOCAL standard_conforming_strings = on")
             # One round trip for the rest (each Data API call is a network request). set_config(..., true) is
             # SET LOCAL; the select list is evaluated left to right, so the role is in force before the scope.
+            from ..api.db import deployment_settings
             c.execute("SELECT set_config('role', %s, true), set_config('search_path', 'setuhaul', true), "
                       "set_config('TimeZone', 'Asia/Kolkata', true), set_config('app.facility_scope', %s, true), "
-                      "set_config('app.driver_id', %s, true)", (ROLES[role], ",".join(scope or ()), driver or ""))
+                      "set_config('app.driver_id', %s, true), set_config('app.environment', %s, true), "
+                      "set_config('app.deployment_id', %s, true), set_config('app.code_sha256', %s, true), "
+                      "set_config('app.correlation_id', %s, true)",
+                      (ROLES[role], ",".join(scope or ()), driver or "", *deployment_settings(self.deployment)))
             if staff is not None:
                 principal, roles, facilities = staff
                 c.execute("SELECT begin_staff_context(%s,%s,%s)", (principal, sorted(roles), list(facilities)))

@@ -150,7 +150,8 @@ def insert_exception(dsn_, env, dep, gate, code, fp="0" * 64, days="7 days", ref
                       (env, dep, gate, code, ref, fp, days))
 
 
-def test_only_the_three_accepted_exceptions_for_the_pilot_can_be_recorded(dsn):
+def test_only_the_three_accepted_exceptions_for_the_pilot_can_be_recorded(guarded_dsn):
+    dsn = guarded_dsn          # records evidence: needs a database whose guard is on (0031, M1)
     dep = f"dep-{uuid.uuid4().hex[:8]}"
     for g, code in EXCEPTION_CODES.items():
         insert_exception(dsn, PILOT, dep, g, code)
@@ -189,7 +190,8 @@ def test_exception_rules_hold_even_for_a_row_that_got_past_the_database():
     assert "not an exception" in ok("AWS_QUEUE", code="T33-P")
 
 
-def test_the_switch_starts_with_pass_evidence_plus_the_accepted_exceptions(dsn):
+def test_the_switch_starts_with_pass_evidence_plus_the_accepted_exceptions(guarded_dsn):
+    dsn = guarded_dsn          # records evidence: needs a database whose guard is on (0031, M1)
     q = SqsFifoQueue(URL, FakeSqs())
     man = manifest(env=PILOT)
     dep, fps = deployment_id_for(man), {"AWS_QUEUE": q.fingerprint(), "AURORA": database_fingerprint(app_db(dsn)),
@@ -235,7 +237,8 @@ def record(dsn_, man, env=None, dep=None, art=None):
                        json.dumps(man)))
 
 
-def test_the_functions_accept_only_the_newest_manifest_for_their_own_code(dsn):
+def test_the_functions_accept_only_the_newest_manifest_for_their_own_code(guarded_dsn):
+    dsn = guarded_dsn          # records evidence: needs a database whose guard is on (0031, M1)
     env = f"pilot-m{uuid.uuid4().hex[:6]}"
     with pytest.raises(BookingGateError, match="no deployment manifest"):
         manifest_from_database(app_db(dsn), env, "1" * 64)
@@ -266,7 +269,8 @@ def live_report():
 SINK = {"SETUHAUL_NOTIFICATION_MODE": "test_sink", "SETUHAUL_WHATSAPP_ENABLED": "false"}
 
 
-def test_activation_writes_manifest_evidence_and_exceptions_or_nothing(dsn):
+def test_activation_writes_manifest_evidence_and_exceptions_or_nothing(guarded_dsn):
+    dsn = guarded_dsn          # records evidence: needs a database whose guard is on (0031, M1)
     report, raw = live_report()
     man = manifest(env=PILOT)
     fps = {g: uuid.uuid4().hex * 2 for g in REQUIRED_GATES}
@@ -321,10 +325,11 @@ def test_the_pipeline_command_runs_as_a_module_and_refuses_any_other_login(tmp_p
     assert r.returncode != 0 and "activation runs only with the deploy-evidence login" in r.stderr, r.stderr[-500:]
 
 
-def test_the_pipeline_activation_runs_end_to_end_through_the_data_api(dsn, tmp_path, monkeypatch):
+def test_the_pipeline_activation_runs_end_to_end_through_the_data_api(guarded_dsn, tmp_path, monkeypatch):
     """The exact pipeline function (activate_from_pipeline) through the emulated RDS Data API: deploy-evidence login,
     queue read through the lookup session, template read for the sender. On PostgreSQL 17.9 (CI, the pilot's engine)
     it records the manifest, PASS evidence and the three exceptions; on 18 it must refuse T33-P and write nothing."""
+    dsn = guarded_dsn          # records evidence: needs a database whose guard is on (0031, M1)
     import argparse
     import boto3
     from data_api_emulator import EmulatedRdsData

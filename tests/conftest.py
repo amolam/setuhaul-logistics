@@ -43,6 +43,27 @@ def dsn():
     return d
 
 
+@pytest.fixture(scope="session")
+def guarded_dsn():
+    """A second fresh database whose booking evidence guard the owner has turned on (0030's one-way step). Since 0031
+    (M1) the database refuses to record manifests, evidence and exceptions while the guard is off, so tests that record
+    evidence use this one; the shared database stays guard-off, like a fresh local database."""
+    if not _pg_available():
+        pytest.skip("PostgreSQL not reachable at SETUHAUL_TEST_DSN")
+    import psycopg
+    from setuhaul.db.migrate import migrate
+    name = "setuhaul_build_guarded"
+    with psycopg.connect(f"{BASE_DSN} dbname=postgres", autocommit=True) as c:
+        c.execute(f"DROP DATABASE IF EXISTS {name} WITH (FORCE)")
+        c.execute(f"CREATE DATABASE {name}")
+    d = f"{BASE_DSN} dbname={name}"
+    migrate(d)
+    _seed(d)
+    with psycopg.connect(d, autocommit=True) as c:
+        c.execute("UPDATE setuhaul.booking_evidence_guard SET enforced = true, reason = 'test: owner enables the guard'")
+    return d
+
+
 def _seed(d: str):
     import psycopg
     with psycopg.connect(d, autocommit=True) as c:
