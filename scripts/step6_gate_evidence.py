@@ -27,6 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from setuhaul.aws.data_api import DataApiDb  # noqa: E402
 from setuhaul.aws.migrate_data_api import OwnerSession  # noqa: E402
+from setuhaul.ops.evidence_triggers import QUERY as EVIDENCE_TRIGGER_QUERY, trigger_problems  # noqa: E402
 
 REGION, STACK, ENV = "ap-southeast-2", "SetuHaulPilot", "pilot"
 MASK = re.compile(r"\b\d{12}\b")
@@ -386,8 +387,9 @@ def gate_aurora(out):
     live = dict(owner.query("SELECT version, sha256 FROM setuhaul_meta.schema_migrations ORDER BY version"))
     local = {p.stem.split("_", 1)[0]: sha(p.read_bytes()) for p in sorted((ROOT / "migrations").glob("*.sql"))}
     live_n = {k.split("_", 1)[0]: v for k, v in live.items()}
-    triggers = owner.query("""SELECT tgname::text, tgenabled::text FROM pg_trigger WHERE tgrelid = 'setuhaul.deployment_evidence'::regclass
-                               AND NOT tgisinternal ORDER BY 1""")
+    # D1 (Recovery Release A): every trigger on the evidence and booking-commitment tables, not just two names
+    triggers = owner.query(EVIDENCE_TRIGGER_QUERY)
+    trigger_issues = trigger_problems(triggers)
     rls = owner.query("""SELECT count(*) FILTER (WHERE c.relrowsecurity AND c.relforcerowsecurity), count(*)
                            FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
                           WHERE n.nspname = 'setuhaul' AND c.relkind = 'r'""")[0]
@@ -397,11 +399,12 @@ def gate_aurora(out):
           "migrations_live": len(live), "migrations_in_repo": len(local),
           "hash_mismatches": sorted(k for k, v in deployed.items() if live_n.get(k) != v),
           "repo_only_migrations": sorted(set(local) - set(live_n)),
-          "evidence_triggers": dict(triggers), "tables_with_forced_rls": rls[0], "tables": rls[1]}
+          "evidence_triggers": {f"{t}.{n}": [e, f, ty] for t, n, e, f, ty in triggers},
+          "evidence_trigger_problems": trigger_issues, "tables_with_forced_rls": rls[0], "tables": rls[1]}
     major = int(str(cl["EngineVersion"]).split(".")[0])
     checks = {
         "every deployed migration's hash matches the repository": not ev["hash_mismatches"],
-        "both evidence triggers enabled": {t: e for t, e in triggers} == {"deployment_evidence_append_only": "O", "deployment_evidence_fresh": "O"},
+        "evidence and booking guard triggers: exactly the expected set, enabled and configured": not trigger_issues,
         "Data API connectivity behind Db.tx()": True,
     }
     # T33 (production): 18.3+. T33-P (owner, 23 Nov 2026): 17.9 is permitted for the synthetic Free-plan pilot only,
@@ -497,6 +500,155 @@ def smoke_records() -> list[dict]:
     return [json.loads(f.read_text(encoding="utf-8")) for f in files if f.exists()]
 
 
+# M-3: the only reports whose COMMITTED versions may vouch for API-log lines that have since expired. Fixed here; no
+# caller can name another path or a commit (the history is always read from HEAD of this repository).
+PRIOR_VERIFICATION_REPORTS = ("docs/release/evidence/provisional_gates.json",
+                              "docs/release/evidence/renewal_gates.json")
+
+
+def _git(root: Path, *args: str) -> tuple[int, bytes]:
+    import subprocess
+    try:
+        r = subprocess.run(["git", "-C", str(root), *args], capture_output=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return 127, b""
+    return r.returncode, r.stdout
+
+
+def _strict_json(raw: bytes):
+    def pairs(items):
+        keys = [k for k, _ in items]
+        if len(keys) != len(set(keys)):
+            raise ValueError(f"duplicate key {next(k for k in keys if keys.count(k) > 1)!r}")
+        return dict(items)
+    return json.loads(raw.decode("utf-8"), object_pairs_hook=pairs)
+
+
+def committed_prior_verifications(repo_root: Path = ROOT) -> tuple[dict[str, list[dict]], list[str]]:
+    """M-3: approval id -> every COMMITTED version of an expected report (PRIOR_VERIFICATION_REPORTS, from the history
+    of HEAD) whose BOOKING_WORKFLOW api_log_corroboration verified that owner-confirmed approval, with its sorted
+    request ids; and the problems that make ALL of them untrustworthy (fail closed):
+    - git metadata unavailable;
+    - an expected report that exists but is untracked, or differs from HEAD (modified or staged);
+    - a committed version that is malformed (not JSON, duplicate keys, a corroboration that is not an object);
+    - any other JSON file under docs/release/evidence/ that carries an API-log corroboration (unexpected)."""
+    from setuhaul.ops.renewal import OWNER_CONFIRMED_IDS
+    root = Path(repo_root)
+    code, out = _git(root, "rev-parse", "--is-inside-work-tree")
+    if code != 0 or out.strip() != b"true":
+        return {}, ["git metadata is unavailable, so no committed report can be verified"]
+    problems: list[str] = []
+    found: dict[str, list[dict]] = {}
+    ev_dir = root / "docs" / "release" / "evidence"
+    for f in sorted(ev_dir.rglob("*.json")) if ev_dir.is_dir() else []:
+        rel = f.relative_to(root).as_posix()
+        if rel not in PRIOR_VERIFICATION_REPORTS:
+            try:
+                if '"api_log_corroboration"' in f.read_text(encoding="utf-8", errors="replace"):
+                    problems.append(f"unexpected report file {rel} carries an API-log corroboration")
+            except OSError:
+                problems.append(f"{rel} cannot be read")
+    for rel in PRIOR_VERIFICATION_REPORTS:
+        tracked = _git(root, "ls-files", "--error-unmatch", "--", rel)[0] == 0
+        if not tracked:
+            if (root / rel).exists():
+                problems.append(f"{rel} is not tracked by git")
+            continue
+        if _git(root, "diff", "--quiet", "HEAD", "--", rel)[0] != 0:
+            problems.append(f"{rel} differs from its committed version (modified or staged)")
+            continue
+        code, out = _git(root, "log", "--format=%H", "HEAD", "--", rel)
+        if code != 0:
+            problems.append(f"the git history of {rel} is unavailable")
+            continue
+        for sha in out.decode().split():
+            code, raw = _git(root, "show", f"{sha}:{rel}")
+            if code != 0:
+                continue                                            # the path was deleted in that commit
+            try:
+                rep_ = _strict_json(raw)
+            except (ValueError, UnicodeDecodeError) as e:
+                problems.append(f"{rel} at {sha[:12]} is malformed ({e})")
+                continue
+            bw = ((rep_.get("gates") if isinstance(rep_, dict) else None) or {}).get("BOOKING_WORKFLOW")
+            corr = ((bw.get("evidence") if isinstance(bw, dict) else None) or {}).get("api_log_corroboration")
+            if corr is None:
+                continue
+            if not isinstance(corr, dict):
+                problems.append(f"{rel} at {sha[:12]}: api_log_corroboration is not an object")
+                continue
+            for aid, v in corr.items():
+                if aid not in OWNER_CONFIRMED_IDS or not isinstance(v, dict) or v.get("status") != "verified":
+                    continue                                        # only a verified, owner-confirmed approval counts
+                ids = v.get("request_ids")
+                if not (isinstance(ids, list) and ids and all(isinstance(i, str) for i in ids)):
+                    problems.append(f"{rel} at {sha[:12]}: {aid[:8]} has malformed request ids")
+                    continue
+                found.setdefault(aid, []).append({"path": rel, "commit": sha, "request_ids": sorted(ids)})
+    return found, problems
+
+
+def owner_api_log_corroboration(owner: dict | None, api_log_group: str | None, now: datetime,
+                                logs=None, repo_root: Path = ROOT) -> dict[str, dict]:
+    """Recovery Release A (check 1): every console request an owner record names must appear in the API function's OWN
+    log group (read from the deployed stack, never from the record): the same request id and the same line, within
+    two minutes of the recorded time. Once the log is past its retention, a COMMITTED version of an expected report
+    (M-3: git-tracked, unmodified, read from the history of HEAD) must have verified exactly the same request ids;
+    otherwise the record is not corroborated (fail closed)."""
+    out: dict[str, dict] = {}
+    if not owner:
+        return out
+    logs = logs or c("logs")
+    retention_days = None
+    if api_log_group:
+        g = logs.describe_log_groups(logGroupNamePrefix=api_log_group).get("logGroups") or []
+        retention_days = next((x.get("retentionInDays") for x in g if x.get("logGroupName") == api_log_group), None)
+    prior_cache: list = []
+
+    def prior():
+        if not prior_cache:
+            prior_cache.append(committed_prior_verifications(repo_root))
+        return prior_cache[0]
+    for e in owner.get("executions") or []:
+        aid = str(e.get("approval_id"))
+        reqs = ((e.get("cloudwatch") or {}).get("requests")) or []
+        ids = sorted(str(r.get("request_id")) for r in reqs)
+        if not reqs or not api_log_group:
+            out[aid] = {"status": "missing", "request_ids": ids,
+                        "detail": "the record names no console request" if not reqs else "no API log group"}
+            continue
+        states, found = [], []
+        for r in reqs:
+            t = datetime.fromisoformat(str(r["t_utc"]).replace("Z", "+00:00"))
+            if retention_days is not None and now - t > timedelta(days=retention_days) - timedelta(hours=1):
+                states.append("beyond_retention")
+                continue
+            ev = logs.filter_log_events(logGroupName=api_log_group, filterPattern=f'"{r["request_id"]}"',
+                                        startTime=int((t - timedelta(minutes=2)).timestamp() * 1000),
+                                        endTime=int((t + timedelta(minutes=2)).timestamp() * 1000)).get("events") or []
+            hit = next((x for x in ev if r["request_id"] in x.get("message", "") and r["line"] in x.get("message", "")),
+                       None)
+            states.append("verified" if hit else "missing")
+            if hit:
+                found.append({"request_id": r["request_id"], "timestamp_ms": hit.get("timestamp"), "line": r["line"]})
+        if "missing" in states:
+            out[aid] = {"status": "missing", "request_ids": ids, "detail": "a recorded request is not in the API log"}
+        elif "beyond_retention" in states:
+            found, problems = prior()
+            pv = None if problems else next((x for x in found.get(aid, []) if x["request_ids"] == ids), None)
+            out[aid] = ({"status": "previously_verified", "request_ids": ids,
+                         "detail": f"verified in {pv['path']} at commit {pv['commit'][:12]}",
+                         "verified_in": {"path": pv["path"], "commit": pv["commit"]}}
+                        if pv else
+                        {"status": "beyond_retention_unverified", "request_ids": ids,
+                         "detail": "the API log is past its retention and "
+                                   + ("the committed evidence cannot be trusted: " + "; ".join(problems) if problems
+                                      else "no committed report verified exactly these requests")})
+        else:
+            out[aid] = {"status": "verified", "request_ids": ids, "log_group": api_log_group, "events": found}
+    return out
+
+
 def renewal_gate(out, fns, res, approval_ref: str, release_sha: str, fresh_smoke: dict | None,
                  expected_kill_switch: str) -> tuple[dict, str | None]:
     """BOOKING_WORKFLOW in renewal mode (setuhaul/ops/renewal.py judges; this function only reads)."""
@@ -519,13 +671,16 @@ def renewal_gate(out, fns, res, approval_ref: str, release_sha: str, fresh_smoke
         smokes.append(fresh_smoke)
     owner_file = EVIDENCE / "owner_attribution_20261123.json"
     owner = json.loads(owner_file.read_text(encoding="utf-8")) if owner_file.exists() else None
-    attribution = R.attribute_executions(execs, records, smokes, owner)
     now = datetime.now(timezone.utc)
+    api_group = (by_name.get("setuhaul-pilot-api") or {}).get("log_group")
+    api_log = owner_api_log_corroboration(owner, api_group, now)
+    attribution = R.attribute_executions(execs, records, smokes, owner, api_log)
     smoke = R.fresh_smoke_checks(fresh_smoke, release_sha, artifact, now)
     g = R.booking_workflow_renewal(base, config, attribution, smoke, fresh_smoke)
     g["evidence"]["activation_facts"] = {k: ev_act.get(k) for k in ("state_machine", "alias_routes_to_version",
                                                                       "live_definition_sha256", "repo_definition_sha256")}
     g["evidence"]["executions_total"] = len(execs)
+    g["evidence"]["api_log_corroboration"] = api_log
     if blocker:
         g["diagnostics"].insert(0, f"BOOKING_WORKFLOW: {g['status']} — {blocker}")
         g["evidence"]["record_access_blocker"] = blocker
@@ -576,13 +731,20 @@ def main() -> int:
         "checks": {}, "status": "BLOCKED",
         "not_shown": ["needs a Meta WhatsApp Cloud API test number, Meta-approved templates (en, hi; Hinglish is its own "
                       "gate) and a real permitted test delivery; real WhatsApp stays disabled until the owner provides them"]}
+    # M-2: the booking state is what the deployed pilot's /health says now (source and time recorded), never assumed;
+    # if it cannot be read, booking_enabled is null and every validation refuses the report
+    from setuhaul.ops.renewal import observe_booking_state
+    observed = observe_booking_state(out.get("ApiUrl"))
     report = {"collected_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"), "stack": STACK,
-              "region": REGION, "booking_enabled": False, "deployment_evidence_rows_written": 0, "gates": gates}
+              "region": REGION, "booking_enabled": observed["booking_enabled"], "booking_observed": observed,
+              "deployment_evidence_rows_written": 0, "gates": gates}
+    print(f"booking state observed at {observed['source']}: {observed['booking_state']}"
+          + (f" ({observed['error']})" if observed.get("error") else ""))
     if a.mode == "renewal":
         from setuhaul.ops.renewal import ENVIRONMENT, renewal_status
         for gname, gv in gates.items():
             gv["renewal_status"] = renewal_status(gname, gv)
-        report.update({"mode": "renewal", "booking_enabled": True, "environment": ENVIRONMENT,
+        report.update({"mode": "renewal", "environment": ENVIRONMENT,
                        "release_sha": a.release_sha, "approval_ref": a.approval_ref, "artifact_sha256": artifact,
                        "expected_kill_switch": a.expected_kill_switch,
                        "approved_exceptions": ["AURORA (T33-P)", "WORKLOAD_IDENTITY (NO-LIVE-DRIFT-DETECTION)",

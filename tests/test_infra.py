@@ -105,7 +105,9 @@ def test_only_the_activation_workflow_turns_booking_on_and_only_for_the_pilot_re
     wf = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "activate-booking.yml").read_text(encoding="utf-8")
     trig = wf.split("\non:", 1)[1].split("\npermissions:", 1)[0]
     assert "workflow_dispatch" in trig and "push" not in trig and "pull_request" not in trig and "schedule" not in trig
-    assert wf.count("github.ref == 'refs/heads/release/fde-sydney-pilot'") == 2
+    # test, activate and (M-1) close-window-on-failure: every job that reaches AWS or gates one is pinned to the branch
+    assert wf.count("github.ref == 'refs/heads/release/fde-sydney-pilot'") == 3
+    assert wf.count('[ "$DEPLOY_REF" = "refs/heads/release/fde-sydney-pilot" ]') == 2   # both AWS jobs re-check
     assert '[ "$DEPLOY_REF" = "refs/heads/release/fde-sydney-pilot" ]' in wf
     assert '[ "$CONFIRM" = "activate-synthetic-pilot-booking" ]' in wf
     assert "^OWNER-APPROVAL-20[0-9]{6}-[A-Za-z0-9-]{3,40}$" in wf

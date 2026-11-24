@@ -91,10 +91,15 @@ BASE = {"live alias 'live' routes 100% to one published version": True,
         "published definition equals the repository ASL": True, "no execution has failed": True}
 
 
-def gate(execs, recs, smoke=None, owner=OWNER, functions=None, health=HEALTH, mode=MODE, ref=REF, smokes=None):
+# Recovery Release A (check 1): the owner record's console requests, as the collector found them in the API log
+VERIFIED = {str(e["approval_id"]): {"status": "verified"} for e in OWNER["executions"]}
+
+
+def gate(execs, recs, smoke=None, owner=OWNER, functions=None, health=HEALTH, mode=MODE, ref=REF, smokes=None,
+         api_log=VERIFIED):
     smoke = fresh_smoke() if smoke is None else smoke
     att = R.attribute_executions(execs, recs, (smokes if smokes is not None else [SMOKE_OLD]) + ([smoke] if smoke else []),
-                                 owner)
+                                 owner, api_log)
     cfg = R.check_booking_config(functions or fns(), health, mode, ref)
     return R.booking_workflow_renewal(BASE, cfg, att, R.fresh_smoke_checks(smoke or None, SHA, ART, NOW), smoke or None)
 
@@ -330,6 +335,8 @@ def renewal_report(**over):
     bw = gate(execs, recs)
     other = {"checks": {"c": True}, "not_shown": [], "status": "PASS", "evidence": {}}
     r = {"mode": "renewal", "booking_enabled": True, "environment": "pilot-ap-southeast-2", "release_sha": SHA,
+         "booking_observed": {"source": "https://api.example/health", "observed_utc": datetime.now(timezone.utc).isoformat(),
+                              "http_status": 200, "booking_state": "authorized", "booking_enabled": True},
          "approval_ref": REF, "artifact_sha256": ART, "collected_utc": (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat(),
          "gates": {"AWS_QUEUE": other, "RECOVERY_WORKER": other, "BOOKING_WORKFLOW": bw,
                    "AURORA": {**other, "status": "PASS WITH PILOT EXCEPTION (T33-P)"},
@@ -501,3 +508,23 @@ def test_0029_is_narrow_by_construction_and_rls_is_unchanged(dsn, approvals):
         c.execute("SELECT set_config('app.facility_scope', 'FAC-GGN-01', true)")
         seen = {str(r[0]) for r in c.execute("SELECT approval_id FROM setuhaul.approval_requests").fetchall()}
         assert approvals["ggn"] in seen and not {approvals[k] for k in ("jai_drill", "jai_console", "jai_expired")} & seen
+
+
+# ------------------------------------------------------------------------------------------------ Recovery A, check 1
+@pytest.mark.parametrize("corroboration", [None, {}, {"status": "missing"}, {"status": "not checked"},
+                                           {"status": "beyond_retention_unverified"}])
+def test_an_owner_record_attributes_nothing_unless_the_api_log_corroborates_it(corroboration):
+    """The owner record and the database row alone are not enough: without the API log's own lines (or an earlier
+    committed verification once the log has expired) the owner-confirmed execution is a FAIL, never category C."""
+    api_log = None if corroboration is None else {**VERIFIED, C2: corroboration} if corroboration else {}
+    g = gate(*live_shaped(), api_log=api_log)
+    v = {x["approval_id"]: x for x in g["evidence"]["approval_executions"]}
+    assert v[C2]["verdict"] == "FAIL" and v[C2]["category"] is None
+    assert any("API log does not corroborate" in r for r in v[C2]["reasons"])
+    assert g["status"] == "FAIL"
+
+
+def test_a_previously_verified_corroboration_is_accepted_after_the_log_expires():
+    g = gate(*live_shaped(), api_log={**VERIFIED, C2: {"status": "previously_verified"}})
+    v = {x["approval_id"]: x for x in g["evidence"]["approval_executions"]}
+    assert v[C2]["verdict"] == "ATTRIBUTED" and v[C2]["category"] == "C"

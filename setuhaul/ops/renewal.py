@@ -256,10 +256,19 @@ def _owner_expectations(entry: dict, row: dict, execution: dict) -> list[str]:
     return bad
 
 
+API_LOG_ACCEPTED = ("verified", "previously_verified")
+
+
 def attribute_executions(executions: list[dict], records: dict[str, dict], smoke_records: list[dict],
-                         owner_record: dict | None) -> tuple[list[dict], list[str]]:
+                         owner_record: dict | None, api_log: dict[str, dict] | None = None
+                         ) -> tuple[list[dict], list[str]]:
     """executions: [{"name" (= approval id), "status", "start", "arn"}] from Step Functions.
     records: approval_id -> the row from approval_execution_evidence (migration 0029), facility-scoped.
+    api_log: approval_id -> the API-log corroboration of the owner record's console requests (Recovery Release A,
+    check 1): {"status": verified | previously_verified | missing | beyond_retention_unverified, ...}. Category C needs
+    verified (the live API log has every request line the record names) or previously_verified (the log is past its
+    retention and an earlier committed report verified the same lines). Anything else, or no corroboration at all,
+    fails closed: an owner record alone can never attribute an execution.
     Returns (one verdict per execution, record-level problems)."""
     owner, owner_problems = load_owner_attributions(owner_record)
     claims = smoke_claims(smoke_records)
@@ -306,6 +315,10 @@ def attribute_executions(executions: list[dict], records: dict[str, dict], smoke
                                 else " (23 Nov format: release SHA not recorded)")))
         if aid in owner:
             ob = _owner_expectations(owner[aid], row, e)
+            corr = (api_log or {}).get(aid) or {"status": "not checked"}
+            if corr.get("status") not in API_LOG_ACCEPTED:
+                ob.append(f"the API log does not corroborate the recorded console requests ({corr.get('status')}"
+                          + (f": {corr['detail']}" if corr.get("detail") else "") + ")")
             if ob:
                 hard += [f"owner-confirmed record does not match the database: {b}" for b in ob]
             else:
@@ -386,6 +399,72 @@ def renewal_status(gate: str, g: dict) -> str:
     return FAIL
 
 
+# ------------------------------------------------------------------------------------------------ observed booking state
+# M-2 (Recovery Release A hardening): a report records the booking state it OBSERVED on the deployed pilot's /health,
+# never a value the collector assumes. "unavailable" means it could not be verified, and no validation accepts it.
+BOOKING_STATES = {"off": "booking disabled (the booking switch is off)",
+                  "refused": "booking enabled but not authorized by the database",
+                  "authorized": "booking enabled and authorized by the database"}
+
+
+def observe_booking_state(api_url: str | None, get=None, now: datetime | None = None) -> dict:
+    """GET <ApiUrl>/health once and reduce it to one of BOOKING_STATES, or 'unavailable' with the reason. Since D4
+    (0033) /health reports the database's verdict (booking_state). The older format (before D4) has only
+    booking_enabled, which is the start-up switch: false is 'off'; true cannot say whether the database authorizes
+    booking now, so it is 'unavailable'."""
+    now = now or datetime.now(timezone.utc)
+    src = api_url.rstrip("/") + "/health" if api_url else None
+    obs = {"source": src, "observed_utc": now.isoformat(timespec="seconds"), "http_status": None,
+           "booking_state": "unavailable", "booking_enabled": None}
+    if not src:
+        return {**obs, "error": "no ApiUrl: the deployed pilot's /health could not be read"}
+    try:
+        if get is None:
+            import httpx
+            get = lambda u: httpx.get(u, timeout=40)                  # noqa: E731
+        r = get(src)
+        obs["http_status"] = r.status_code
+        body = r.json()
+    except Exception as e:                                          # noqa: BLE001 — unavailable, never assumed
+        return {**obs, "error": f"the health endpoint is unavailable ({type(e).__name__})"}
+    if r.status_code != 200 or not isinstance(body, dict):
+        return {**obs, "error": f"the health endpoint answered HTTP {r.status_code} without a JSON object"}
+    enabled = body.get("booking_enabled")
+    if "booking_state" in body:
+        state, fmt = body.get("booking_state"), "D4 (the database's verdict)"
+    elif enabled is False:
+        state, fmt = "off", "before D4 (booking_enabled is the start-up switch)"
+    else:
+        return {**obs, "error": f"a health response before D4 with booking_enabled {enabled!r} cannot show whether "
+                                "the database authorizes booking"}
+    if state not in BOOKING_STATES or not isinstance(enabled, bool) or enabled != (state == "authorized"):
+        return {**obs, "error": f"malformed or inconsistent health response (booking_state {state!r}, "
+                                f"booking_enabled {enabled!r})"}
+    obs.update(booking_state=state, booking_enabled=enabled, meaning=BOOKING_STATES[state], format=fmt)
+    for k in ("booking_switch", "booking_refusal", "booking_kill_switch", "booking_provisional_until", "version"):
+        if k in body:
+            obs[k] = body[k]
+    return obs
+
+
+def booking_observation_problems(report: dict, allowed: tuple[str, ...], context: str) -> list[str]:
+    """Why the report's observed booking state is not acceptable here (empty = it is)."""
+    obs = report.get("booking_observed")
+    if not isinstance(obs, dict) or obs.get("booking_state") not in BOOKING_STATES:
+        why = (obs or {}).get("error") if isinstance(obs, dict) else None
+        return [f"the report records no verified booking state of the running pilot ({why or 'not observed'})"]
+    p = []
+    if not (obs.get("source") and parse_ts(obs.get("observed_utc"))):
+        p.append("the observed booking state has no source or time")
+    if report.get("booking_enabled") is not obs.get("booking_enabled"):
+        p.append(f"the report's booking_enabled {report.get('booking_enabled')!r} is not what was observed on the "
+                 f"running pilot ({obs.get('booking_enabled')!r})")
+    if obs["booking_state"] not in allowed:
+        p.append(f"{context}: the running pilot was observed {obs['booking_state']!r} "
+                 f"({BOOKING_STATES[obs['booking_state']]}); expected {' or '.join(allowed)}")
+    return p
+
+
 # ------------------------------------------------------------------------------------------------ writing evidence
 def renewal_report_problems(report: dict, manifest: dict, approval_ref: str | None = None,
                             now: datetime | None = None) -> list[str]:
@@ -395,8 +474,8 @@ def renewal_report_problems(report: dict, manifest: dict, approval_ref: str | No
     p = []
     if report.get("mode") != "renewal":
         p.append("the report is not a renewal report")
-    if report.get("booking_enabled") is not True:
-        p.append("a renewal report must come from the active pilot (booking ON)")
+    p += booking_observation_problems(report, ("authorized",),
+                                      "a renewal report must come from the active pilot (booking ON and authorized)")
     if report.get("environment") != ENVIRONMENT:
         p.append(f"the renewal report is for {report.get('environment')!r}, not {ENVIRONMENT!r}")
     t = parse_ts(report.get("collected_utc"))
