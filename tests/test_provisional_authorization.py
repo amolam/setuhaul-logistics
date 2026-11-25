@@ -2,7 +2,7 @@
 
 Runs on its own database with the evidence guard AND deployment identity enforced (the pilot's state after 0032).
 Every test uses its own pilot environment name, so the per-environment rules (one open authorization, two per 24 h)
-never leak between tests. Booking commitments are made under the release's own login (SET SESSION AUTHORIZATION to a
+never leak between tests (0034: four per 24 h). Booking commitments are made under the release's own login (SET SESSION AUTHORIZATION to a
 test login named setuhaul_login_<role>_<12 hex>, as the Data API authenticates with the release's secret), so the
 database's identity check is exercised exactly as in AWS."""
 from __future__ import annotations
@@ -278,7 +278,10 @@ def test_only_the_newest_release_and_one_authorization_per_deployment_and_approv
     assert old
 
 
-def test_one_open_window_per_environment_and_two_per_24_hours(c):
+def test_one_open_window_per_environment_and_four_per_24_hours(c):
+    """0034 (owner policy change): four provisional authorizations per environment in a rolling 24 h (was two), the
+    same limit for every environment; one open at a time; the fifth is refused, whatever the status of the four
+    (revoked ones count). Production stays refused before the count, at any limit."""
     env = env_name()
     complete(c, env)
     d1 = new_release(c, env)
@@ -289,14 +292,20 @@ def test_one_open_window_per_environment_and_two_per_24_hours(c):
     with c.transaction():
         c.execute("SET LOCAL ROLE setuhaul_deploy_evidence")
         assert c.execute("SELECT setuhaul.revoke_provisional_authorization(%s,'test: close d1')", (env,)).fetchone()[0] == 1
-    issue(c, d3, ref=f"OWNER-APPROVAL-20261124-O{uuid.uuid4().hex[:6]}")       # second in 24 h
-    with c.transaction():
-        c.execute("SET LOCAL ROLE setuhaul_deploy_evidence")
-        c.execute("SELECT setuhaul.revoke_provisional_authorization(%s,'test: close d3')", (env,))
-    complete(c, env)
-    d5 = new_release(c, env)
-    refused(lambda: issue(c, d5, ref=f"OWNER-APPROVAL-20261124-O{uuid.uuid4().hex[:6]}"), "PROVISIONAL_RATE_LIMIT")
+    for _ in range(3):                                           # the second, third and fourth in 24 h
+        issue(c, d3, ref=f"OWNER-APPROVAL-20261124-O{uuid.uuid4().hex[:6]}")
+        with c.transaction():
+            c.execute("SET LOCAL ROLE setuhaul_deploy_evidence")
+            c.execute("SELECT setuhaul.revoke_provisional_authorization(%s,'test: close')", (env,))
+        complete(c, env)
+        d3 = new_release(c, env)
+    refused(lambda: issue(c, d3, ref=f"OWNER-APPROVAL-20261124-O{uuid.uuid4().hex[:6]}"),
+            "PROVISIONAL_RATE_LIMIT: 4 authorizations")
     assert d2
+    assert c.execute("SELECT setuhaul.provisional_rate_limit(%s), setuhaul.provisional_rate_limit(%s)",
+                     (env, "production-ap-southeast-2")).fetchone() == (4, 4)
+    prod = {"env": "production-ap-southeast-2", "dep": "m-" + "0" * 40}
+    refused(lambda: issue(c, prod), "PROVISIONAL_REFUSED: only a pilot environment, never production")
 
 
 def test_concurrent_issuers_for_one_environment_exactly_one_wins(dsn):

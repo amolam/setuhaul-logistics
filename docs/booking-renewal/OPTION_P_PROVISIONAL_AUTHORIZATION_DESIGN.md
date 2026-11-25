@@ -44,7 +44,14 @@ widens an owner-approved exception, and never applies outside a `pilot` environm
 
 Constraints: `UNIQUE (environment, deployment_id)` (single-use per deployment: no second window for the same code), a
 partial unique index allowing **at most one ISSUED/ACTIVE row per environment**, and a per-environment rate limit
-(at most 2 issued per 24 h) enforced in the issuing function.
+(at most **4** issued per environment per rolling 24 h, every status counting) enforced in the issuing function.
+
+**0034 is an owner policy change and needs separate written approval before it is deployed.** It raises the limit
+from 2 to 4:
+* `provisional_rate_limit(environment)` returns 4 for every environment (one global value). Production booking stays
+  disabled independently: every non-pilot environment, production included, is refused before the count.
+* The count still runs in the issuing transaction, under the transaction-level advisory lock, so two concurrent
+  issuers cannot both pass it.
 
 `provisional_authorization_events`: append-only audit (who, what, when, run id, correlation id, before and after
 status), written by the same functions in the same transaction.
@@ -123,7 +130,7 @@ report lists every window with issued, activated and closed/revoked/expired time
 | Threat | Control |
 |---|---|
 | Replay or reuse of an authorization or approval | UNIQUE approval_ref; UNIQUE env+deployment; status predicate on activation |
-| Rolling windows keeping unsmoked code live | no-chaining predecessor rule; one open window per environment; 2 per 24 h |
+| Rolling windows keeping unsmoked code live | no-chaining predecessor rule; one open window per environment; 4 per environment per 24 h (0034; was 2) |
 | Window extension | `expires_at` fixed at issuance, CHECK ≤ 2 h, no UPDATE path for it |
 | Production use | CHECK on environment class + verdict class check + no workflow input for production |
 | Non-pipeline issuer | EXECUTE only for `setuhaul_deploy_evidence`; no table DML for anyone |

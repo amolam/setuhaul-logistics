@@ -126,7 +126,7 @@ Also check:
 | Migration fails after the deploy | booking paused (0030 may be applied: old containers undeclared; new ones can't start booking) | fix forward, or §6 |
 | `--expect-release` refuses | stop before evidence; booking paused | investigate the secret; §6 |
 | Issuance refused (predecessor, gates, rate limit, approval reuse) | nothing recorded (one transaction) | correct the cause; a new approval if one was used |
-| Smoke fails, the renewal fails, or a run is cancelled | **revoked at once**: by the pipeline (both modes), or by the operator with the §7.5 command. Expiry is only the last backstop, never the plan. Every commitment is then refused, and API/agent containers stay or return booking-OFF. | §7.5 checklist, then §6. A new release and a **new approval** for another window (max 2 per 24 h) |
+| Smoke fails, the renewal fails, or a run is cancelled | **revoked at once**: by the pipeline (both modes), or by the operator with the §7.5 command. Expiry is only the last backstop, never the plan. Every commitment is then refused, and API/agent containers stay or return booking-OFF. | §7.5 checklist, then §6. A new release and a **new approval** for another window (at most 4 per environment per rolling 24 h after 0034, 2 before it; `python -m setuhaul.ops.readiness` reads the live count and limit) |
 | Anything wrong at any time | ops lead: **kill switch** (console) or **revoke** (`POST /console/provisional-authorization/revoke`) | then §6 |
 
 ## 6. Rollback
