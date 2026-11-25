@@ -16,6 +16,7 @@
   <span class="pill unk" id="bookingpill" title="SETUHAUL_BOOKING_ENABLED as the server reports it">booking execution: checking…</span>
   <span class="pill unk" id="killpill" title="The database booking kill switch (migration 0026), reported separately">kill switch: checking…</span>
   <span class="pill">WhatsApp: internal test sink only</span>
+  <span class="pill unk" id="tgpill" title="Telegram delivery as the server reports it">Telegram: checking…</span>
   <span class="grow"></span>
   <span id="who" class="muted"></span>
   <button class="ghost" id="signout" hidden>Sign out</button>
@@ -31,6 +32,7 @@
 
 <section id="app" hidden>
   <div class="tabs" id="tabs" style="margin:12px 16px 0">
+    <button data-t="dispatch">Dispatch</button><button data-t="schedule">Schedule</button><button data-t="ops">Ops health</button>
     <button data-t="threads" class="on">Conversations</button><button data-t="requests">Requests</button>
     <button data-t="escalations">Escalations</button><button data-t="docks">Docks</button>
     <button data-t="optimizer">Optimizer</button><button data-t="observability">Observability</button>

@@ -804,7 +804,8 @@ def test_0034_applies_on_a_0033_database_and_changes_only_the_rate_limit(tmp_pat
             complete(cx, env)                                       # a fully evidenced predecessor (no chaining)
             d3 = new_release(cx, env)
             refused(lambda: issue(cx, d3), "PROVISIONAL_RATE_LIMIT")             # under 0033 two is the limit
-        assert migrate(d) == ["0034_provisional_limit_4"]
+        applied = migrate(d)                                    # 0034, then any later forward migration (0035)
+        assert applied[0] == "0034_provisional_limit_4" and all(v > "0034" for v in applied[1:])
         with psycopg.connect(d, autocommit=True) as cx:
             assert cx.execute("SELECT authorization_id, status, issued_at, closed_at FROM "
                               "setuhaul.provisional_authorizations ORDER BY 1").fetchall() == before

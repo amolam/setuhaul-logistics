@@ -20,7 +20,8 @@ from dataclasses import dataclass, field
 
 import jwt
 
-STAFF_ROLES = {"planner", "ops_lead", "operations"}
+# 0037: `dispatcher` is its own role (Cognito group `dispatcher`); `operations` keeps its permissions for compatibility.
+STAFF_ROLES = {"planner", "ops_lead", "operations", "dispatcher"}
 
 
 class AuthError(Exception):

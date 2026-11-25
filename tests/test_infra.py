@@ -265,7 +265,7 @@ def test_low_cost_pilot_no_waf_but_throttling_and_staff_need_mfa(t):
     t.has_resource_properties("AWS::Cognito::UserPool", {"MfaConfiguration": "ON",
                                                          "AdminCreateUserConfig": {"AllowAdminCreateUserOnly": True}})
     groups = {r["Properties"]["GroupName"] for r in resources(t, "AWS::Cognito::UserPoolGroup").values()}
-    assert {g for g in groups if not g.startswith("facility-")} == {"operations", "planner", "ops_lead"}
+    assert {g for g in groups if not g.startswith("facility-")} == {"operations", "planner", "ops_lead", "dispatcher"}  # 0037
 
 
 def test_the_agent_reads_messages_one_at_a_time_and_reports_failures(t):
@@ -608,7 +608,7 @@ def test_facility_scope_comes_from_the_v2_trigger_and_admin_groups(t):
     assert fn["FunctionName"] == "setuhaul-pilot-cognito-pretoken" and fn["Handler"] == "setuhaul.aws.pretoken.handler"
     assert fn["Environment"]["Variables"]["FACILITIES"] == "FAC-JAI-01,FAC-GGN-01" and "VpcConfig" not in fn
     groups = {g["Properties"]["GroupName"] for g in resources(t, "AWS::Cognito::UserPoolGroup").values()}
-    assert groups == {"operations", "planner", "ops_lead", "facility-FAC-JAI-01", "facility-FAC-GGN-01"}
+    assert groups == {"operations", "planner", "ops_lead", "dispatcher", "facility-FAC-JAI-01", "facility-FAC-GGN-01"}
     assert not [s for s in _policy_resources(t, trig["LambdaArn"]["Fn::GetAtt"][0])
                 if "secretsmanager" in json.dumps(s) or "rds-data" in json.dumps(s)]       # no secret, no database
 
