@@ -135,6 +135,15 @@ class LangSmithClient:
     def create_examples(self, dataset_id: str, examples: list[dict]) -> Any:
         return self._req("POST", "/examples/bulk", [dict(e, dataset_id=dataset_id) for e in examples])
 
+    def list_examples(self, dataset_id: str, limit: int = 100) -> list[dict]:
+        """G.2: the dataset's examples (evaluation tooling only; never called by the agent)."""
+        found = self._req("GET", "/examples", params={"dataset": dataset_id, "limit": limit}) or []
+        return found if isinstance(found, list) else []
+
+    def get_run(self, run_id: str) -> dict | None:
+        """G.2: one run as LangSmith stored it (its `app_path` is the UI link). Evaluation tooling only."""
+        return self._req("GET", f"/runs/{run_id}")
+
     # experiments
     def create_experiment(self, name: str, dataset_id: str, metadata: dict) -> dict:
         return self._req("POST", "/sessions", {"name": name, "reference_dataset_id": dataset_id,
