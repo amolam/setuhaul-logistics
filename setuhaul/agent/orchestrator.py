@@ -96,6 +96,7 @@ class TurnResult:
     # exported, logged or stored by the turn; the judge sends them on the same ZDR route as the extraction call.
     language: str | None = None
     driver_text: str | None = field(default=None, repr=False)
+    driver_message_id: int | None = None                        # chat_messages id (an id, never text)
 
 
 _NUMBER_ANSWER = re.compile(r"^\s*(?:no\.?\s*)?([1-9])\s*(?:number|no\.?|wala|vala|वाला|नंबर)?\s*[.!]?\s*$", re.I)
@@ -250,7 +251,7 @@ class Orchestrator:
         # B-AI-3: answer in the conversation's language, not the last message's (a one-word "हाँ" or "yes")
         earlier = [b for mid, b in data.get("recent_driver_messages", []) if mid < turn]
         lang = replies.reply_language(text, ex.language, earlier)
-        res.language, res.driver_text = lang, text
+        res.language, res.driver_text, res.driver_message_id = lang, text, turn
 
         # Earlier turns' facts come from the database (migration 0008), never from the model's memory.
         # Facts are cleared whenever an option is selected, so any stored facts in SELECTED come from a constraint question

@@ -697,7 +697,8 @@ def test_full_activation_telegram_stays_on_the_test_sink_without_its_own_approva
 
 
 def test_full_activation_live_telegram_with_its_approval_reaches_only_the_api_and_the_sender(tmp_path):
-    tl = Template.from_stack(_stack(tmp_path, "tg", telegram_live_approval="OWNER-APPROVAL-20261126-telegram1"))
+    tl = Template.from_stack(_stack(tmp_path, "tg", telegram_live_approval="OWNER-APPROVAL-20261126-telegram1",
+                                    telegram_authorized_drivers="DRV-PILOT-A1,DRV-PILOT-B2"))
     fns = functions(tl)
     live = {n for n, f in fns.items() if f["Environment"]["Variables"].get("SETUHAUL_TELEGRAM_DELIVERY") == "live"}
     assert live == {"setuhaul-pilot-api", "setuhaul-pilot-outbound"}
@@ -706,6 +707,7 @@ def test_full_activation_live_telegram_with_its_approval_reaches_only_the_api_an
         assert v["SETUHAUL_TELEGRAM_LIVE_AUTHORIZED"] == "true" and v["SETUHAUL_TELEGRAM_OUTBOUND_ENABLED"] == "true"
         assert v["SETUHAUL_TELEGRAM_BOT_SECRET_ID"] == "setuhaul/pilot/telegram/bot"        # a NAME, never a value
         assert not [k for k in v if "TOKEN" in k] and "SETUHAUL_TELEGRAM_WEBHOOK_SECRET" not in v
+        assert v["SETUHAUL_TELEGRAM_AUTHORIZED_DRIVERS"] == "DRV-PILOT-A1,DRV-PILOT-B2"
     assert api["SETUHAUL_TELEGRAM_WEBHOOK_ENABLED"] == "true" and "SETUHAUL_TELEGRAM_WEBHOOK_SECRET_ID" in api
     assert "SETUHAUL_TELEGRAM_WEBHOOK_SECRET_ID" not in out
     # the bot token secret is NOT created by CDK (the owner creates and fills it); the webhook secret is generated
@@ -726,6 +728,11 @@ def test_full_activation_live_telegram_with_its_approval_reaches_only_the_api_an
 @pytest.mark.parametrize("kw,err", [
     ({"telegram_live_approval": "yes please"}, "telegram_live_approval"),
     ({"telegram_live_approval": "OWNER-APPROVAL-20261126-x1y", "environment_name": "production"}, "only in the synthetic pilot"),
+    ({"telegram_live_approval": "OWNER-APPROVAL-20261126-x1y"}, "telegram_authorized_drivers"),
+    ({"telegram_live_approval": "OWNER-APPROVAL-20261126-x1y", "telegram_authorized_drivers": "DRV-ONLY-1"}, "2-50"),
+    ({"telegram_live_approval": "OWNER-APPROVAL-20261126-x1y", "telegram_authorized_drivers": "DRV-A-1,+919876543210"},
+     "telegram_authorized_drivers"),
+    ({"telegram_authorized_drivers": "DRV-A-1,DRV-B-2"}, "only with telegram_live_approval"),
     ({"llm_judge_budget_usd": "1.5"}, "llm_judge_budget_usd"),
     ({"llm_judge_budget_usd": "-1"}, "llm_judge_budget_usd"),
     ({"release_commit": "not-a-sha"}, "release_commit")])
@@ -791,10 +798,12 @@ def test_full_activation_the_workflow_passes_every_control_explicitly_and_its_ch
     check = wf.split("python - <<'PY'\n", 1)[1].split("\n          PY\n", 1)[0]
     check = "\n".join(line[10:] for line in check.splitlines())
     cases = {"ls-on": dict(langsmith_tracing="on"), "ls-off": dict(langsmith_tracing="off"),
-             "tg": dict(langsmith_tracing="on", telegram_live_approval="OWNER-APPROVAL-20261126-telegram1"),
+             "tg": dict(langsmith_tracing="on", telegram_live_approval="OWNER-APPROVAL-20261126-telegram1",
+                        telegram_authorized_drivers="DRV-PILOT-A1,DRV-PILOT-B2"),
              "judge": dict(langsmith_tracing="on", llm_judge_budget_usd="0.25")}
     given = {"ls-on": {"LANGSMITH": "on"}, "ls-off": {"LANGSMITH": "off"},
-             "tg": {"LANGSMITH": "on", "TELEGRAM_LIVE_APPROVAL": "OWNER-APPROVAL-20261126-telegram1"},
+             "tg": {"LANGSMITH": "on", "TELEGRAM_LIVE_APPROVAL": "OWNER-APPROVAL-20261126-telegram1",
+                    "TELEGRAM_DRIVERS": "DRV-PILOT-A1,DRV-PILOT-B2"},
              "judge": {"LANGSMITH": "on", "JUDGE_BUDGET": "0.25"}}
     for tag, kw in cases.items():
         s_ = _stack(tmp_path, tag, booking_approval="OWNER-APPROVAL-20261125-test1", **kw)
@@ -802,7 +811,7 @@ def test_full_activation_the_workflow_passes_every_control_explicitly_and_its_ch
         d.mkdir(parents=True)
         (d / "SetuHaulPilot.template.json").write_text(json.dumps(Template.from_stack(s_).to_json()), encoding="utf-8")
         for g_tag, g_env in given.items():
-            env = {k: v for k, v in os.environ.items() if k not in ("LANGSMITH", "TELEGRAM_LIVE_APPROVAL", "JUDGE_BUDGET")}
+            env = {k: v for k, v in os.environ.items() if k not in ("LANGSMITH", "TELEGRAM_LIVE_APPROVAL", "JUDGE_BUDGET", "TELEGRAM_DRIVERS")}
             r = subprocess.run([sys.executable, "-c", check], cwd=d.parent, capture_output=True, text=True,
                                env={**env, **g_env})
             assert (r.returncode == 0) == (g_tag == tag), (tag, g_tag, r.stdout, r.stderr[-300:])

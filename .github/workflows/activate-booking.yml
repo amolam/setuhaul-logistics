@@ -48,6 +48,10 @@ on:
         description: "Full Activation, optional: the owner's SEPARATE written approval for LIVE Telegram (OWNER-APPROVAL-YYYYMMDD-<ref>). Empty = Telegram stays on the test sink. Never reuse the booking reference. Use the SAME value for the provisional and the renewal run"
         required: false
         default: ""
+      telegram_authorized_drivers:
+        description: "Full Activation, required with telegram_live_approval: the owner's list of authorized pilot driver ids for live Telegram, comma-separated (2-50 SetuHaul ids, DRV-...; never phones, names or chat ids)"
+        required: false
+        default: ""
       llm_judge_budget_usd:
         description: "Full Activation: the owner-approved DAILY budget for the advisory online LLM judge, USD 0-1. 0 (default) = configured but nothing is sent. Use the SAME value for the provisional and the renewal run"
         required: false
@@ -109,6 +113,7 @@ jobs:
       LANGSMITH: ${{ github.event.inputs.langsmith }}
       TELEGRAM_LIVE_APPROVAL: ${{ github.event.inputs.telegram_live_approval }}
       JUDGE_BUDGET: ${{ github.event.inputs.llm_judge_budget_usd }}
+      TELEGRAM_DRIVERS: ${{ github.event.inputs.telegram_authorized_drivers }}
     steps:
       - name: Refuse without the typed confirmation or a well-formed approval reference
         run: |
@@ -122,6 +127,9 @@ jobs:
           if [ -n "$TELEGRAM_LIVE_APPROVAL" ]; then
             echo "$TELEGRAM_LIVE_APPROVAL" | grep -Eq '^OWNER-APPROVAL-20[0-9]{6}-[A-Za-z0-9-]{3,40}$' || { echo "REFUSED: telegram approval reference" >&2; exit 1; }
             [ "$TELEGRAM_LIVE_APPROVAL" != "$APPROVAL_REF" ] || { echo "REFUSED: live Telegram needs its own approval, not the booking reference" >&2; exit 1; }
+            echo "$TELEGRAM_DRIVERS" | grep -Eq '^[A-Za-z0-9_-]*DRV-[A-Za-z0-9_-]+(,[A-Za-z0-9_-]*DRV-[A-Za-z0-9_-]+)+$' || { echo "REFUSED: live Telegram needs telegram_authorized_drivers (2 or more driver ids)" >&2; exit 1; }
+          elif [ -n "$TELEGRAM_DRIVERS" ]; then
+            echo "REFUSED: telegram_authorized_drivers applies only with telegram_live_approval" >&2; exit 1
           fi
           echo "${JUDGE_BUDGET:-0}" | grep -Eq '^(0(\.[0-9]{1,2})?|1(\.0{1,2})?)$' || { echo "REFUSED: llm_judge_budget_usd must be 0 to 1" >&2; exit 1; }
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262        # v4.4.0
@@ -142,8 +150,8 @@ jobs:
       - name: Synthesise once with the owner's approval in the context (booking ON for api and agent only)
         run: |
           case "${LANGSMITH:-on}" in on|off) ;; *) echo "REFUSED: langsmith must be on or off" >&2; exit 1 ;; esac
-          CDK_CONTEXT_JSON="$(jq -cn --arg r "$APPROVAL_REF" --arg l "${LANGSMITH:-on}" --arg t "$TELEGRAM_LIVE_APPROVAL" --arg j "${JUDGE_BUDGET:-0}" --arg c "$GITHUB_SHA" \
-            '{booking_approval: $r, langsmith_tracing: $l, llm_judge_budget_usd: $j, release_commit: $c} + (if $t != "" then {telegram_live_approval: $t} else {} end)')" python infra/app.py
+          CDK_CONTEXT_JSON="$(jq -cn --arg r "$APPROVAL_REF" --arg l "${LANGSMITH:-on}" --arg t "$TELEGRAM_LIVE_APPROVAL" --arg j "${JUDGE_BUDGET:-0}" --arg c "$GITHUB_SHA" --arg d "$TELEGRAM_DRIVERS" \
+            '{booking_approval: $r, langsmith_tracing: $l, llm_judge_budget_usd: $j, release_commit: $c} + (if $t != "" then {telegram_live_approval: $t, telegram_authorized_drivers: $d} else {} end)')" python infra/app.py
       - name: The template is the synthetic pilot with booking on only where it belongs, and no real sender
         run: |
           python - <<'PY'
@@ -174,6 +182,7 @@ jobs:
               assert all(fns[n]["SETUHAUL_TELEGRAM_LIVE_AUTHORIZED"] == "true" for n in tg)
               assert "SETUHAUL_TELEGRAM_WEBHOOK_SECRET_ID" in fns["setuhaul-pilot-api"]
               assert "SETUHAUL_TELEGRAM_WEBHOOK_SECRET_ID" not in fns["setuhaul-pilot-outbound"]
+              assert all(fns[n]["SETUHAUL_TELEGRAM_AUTHORIZED_DRIVERS"] == os.environ.get("TELEGRAM_DRIVERS") for n in tg)
               assert t["Outputs"]["TelegramMode"]["Value"].startswith("LIVE (OWNER-APPROVAL-")
           else:
               assert not tg and not [n for n, e in fns.items() if any(k.startswith("SETUHAUL_TELEGRAM_") for k in e)], tg

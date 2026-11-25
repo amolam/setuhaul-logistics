@@ -467,6 +467,9 @@ def _telegram_from_env(env: dict, secrets_client=None):
             raise RuntimeError("CONFIG: SETUHAUL_TELEGRAM_DELIVERY=live needs SETUHAUL_TELEGRAM_LIVE_AUTHORIZED=true")
         if not env.get("SETUHAUL_TELEGRAM_BOT_SECRET_ID"):
             raise RuntimeError("CONFIG: SETUHAUL_TELEGRAM_BOT_SECRET_ID is required for live Telegram delivery")
+        if authorized_drivers_from_env(env) is None:                 # raises on a malformed list
+            raise RuntimeError("CONFIG: live Telegram needs SETUHAUL_TELEGRAM_AUTHORIZED_DRIVERS (the owner's list of "
+                               "authorized pilot driver ids)")
         return TelegramBotProvider(_token_from_secret(env, secrets_client)), None
     raise RuntimeError(f"CONFIG: unknown SETUHAUL_TELEGRAM_DELIVERY {mode!r}")
 
@@ -481,6 +484,38 @@ def _token_from_secret(env: dict, client) -> str:
         return json.loads(raw)["token"] if raw.strip().startswith("{") else raw.strip()
     except Exception as e:
         raise RuntimeError(f"CONFIG: Telegram bot secret unreadable ({type(e).__name__})") from None
+
+
+MAX_AUTHORIZED_DRIVERS = 50
+
+
+def authorized_drivers_from_env(env: dict) -> frozenset[str] | None:
+    """The owner's explicit list of pilot drivers allowed on LIVE Telegram (SETUHAUL_TELEGRAM_AUTHORIZED_DRIVERS: comma-
+    separated SetuHaul driver ids, never phones, names or chat ids). None = no list configured (test sink / local:
+    unchanged behaviour). In live mode the list is REQUIRED (telegram_from_env refuses live without it), and:
+      * staff cannot issue a link code for an unlisted driver;
+      * a Telegram account linked to an unlisted driver is treated as NOT LINKED (nothing is processed);
+      * the relay never sends to an unlisted driver's Telegram chat (FAILED + escalation, visible).
+    Identity is still proved only by a staff-issued, single-use link code redeemed from the driver's own account."""
+    raw = (env.get("SETUHAUL_TELEGRAM_AUTHORIZED_DRIVERS") or "").strip()
+    if not raw:
+        return None
+    from ..observability.identifiers import is_valid
+    ids = [x.strip() for x in raw.split(",") if x.strip()]
+    if not ids or len(ids) > MAX_AUTHORIZED_DRIVERS or not all(is_valid("driver_id", x) for x in ids):
+        raise RuntimeError(f"CONFIG: SETUHAUL_TELEGRAM_AUTHORIZED_DRIVERS must list 1-{MAX_AUTHORIZED_DRIVERS} "
+                           "SetuHaul driver ids (DRV-...)")
+    return frozenset(ids)
+
+
+def driver_authorized(driver_id: str | None, env: dict | None = None) -> bool:
+    """True when no list is configured or the driver is on it. An invalid list authorizes nobody (fail closed)."""
+    import os
+    try:
+        allow = authorized_drivers_from_env(dict(os.environ) if env is None else env)
+    except RuntimeError:
+        return False
+    return allow is None or (driver_id is not None and driver_id in allow)
 
 
 def webhook_secret_from_env(env: dict, secrets_client=None) -> str | None:

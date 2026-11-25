@@ -769,7 +769,7 @@ def test_health_reports_the_database_and_the_booking_switch_and_nothing_secret(d
     assert body == {"status": "ok", "database": "ok", "booking_enabled": False, "booking_state": "off",
                     "environment": "pilot-ap-southeast-2", "version": "0.2.0", "telegram": "test_sink"}
     assert set(features) == {"booking_switch", "telegram_delivery_mode", "telegram_live_authorized",
-                             "telegram_outbound_enabled", "telegram_webhook_enabled", "llm_judge_enabled",
+                             "telegram_outbound_enabled", "telegram_webhook_enabled", "telegram_driver_allowlist", "llm_judge_enabled",
                              "llm_judge_advisory_only", "langsmith_tracing_enabled", "production"}
     assert all(isinstance(v, (bool, str)) for v in features.values()) and features["telegram_webhook_enabled"] is False
     assert "password" not in r.text and "host=" not in r.text and "postgres" not in r.text

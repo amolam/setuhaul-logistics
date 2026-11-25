@@ -1780,8 +1780,11 @@ class BookingService:
     def issue_link_code(self, p: Principal, driver_id: str, ttl_s: int | None = None) -> dict:
         """A one-time Telegram link code for a driver in this person's scope. The code is returned once (to be passed
         to the driver out of band) and only its hash is stored."""
-        from ..notify.telegram import new_link_code
+        from ..notify.telegram import driver_authorized, new_link_code
         self.require(p, "link_driver")
+        if not driver_authorized(driver_id):                        # live Telegram: the owner's pilot-driver list
+            raise ServiceError(403, "DRIVER_NOT_AUTHORIZED_FOR_TELEGRAM",
+                               "this driver is not on the authorized pilot-driver list for Telegram")
         ttl = ttl_s or int(os.environ.get("SETUHAUL_TELEGRAM_LINK_CODE_TTL_S", "900"))
         code, h = new_link_code()
         r = self._staff_fn(p, "SELECT issue_driver_link_code(%s,%s,%s,%s)", (driver_id, h, ttl, f"staff:{p.sub}"))
@@ -1899,6 +1902,8 @@ class BookingService:
             with self.db.tx("ingest") as c:
                 r = c.execute("SELECT redeem_driver_link_code(%s,%s,%s)",
                               (tg.hash_code(ev.code), ev.user_id, ev.chat_id)).fetchone()[0]
+            if r["linked"] and not tg.driver_authorized(r.get("driver_id")):
+                return {"reply": tg.TEXT_NOT_LINKED, "event": None, "linked": False}   # not on the pilot list
             if r["linked"]:
                 return {"reply": tg.TEXT_LINKED, "event": None, "linked": True}
             return {"reply": {"ACCOUNT_ALREADY_LINKED": tg.TEXT_ACCOUNT_TAKEN, "TOO_MANY_ATTEMPTS": tg.TEXT_TOO_MANY,
@@ -1908,7 +1913,7 @@ class BookingService:
             drv = c.execute("SELECT driver_for_channel('TELEGRAM', %s)", (ev.user_id,)).fetchone()[0]
         from ..observability import tracing                       # the inbound trace's driver (id-gated at export)
         tracing.safe(lambda: tracing.current().set(driver_id=drv, linked=drv is not None, update_kind=ev.kind))
-        if drv is None:
+        if drv is None or not tg.driver_authorized(drv):          # unlinked, or not on the pilot-driver list
             return {"reply": tg.TEXT_NOT_LINKED, "event": None}
         if ev.kind == "start":
             return {"reply": tg.TEXT_LINKED, "event": None}

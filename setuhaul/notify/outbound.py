@@ -312,7 +312,11 @@ class OutboundRelay:
         if self.telegram is not None:
             route = self._telegram_route(nid)
             if route.get("chat_ref"):
-                from .telegram import reply_markup_for
+                from .telegram import driver_authorized, reply_markup_for
+                kind, _, drv = str(ref).partition(":")
+                if not driver_authorized(drv if kind == "driver" else None):
+                    # live Telegram: never send to a driver who is not on the owner's pilot list (visible, not silent)
+                    return SendResult(PERMANENT, error="TELEGRAM_DRIVER_NOT_AUTHORIZED")
                 text = body if body is not None else template_text(template, lang)
                 # Telegram has no 24-hour window and no templates; the stored reply or the fixed notice goes as is
                 return self.telegram.send(route["chat_ref"], text, str(nid), reply_markup=reply_markup_for(route))

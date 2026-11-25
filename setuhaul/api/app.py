@@ -134,6 +134,7 @@ def _features_public(settings) -> dict:
                 "telegram_live_authorized": f.telegram_live_authorized,
                 "telegram_outbound_enabled": f.telegram_outbound_enabled,
                 "telegram_webhook_enabled": bool(settings.telegram_webhook_secret),     # the route is registered
+                "telegram_driver_allowlist": bool((os.environ.get("SETUHAUL_TELEGRAM_AUTHORIZED_DRIVERS") or "").strip()),
                 "llm_judge_enabled": f.llm_judge_enabled, "llm_judge_advisory_only": True,
                 "langsmith_tracing_enabled": f.langsmith_tracing_enabled, "production": f.production}
     except Exception:                                               # noqa: BLE001 — diagnostics never break /health

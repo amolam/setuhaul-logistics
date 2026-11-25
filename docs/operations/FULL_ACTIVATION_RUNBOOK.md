@@ -263,3 +263,62 @@ A Lambda configuration change is a new function version **without a code change*
 | 9 | Disable the webhook | Telegram reports 404 in `getWebhookInfo`. Then restore. |
 | 10 | Engage the booking kill switch | Accept is refused safely. Telegram keeps working. Then disengage. |
 | 11 | Wrong `X-Telegram-Bot-Api-Secret-Token` | 401. Nothing stored. |
+
+## 13. Owner-approved settings (26 Nov 2026) and pre-deployment gate status
+
+### Settings and where each one is applied
+
+| Setting | Value | Applied by |
+|---|---|---|
+| Judge daily budget | USD 0.50 | `activate-booking` input `llm_judge_budget_usd=0.5`. CDK sets `SETUHAUL_LLM_JUDGE_DAILY_BUDGET_USD=0.5` on the agent. The code refuses anything above 1.00. |
+| Judge sample rate | 0.20 | the CDK default (`llm_judge_sample_rate=0.2`) |
+| Per-judgement cap | USD 0.01 | fixed in CDK; the code maximum is 0.05 |
+| Agent reserve, single attempt, 20 s timeout, duplicate prevention, provider and cost recorded | unchanged | `online_judge.py` (§5) |
+| LangSmith tracing | ON by default, project `setuhaul-synthetic-pilot`, content off | input `langsmith=on` (the default) |
+| LangSmith retention | 30 days | **Owner, in LangSmith.** LangSmith offers fixed trace retention tiers (base and extended) rather than an arbitrary day count; check the options in the organization's settings. To hold exactly 30 days, use the extended tier plus a scheduled deletion of traces older than 30 days, or accept the shorter base tier. **Decision needed.** |
+| LangSmith access | restricted to authorized pilot operators | **Owner, in LangSmith**: a dedicated workspace, or workspace roles with only the pilot operators as members. The API key in `setuhaul/pilot/langsmith` should be a service key scoped to that workspace. |
+| Booking | ON after authorized activation | `approval_ref=OWNER-APPROVAL-20261125-SYNTHETIC-PILOT-RELEASE-01` (booking only) |
+| Telegram inbound and outbound | LIVE | `telegram_live_approval=OWNER-APPROVAL-20261126-SYNTHETIC-PILOT-TELEGRAM-LIVE-01` + `telegram_authorized_drivers=<owner's list>` |
+
+The provisional and renewal runs of one release must use **identical** inputs. The judge budget is part of the deployed template, so it is set at step 7, the provisional activation. Before Telegram is live, the only agent turns in the pilot come from the smoke test, so the judge spends little or nothing before step 12.
+
+To hold the judge until step 12 instead, deploy with `llm_judge_budget_usd=0` and later set `SETUHAUL_LLM_JUDGE_DAILY_BUDGET_USD=0.5` on `setuhaul-pilot-agent`. That is a configuration change only, so booking evidence is unaffected.
+
+### Authorized pilot drivers (item A): BLOCKED, waiting for the owner's list
+
+- Live Telegram now **requires** an explicit list of SetuHaul driver ids (`SETUHAUL_TELEGRAM_AUTHORIZED_DRIVERS`), between 2 and 50 `DRV-…` ids. It never contains a phone, name or chat id.
+- The list is passed as the `telegram_authorized_drivers` input and validated by the workflow, by CDK and by the code.
+- With the list in place:
+  - staff cannot issue a link code for an unlisted driver (403 `DRIVER_NOT_AUTHORIZED_FOR_TELEGRAM`);
+  - an account linked to an unlisted driver is treated as unlinked;
+  - the relay refuses to send to an unlisted driver's chat (FAILED with `TELEGRAM_DRIVER_NOT_AUTHORIZED` and an escalation).
+- Identity is still proved only by a **staff-issued, single-use, expiring link code** redeemed from the driver's own Telegram account, matched on Telegram's numeric user id.
+- Link codes, tokens and chat ids are never committed.
+
+**Needed from the owner:**
+- at least two real pilot driver ids;
+- for each, the person who will receive the link code out of band and confirm their Telegram account.
+
+No driver identity has been invented.
+
+### Human calibration (item B): PREPARED, NOT PERFORMED
+
+`evals/judge/pilot_calibration.py`:
+- **`export`** reads the pilot database read-only. It writes a scoring sheet of sampled SCORED pilot turns, using the masked driver request and the assistant reply, plus J13 and J14 for the false-positive review. The judge's scores go in the last columns, and the instructions tell reviewers to hide them while scoring.
+- **`report`** applies the existing 80%-within-±1 rule and reports MAE, bias, disagreements of 2 or more points, and the J13/J14 outcome.
+- It **refuses** any row without `reviewer_kind=human` and a reviewer id. AI reference scores and judge self-evaluation never count.
+
+The sheet needs judged pilot turns, so it can only be exported after deployment and live use. Until the owner accepts a CALIBRATED report, every score stays advisory.
+
+### Pre-deployment gates, checked read-only on 26 Nov 2026 (no issuance consumed)
+
+| # | Gate | Status |
+|---|---|---|
+| 1 | Green CI on the exact commit | `f47e24d`: test and synth passed. **The allowlist and calibration commit needs its own green CI run** before it can be the release commit. |
+| 2 | Separate approval references | The Telegram reference passes the workflow and CDK format checks and differs from the booking reference. Its registration and validity are confirmed only when `activate-booking` accepts it at dispatch. |
+| 3 | A fresh five-gate report against the exact release commit | **Not yet.** The last report (collected 2026-11-25T17:27:50Z) was checked against a simulated release that predates `f47e24d`. Re-collect it or re-check it once the release commit exists. |
+| 4 | Owner-created Telegram bot secret | **MISSING**: `setuhaul/pilot/telegram/bot` does not exist (metadata check only; no value read). |
+| 5 | LangSmith secret and access | The secret `setuhaul/pilot/langsmith` does not exist yet. **That is expected**: the first deploy with LangSmith on creates it as `{"api_key": ""}`, and the owner fills it afterwards (until then tracing logs `EMPTY_SECRET` and stays off). Retention and access are owner decisions (above). |
+| A | Authorized driver list | **MISSING** (owner) |
+
+Steps 6 onward (merge, release branch, provisional activation) wait until every row above passes.

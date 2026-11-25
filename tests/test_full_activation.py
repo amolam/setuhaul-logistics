@@ -34,6 +34,7 @@ from test_api import keys  # noqa: F401  (the JWKS fixture for the app test)
 TOKEN = "123456789:" + "A" * 35
 WEBHOOK = "w" * 40
 PILOT = {"SETUHAUL_ENV": "pilot", "SETUHAUL_DATA_CLASS": "synthetic"}
+DRIVERS = "DRV-PILOT-A1,DRV-PILOT-B2"         # placeholders for tests only: the real list is the owner's
 
 
 class Sm:
@@ -51,6 +52,7 @@ class Sm:
 def test_the_pilot_resolves_every_control_on_after_authorized_activation():
     f = resolve({**PILOT, "SETUHAUL_BOOKING_ENABLED": "true", "SETUHAUL_TELEGRAM_DELIVERY": "live",
                  "SETUHAUL_TELEGRAM_LIVE_AUTHORIZED": "true", "SETUHAUL_TELEGRAM_WEBHOOK_SECRET_ID": "arn:x",
+                 "SETUHAUL_TELEGRAM_AUTHORIZED_DRIVERS": DRIVERS,
                  "SETUHAUL_LLM_JUDGE_ENABLED": "true", "SETUHAUL_LLM_JUDGE_DAILY_BUDGET_USD": "0.25",
                  "SETUHAUL_LANGSMITH_TRACING": "on"})
     assert (f.booking_enabled, f.telegram_delivery_mode, f.telegram_live_authorized, f.telegram_outbound_enabled,
@@ -86,7 +88,7 @@ def test_the_judge_flag_without_an_approved_budget_resolves_off_with_the_reason(
 # ================================================================ Telegram: live guards, kill switches, secrets
 def test_live_telegram_is_refused_outside_the_pilot_and_without_authorization():
     live = {"SETUHAUL_TELEGRAM_DELIVERY": "live", "SETUHAUL_TELEGRAM_LIVE_AUTHORIZED": "true",
-            "SETUHAUL_TELEGRAM_BOT_SECRET_ID": "setuhaul/pilot/telegram/bot"}
+            "SETUHAUL_TELEGRAM_BOT_SECRET_ID": "setuhaul/pilot/telegram/bot", "SETUHAUL_TELEGRAM_AUTHORIZED_DRIVERS": DRIVERS}
     for env in ({"SETUHAUL_ENV": "production", "SETUHAUL_DATA_CLASS": "synthetic"}, {"SETUHAUL_ENV": "staging"},
                 {"SETUHAUL_ENV": "dev"}):
         with pytest.raises(RuntimeError, match="SETUHAUL_ENV in"):
@@ -102,7 +104,8 @@ def test_live_telegram_is_refused_outside_the_pilot_and_without_authorization():
 def test_the_outbound_kill_switch_sends_nothing_and_fails_visibly():
     sm = Sm(TOKEN)
     t, _ = tg.telegram_from_env({**PILOT, "SETUHAUL_TELEGRAM_DELIVERY": "live", "SETUHAUL_TELEGRAM_LIVE_AUTHORIZED": "true",
-                                 "SETUHAUL_TELEGRAM_BOT_SECRET_ID": "x", "SETUHAUL_TELEGRAM_OUTBOUND_ENABLED": "false"}, sm)
+                                 "SETUHAUL_TELEGRAM_BOT_SECRET_ID": "x", "SETUHAUL_TELEGRAM_OUTBOUND_ENABLED": "false",
+                                 "SETUHAUL_TELEGRAM_AUTHORIZED_DRIVERS": DRIVERS}, sm)
     assert isinstance(t, tg.PausedTelegram)
     r = t.send("1234567890", "hello", "k1")
     assert r.outcome == PERMANENT and r.error == "TELEGRAM_OUTBOUND_DISABLED"     # relay: FAILED + escalation
@@ -514,3 +517,130 @@ def test_the_agent_worker_runs_the_judge_after_the_turn_and_a_judge_failure_neve
     out = lambdas.agent_handler({"Records": [{"receiptHandle": "r", "messageId": "m1", "body": "{}"}]}, None,
                                 sqs=SimpleNamespace(change_message_visibility=lambda **k: None))
     assert out == {"batchItemFailures": []} and len(calls) == 1
+
+
+# ================================================================ authorized pilot drivers (live Telegram allowlist)
+def test_live_telegram_requires_a_valid_driver_list():
+    live = {**PILOT, "SETUHAUL_TELEGRAM_DELIVERY": "live", "SETUHAUL_TELEGRAM_LIVE_AUTHORIZED": "true",
+            "SETUHAUL_TELEGRAM_BOT_SECRET_ID": "x"}
+    with pytest.raises(RuntimeError, match="AUTHORIZED_DRIVERS"):
+        tg.telegram_from_env(live, Sm(TOKEN))
+    for bad in ("+919876543210", "DRV-1,9876543210123", "alice", ",".join(f"DRV-X{i}" for i in range(51))):
+        with pytest.raises(RuntimeError, match="driver ids"):
+            tg.telegram_from_env({**live, "SETUHAUL_TELEGRAM_AUTHORIZED_DRIVERS": bad}, Sm(TOKEN))
+    assert tg.authorized_drivers_from_env({"SETUHAUL_TELEGRAM_AUTHORIZED_DRIVERS": DRIVERS}) == {"DRV-PILOT-A1", "DRV-PILOT-B2"}
+    assert tg.driver_authorized("DRV-PILOT-A1", {"SETUHAUL_TELEGRAM_AUTHORIZED_DRIVERS": DRIVERS})
+    assert not tg.driver_authorized("DRV-OTHER-9", {"SETUHAUL_TELEGRAM_AUTHORIZED_DRIVERS": DRIVERS})
+    assert not tg.driver_authorized("DRV-PILOT-A1", {"SETUHAUL_TELEGRAM_AUTHORIZED_DRIVERS": "garbage"})   # fail closed
+    assert tg.driver_authorized("DRV-ANY-1", {})                                  # no list: unchanged (sink / local)
+
+
+def test_the_relay_never_sends_to_an_unlisted_drivers_telegram_chat(monkeypatch):
+    from setuhaul.notify.outbound import OutboundRelay
+    sent = []
+
+    class Tport:
+        def send(self, to, text, key, reply_markup=None):
+            sent.append(to)
+            return tg.SendResult(ACCEPTED, "tg.x.1")
+    relay = OutboundRelay(db=None, provider=None, telegram=Tport())
+    monkeypatch.setattr(relay, "_telegram_route", lambda nid: {"chat_ref": "5550001234"})
+    monkeypatch.setenv("SETUHAUL_TELEGRAM_AUTHORIZED_DRIVERS", DRIVERS)
+    r = relay._deliver("driver:DRV-OTHER-9", None, {}, "hello", uuid.uuid4())
+    assert r.outcome == PERMANENT and r.error == "TELEGRAM_DRIVER_NOT_AUTHORIZED" and sent == []
+    assert relay._deliver("driver:DRV-PILOT-A1", None, {}, "hello", uuid.uuid4()).outcome == ACCEPTED
+    assert sent == ["5550001234"]
+
+
+@pytest.fixture
+def tgclient(dsn, keys):
+    from fastapi.testclient import TestClient
+    from setuhaul.api.app import Settings, create_app
+    from test_api import CLIENT, GGN, ISSUER, JAI, META_SECRET, SESSION_SECRET
+    from test_dispatch_offers import TG_SECRET
+    return TestClient(create_app(Settings(dsn=dsn, cognito_issuer=ISSUER, cognito_client_ids={CLIENT},
+                                          session_secret=SESSION_SECRET, meta_app_secret=META_SECRET,
+                                          facilities=(JAI, GGN), jwks=keys["jwks"], booking_enabled=True,
+                                          local_test_harness=True, telegram_webhook_secret=TG_SECRET)))
+
+
+def test_only_listed_drivers_can_be_linked_and_heard_and_two_drivers_stay_apart(tgclient, dsn, keys, monkeypatch):
+    """Two authorized drivers on one bot are identified independently; an unlisted driver gets no link code, and an
+    account linked BEFORE the list existed is treated as unlinked once the list excludes it."""
+    from test_dispatch_offers import Tg, add_driver, link, ops
+    a, b, c = add_driver(dsn), add_driver(dsn), add_driver(dsn)
+    ta, tb, tc = link(tgclient, keys, dsn, a["drv"]), link(tgclient, keys, dsn, b["drv"]), link(tgclient, keys, dsn, c["drv"])
+    monkeypatch.setenv("SETUHAUL_TELEGRAM_AUTHORIZED_DRIVERS", f"{a['drv']},{b['drv']}")
+    r = tgclient.post(f"/console/drivers/{c['drv']}/telegram-link-code", headers=ops(keys))
+    assert r.status_code == 403 and r.json()["error"] == "DRIVER_NOT_AUTHORIZED_FOR_TELEGRAM"
+    assert tc.text("hello, any slot?") == tg.TEXT_NOT_LINKED                    # linked earlier, now unlisted
+    assert ta.text("/start") == tg.TEXT_LINKED and tb.text("/start") == tg.TEXT_LINKED
+    with psycopg.connect(dsn) as conn:
+        rows = dict(conn.execute("""SELECT l.chat_ref, l.driver_id FROM setuhaul.driver_channel_links l
+                                     WHERE l.channel='TELEGRAM' AND l.revoked_at IS NULL AND l.driver_id = ANY(%s)""",
+                                 ([a["drv"], b["drv"]],)).fetchall())
+    assert rows == {str(ta.uid): a["drv"], str(tb.uid): b["drv"]}              # each account maps to its own driver
+    stranger = Tg(tgclient)
+    assert stranger.text("show me my trip") == tg.TEXT_NOT_LINKED
+
+
+# ================================================================ human calibration pack (tools only; no calibration done)
+def test_the_judgement_row_keeps_the_driver_message_id_for_calibration(jdb, jdsn):
+    res = _turn(driver_message_id=4242)
+    assert _judge(jdb, FakeJudgeClient()).after_turn(res, "hi", "en")["status"] == "SCORED"
+    assert _row(jdsn, res.turn_ref)["driver_message_id"] == 4242
+
+
+class _FakeConn:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def execute(self, sql, params=None):
+        return SimpleNamespace(fetchall=lambda: self.rows)
+
+
+def test_the_calibration_export_puts_judge_scores_last_and_adds_the_j13_j14_false_positive_review(tmp_path):
+    import csv
+    from evals.judge import pilot_calibration as PC
+    det = {d: {"rationale": f"{d} ok"} for d in JC.DIMENSIONS}
+    path = PC.export("", 10, tmp_path, conn=_FakeConn([(str(uuid.uuid4()), "slot chahiye", REPLY, 4, 5, 5, det)]))
+    rows = list(csv.DictReader(path.open(encoding="utf-8")))
+    hdr = list(rows[0])
+    assert hdr.index("judge_clarity") > hdr.index("reviewer_kind")            # judge columns after the human ones
+    assert [r["row_id"] for r in rows] == ["P001", "J13", "J14"]
+    assert all(not r[f"human_{d}"] for r in rows for d in JC.DIMENSIONS)      # nothing pre-filled
+    assert rows[0]["judge_clarity"] == "4" and rows[1]["false_positive_review"].startswith("judge run 2 scored language")
+    assert (tmp_path / "INSTRUCTIONS.txt").read_text(encoding="utf-8").startswith("Human calibration sheet")
+    assert PC.report(path)["outcome"] == "NOT_STARTED"
+
+
+def _filled(tmp_path, kind="human", rid="AM", human=(4, 5, 5), judge=(4, 5, 5)):
+    import csv
+    from evals.judge import pilot_calibration as PC
+    p = tmp_path / "sheet.csv"
+    with p.open("w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=PC.COLUMNS)
+        w.writeheader()
+        for i in range(5):
+            row = {"row_id": f"P{i:03d}", "language": "en", "reviewer_id": rid, "reviewer_kind": kind}
+            row.update({f"human_{d}": h for d, h in zip(JC.DIMENSIONS, human)})
+            row.update({f"judge_{d}": j for d, j in zip(JC.DIMENSIONS, judge)})
+            w.writerow(row)
+        w.writerow({"row_id": "J13", "language": "hi-Latn", "reviewer_id": rid, "reviewer_kind": kind,
+                    "human_language_match": 5, "human_rationale": "false positive: correct Hinglish"})
+    return p
+
+
+def test_calibration_never_counts_model_scores_or_unnamed_reviewers(tmp_path):
+    from evals.judge import pilot_calibration as PC
+    assert PC.report(_filled(tmp_path, kind="ai_model"))["outcome"] == "REFUSED"
+    assert PC.report(_filled(tmp_path, rid=""))["outcome"] == "REFUSED"
+
+
+def test_calibration_report_applies_the_existing_80_percent_rule(tmp_path):
+    from evals.judge import pilot_calibration as PC
+    ok = PC.report(_filled(tmp_path))
+    assert ok["outcome"] == "CALIBRATED" and ok["overall"]["within_1"] == 1.0 and ok["reviewers"] == ["AM"]
+    assert ok["false_positive_review"]["J13"]["human_score"] == 5
+    bad = PC.report(_filled(tmp_path, judge=(1, 2, 1)))
+    assert bad["outcome"] == "NOT_CALIBRATED" and len(bad["disagreements_2plus"]) == 15

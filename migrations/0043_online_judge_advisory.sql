@@ -24,6 +24,8 @@ CREATE TABLE agent_turn_judgements (
   facility_id         text,
   driver_id           text,
   shipment_id         text,
+  driver_message_id   bigint,                                   -- chat_messages id of the judged driver message (an id,
+                                                                -- never text; the human calibration pack joins on it)
   status              text NOT NULL CHECK (status IN ('SCORED', 'UNPARSEABLE', 'SKIPPED', 'ERROR')),
   reason              text CHECK (reason IS NULL OR length(reason) <= 200),
   model               text,
@@ -83,11 +85,12 @@ BEGIN
   IF shp IS NOT NULL AND NOT (shp ~ '^[A-Za-z0-9][A-Za-z0-9_-]{2,47}$' AND shp ~ '(^|-)SHP-' AND shp !~ '[0-9]{7,}') THEN
     shp := NULL;
   END IF;
-  INSERT INTO agent_turn_judgements (turn_ref, correlation_id, trace_id, facility_id, driver_id, shipment_id, status,
+  INSERT INTO agent_turn_judgements (turn_ref, correlation_id, trace_id, facility_id, driver_id, shipment_id,
+                                     driver_message_id, status,
                                      reason, model, provider, prompt_version, eval_version, clarity, tone,
                                      language_match, details, input_tokens, output_tokens, cost_usd, latency_ms)
   VALUES ((p->>'turn_ref')::uuid, left(p->>'correlation_id', 64), (p->>'trace_id')::uuid, left(p->>'facility_id', 48),
-          drv, shp, p->>'status', left(p->>'reason', 200), left(p->>'model', 80), left(p->>'provider', 80),
+          drv, shp, (p->>'driver_message_id')::bigint, p->>'status', left(p->>'reason', 200), left(p->>'model', 80), left(p->>'provider', 80),
           left(p->>'prompt_version', 40), left(p->>'eval_version', 60), (p->>'clarity')::smallint,
           (p->>'tone')::smallint, (p->>'language_match')::smallint, coalesce(p->'details', '{}'::jsonb),
           (p->>'input_tokens')::integer, (p->>'output_tokens')::integer, (p->>'cost_usd')::numeric,

@@ -231,7 +231,7 @@ class OnlineJudge:
         row = {"turn_ref": str(res.turn_ref), "correlation_id": res.correlation_id,
                "trace_id": trace_id if self.tracer is not None and getattr(self.tracer, "enabled", False) else None,
                "facility_id": res.facility_id, "driver_id": res.driver_id, "shipment_id": res.shipment_id,
-               "status": status, "reason": reason, "model": j.served_model or getattr(self.client, "extract_model", None),
+               "driver_message_id": _int_or_none(getattr(res, "driver_message_id", None)), "status": status, "reason": reason, "model": j.served_model or getattr(self.client, "extract_model", None),
                "provider": j.actual_provider, "prompt_version": JC.JUDGE_PROMPT_VERSION, "eval_version": EVAL_VERSION,
                "details": {d: {"rationale": v.rationale, "evidence": v.evidence,
                                "insufficient_evidence": v.insufficient_evidence} for d, v in j.dimensions.items()},
@@ -272,6 +272,10 @@ class OnlineJudge:
             if d in j.dimensions:
                 _safe(client.create_feedback, str(turn_ref), f"quality:{d}", j.dimensions[d].score,
                       f"advisory; {CALIBRATION.lower()}; prompt {JC.JUDGE_PROMPT_VERSION}")
+
+
+def _int_or_none(v):
+    return v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else None
 
 
 def _safe(fn, *a, **kw):

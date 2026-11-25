@@ -94,6 +94,8 @@ def resolve(env: dict) -> FeatureState:
         mode, live_auth = "refused", False
     if mode == "live" and not live_auth:
         notes.append("telegram: live needs SETUHAUL_TELEGRAM_LIVE_AUTHORIZED=true")
+    if mode == "live" and not (env.get("SETUHAUL_TELEGRAM_AUTHORIZED_DRIVERS") or "").strip():
+        notes.append("telegram: live needs the authorized pilot-driver list")
     outbound = not _false(env.get("SETUHAUL_TELEGRAM_OUTBOUND_ENABLED"))
     secret = bool((env.get("SETUHAUL_TELEGRAM_WEBHOOK_SECRET") or env.get("SETUHAUL_TELEGRAM_WEBHOOK_SECRET_ID") or "").strip())
     webhook = secret and not _false(env.get("SETUHAUL_TELEGRAM_WEBHOOK_ENABLED"))

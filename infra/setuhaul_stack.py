@@ -41,6 +41,7 @@ ASL = ROOT / "setuhaul" / "workflow" / "approval_workflow.asl.json"
 REGION = "ap-southeast-2"
 BOOKING_APPROVAL = re.compile(r"OWNER-APPROVAL-20\d{6}-[A-Za-z0-9-]{3,40}")
 RELEASE_COMMIT = re.compile(r"[0-9a-f]{7,40}")
+TELEGRAM_DRIVER_ID = re.compile(r"(?=.*(?:^|-)DRV-)(?!.*[0-9]{7})[A-Za-z0-9][A-Za-z0-9_-]{2,47}")   # identifiers.py rule
 JUDGE_DAILY_MAX_USD = 1.00                       # online judge: the code refuses more (setuhaul/agent/online_judge.py)
 TELEGRAM_BOT_SECRET_NAME = "setuhaul/{env}/telegram/bot"          # created and filled by the OWNER, never by CDK
 LEASE_S = 120                                      # orchestrator processing lease; queue visibility >= 2x
@@ -82,7 +83,8 @@ class SetuHaulPilotStack(Stack):
                  whatsapp_phone_number_id: str = "", alarm_email: str = "", llm_daily_budget_usd: str = "0.25",
                  approved_templates: str = "[]", booking_approval: str = "", langsmith_tracing: str = "",
                  langsmith_ui_url: str = "", telegram_live_approval: str = "", llm_judge_budget_usd: str = "0",
-                 llm_judge_sample_rate: str = "0.2", release_commit: str = "", **kw) -> None:
+                 llm_judge_sample_rate: str = "0.2", release_commit: str = "", telegram_authorized_drivers: str = "",
+                 **kw) -> None:
         super().__init__(scope, cid, **kw)
         # Full Activation: LangSmith tracing is ON by default for the synthetic pilot (context langsmith_tracing=off
         # opts out). Any other environment keeps the G.1 rule: opt-in only. Content stays off (redacted traces).
@@ -95,6 +97,12 @@ class SetuHaulPilotStack(Stack):
         if telegram_live_approval and environment_name != "pilot":
             raise ValueError("live Telegram is allowed only in the synthetic pilot")
         self.telegram_live = bool(telegram_live_approval)
+        tg_drivers = [d.strip() for d in (telegram_authorized_drivers or "").split(",") if d.strip()]
+        if self.telegram_live:
+            if not (2 <= len(tg_drivers) <= 50) or not all(TELEGRAM_DRIVER_ID.fullmatch(d) for d in tg_drivers):
+                raise ValueError("live Telegram needs telegram_authorized_drivers: 2-50 SetuHaul driver ids (DRV-...)")
+        elif tg_drivers:
+            raise ValueError("telegram_authorized_drivers applies only with telegram_live_approval")
         # Full Activation: the online judge is configured ON in the pilot but sends nothing until the owner approves a
         # positive daily budget (default 0 = every eligible turn is skipped with the reason "no approved budget").
         try:
@@ -289,7 +297,8 @@ class SetuHaulPilotStack(Stack):
                                            password_length=48, exclude_punctuation=True, include_space=False))
             live = {"SETUHAUL_TELEGRAM_DELIVERY": "live", "SETUHAUL_TELEGRAM_LIVE_AUTHORIZED": "true",
                     "SETUHAUL_TELEGRAM_BOT_SECRET_ID": bot_secret.secret_name,
-                    "SETUHAUL_TELEGRAM_OUTBOUND_ENABLED": "true", "SETUHAUL_TELEGRAM_LIVE_APPROVAL": telegram_live_approval}
+                    "SETUHAUL_TELEGRAM_OUTBOUND_ENABLED": "true", "SETUHAUL_TELEGRAM_LIVE_APPROVAL": telegram_live_approval,
+                    "SETUHAUL_TELEGRAM_AUTHORIZED_DRIVERS": ",".join(tg_drivers)}
             tg_api = {**live, "SETUHAUL_TELEGRAM_WEBHOOK_ENABLED": "true",
                       "SETUHAUL_TELEGRAM_WEBHOOK_SECRET_ID": webhook_secret.secret_arn}
             tg_outbound = dict(live)
