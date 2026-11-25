@@ -1736,10 +1736,10 @@ class BookingService:
                  "expires_at": r[8].isoformat(), "responded_at": r[9].isoformat() if r[9] else None,
                  "appointment_id": r[10], "created_at": r[11].isoformat(), "offered_by": r[12], "dock_code": r[13],
                  "start": r[14].isoformat(), "appointment_status": r[15], "conversation_state": r[16],
-                 # delivery is NOT the offer's business state: OFFERED + PENDING = not yet handed to a channel;
+                 # delivery is NOT the offer's business state: IN_OUTBOX = queued, the relay has not picked it up yet;
                  # SENT = handed over (Telegram and the test sink give no delivery receipt); UNKNOWN = a timeout, not
                  # proof of non-delivery
-                 "delivery_state": r[17] or "NOT_QUEUED_YET",
+                 "delivery_state": r[17] or "IN_OUTBOX",
                  "planner_decision_due": r[18].isoformat() if r[18] else None} for r in rows]
 
     def issue_link_code(self, p: Principal, driver_id: str, ttl_s: int | None = None) -> dict:
@@ -2060,7 +2060,9 @@ class BookingService:
                         "dock_max_kg": r[16], "compatibility": problems or ["compatible"],
                         "source": "DISPATCHER_OFFER" if r[21] else r[18], "offered_by": r[21],
                         "capacity_claimed": claim_ok,
-                        "capacity_note": ("dock time is claimed for this request until the decision is due"
+                        "capacity_note": ("the decision window has passed: approving will be refused (PENDING_EXPIRED) "
+                                          "and the expiry job releases the claim" if r[2] <= now
+                                          else "dock time is claimed for this request until the decision is due"
                                           if claim_ok else "no live claim: approving will be refused (CAPACITY_LOST)"),
                         "history": hist.get(r[6], [])[:10]})
         return out
