@@ -182,7 +182,8 @@ def test_ingest_role_allowlist(conn):
                      # shared location and links a Telegram account; every one checks the driver itself
                      "dispatch_offer_for_driver", "request_offer_alternative", "driver_location_context",
                      "record_driver_location", "redeem_driver_link_code", "driver_for_channel",
-                     "open_offer_for_driver"}   # 0036: a typed Telegram reply answers the driver's own open offer
+                     "open_offer_for_driver",   # 0036: a typed Telegram reply answers the driver's own open offer
+                     "offer_telegram_message"}  # 0038: ...and clears that offer's buttons (read only, own offer)
 
 
 def test_feasibility_role_allowlist(conn):

@@ -1894,8 +1894,12 @@ class BookingService:
                 if verdict in ("YES", "NO"):          # a typed yes / no answers the offer on screen, like its button
                     r = self.respond_to_offer(drv, str(open_offer), "ACCEPT" if verdict == "YES" else "DECLINE",
                                               ev.external_id, sessions)
+                    # 0038: the typed answer also clears the offer message's buttons (cosmetic: a later tap is
+                    # refused by the offer's status anyway). Only a message the relay sent to THIS chat.
+                    with self.db.tx("ingest", driver=drv) as c:
+                        ref = c.execute("SELECT offer_telegram_message(%s, %s)", (str(open_offer), drv)).fetchone()[0]
                     return {"reply": tg.OFFER_REPLIES.get(r["result"], tg.OFFER_REPLIES["ACCEPTED"]), "event": None,
-                            "result": r}
+                            "result": r, "clear_message_id": tg.message_id_for_chat(ref, ev.chat_id)}
                 if _answers_offer(ev.text):           # "haan lekin D3": never guessed, the driver is asked again
                     kind = self._offer_for_driver(str(open_offer), drv).get("kind")
                     self.ingest_driver(drv, ev.external_id, ev.text, sessions, channel="TELEGRAM", agent_turn=False)

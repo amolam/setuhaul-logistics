@@ -173,6 +173,25 @@ def parse_update(u: dict) -> TelegramEvent:
     return TelegramEvent("text", uid, user, chat_id, ext, text=text[:2000])
 
 
+def chat_tag(chat_id) -> str:
+    """A short, non-reversible tag of a chat id (the raw id is never written to notifications)."""
+    return hashlib.sha256(f"setuhaul-tgchat:{chat_id}".encode()).hexdigest()[:12]
+
+
+def provider_ref(chat_id, message_id: int) -> str:
+    """notifications.provider_message_id for a Telegram send. Telegram message ids count per chat, so the chat tag
+    keeps (channel, provider_message_id) unique across drivers."""
+    return f"tg.{chat_tag(chat_id)}.{int(message_id)}"
+
+
+def message_id_for_chat(ref: str | None, chat_id) -> int | None:
+    """The Telegram message id in `ref` if it was sent to THIS chat; otherwise None (another account, old format)."""
+    m = re.fullmatch(r"tg\.([0-9a-f]{12})\.([0-9]{1,12})", ref or "")
+    if not m or m.group(1) != chat_tag(chat_id):
+        return None
+    return int(m.group(2))
+
+
 def _sink_log(kind: str, chat_id: str, text: str = "", key: str = "") -> None:
     log.info("TELEGRAM_TEST_SINK %s chat=%s text_sha256=%s len=%d id=%s", kind,
              hashlib.sha256(chat_id.encode()).hexdigest()[:12], hashlib.sha256(text.encode()).hexdigest()[:16],
@@ -203,7 +222,8 @@ class TelegramTestSink:
         _sink_log("send", to, text, idempotency_key)
         if step == "timeout":
             raise ProviderTimeout("read timeout")
-        return SendResult(ACCEPTED, f"testsink.tg.{uuid.uuid4().hex}")
+        # the same format as a real send (per-chat tag + message id); the id is random, never reused
+        return SendResult(ACCEPTED, provider_ref(to, 10**9 + secrets.randbelow(10**9)))
 
 
 class TelegramGateway:
@@ -277,7 +297,7 @@ class TelegramBotProvider:
             raise ProviderTimeout(type(e).__name__) from e
         if r.status_code == 200:
             try:
-                return SendResult(ACCEPTED, f"tg.{r.json()['result']['message_id']}")
+                return SendResult(ACCEPTED, provider_ref(to, r.json()["result"]["message_id"]))
             except (ValueError, KeyError, TypeError):
                 return SendResult(AMBIGUOUS, error="unreadable 200")
         if r.status_code == 429:

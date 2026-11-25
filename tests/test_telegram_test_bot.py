@@ -38,7 +38,7 @@ class FakeBotApi:
     def __init__(self):
         self.calls: list[tuple[str, dict]] = []
         self.fail: dict[str, list] = {}
-        self.ids = itertools.count(100)
+        self.ids: dict[str, itertools.count] = {}     # like Telegram: message ids count PER CHAT, from 1
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         method = request.url.path.rsplit("/", 1)[-1]
@@ -54,7 +54,8 @@ class FakeBotApi:
             return httpx.Response(what, json={"ok": False, "error_code": what, "description": "fake",
                                               **({"parameters": {"retry_after": 1}} if what == 429 else {})})
         if method == "sendMessage":
-            return httpx.Response(200, json={"ok": True, "result": {"message_id": next(self.ids),
+            ids = self.ids.setdefault(str(body["chat_id"]), itertools.count(1))
+            return httpx.Response(200, json={"ok": True, "result": {"message_id": next(ids),
                                                                     "chat": {"id": int(body["chat_id"])}}})
         return httpx.Response(200, json={"ok": True, "result": True})
 
@@ -227,7 +228,7 @@ def disp(keys):
     return H(staff_token(keys, groups=("dispatcher",)))
 
 
-TEST_ACCOUNTS = [ME + i for i in range(10)]          # the allowlist: one account links one driver at a time
+TEST_ACCOUNTS = [ME + i for i in range(20)]          # the allowlist: one account links one driver at a time
 _accounts = iter(TEST_ACCOUNTS)
 
 
@@ -350,3 +351,62 @@ def test_journey_g_failures_through_the_real_client_keep_the_relay_semantics(cli
                                      headers=ops(keys)).json()["notifications"] if x["driver_id"] == d["drv"])
     assert row["route_now"] == "TELEGRAM"
     assert offer_status(dsn, o["offer_id"]) == "OFFERED"              # delivery state never touches the offer
+
+
+# ================================================================ 0038: typed yes / no clears the offer's buttons
+def _offer_ref(dsn, o):
+    return q(dsn, "SELECT provider_message_id FROM notifications WHERE chat_message_id=%s", o["read_back_message_id"])[0][0]
+
+
+@pytest.mark.parametrize("typed,status", [("haan ji", "ACCEPTED"), ("no", "DECLINED")])
+def test_typed_answer_clears_the_offer_buttons_and_a_later_tap_is_still_refused(client, dsn, keys, api, transport,
+                                                                                typed, status):
+    from setuhaul.notify.telegram import message_id_for_chat
+    d = add_driver(dsn, eta_at=datetime.now(timezone.utc) + timedelta(hours=10))
+    me = link_me(client, keys, d["drv"])
+    o = send_offer(client, keys, d)
+    flush(dsn, transport)
+    mid = message_id_for_chat(_offer_ref(dsn, o), me.uid)
+    assert isinstance(mid, int)                                         # the relay recorded the offer's message id
+    n = len(api.calls)
+    me.text(typed)
+    assert offer_status(dsn, o["offer_id"]) == status
+    edits = [b for m, b in api.calls[n:] if m == "editMessageReplyMarkup"]
+    assert edits == [{"chat_id": str(me.uid), "message_id": mid, "reply_markup": {"inline_keyboard": []}}]
+    booked = appointments(dsn, d["sid"])
+    # the server still refuses a stale tap on the (now hidden) button, whatever the client shows
+    reply = me.press(o["offer_id"], "A")
+    assert offer_status(dsn, o["offer_id"]) == status and appointments(dsn, d["sid"]) == booked
+    # the answer only restates the recorded state (accepted / declined); it never reports a new action
+    assert reply and ("recorded" in reply.lower() or "declined" in reply.lower()), reply
+
+
+def test_typed_answer_before_the_offer_reached_telegram_clears_nothing(client, dsn, keys, api, transport):
+    d = add_driver(dsn, eta_at=datetime.now(timezone.utc) + timedelta(hours=12))
+    me = link_me(client, keys, d["drv"])
+    o = send_offer(client, keys, d)                                     # not relayed yet: no Telegram message id
+    n = len(api.calls)
+    me.text("haan ji")
+    assert offer_status(dsn, o["offer_id"]) == "ACCEPTED"
+    assert "editMessageReplyMarkup" not in [m for m, _ in api.calls[n:]]
+
+
+def test_message_ids_repeat_across_chats_without_colliding(client, dsn, keys, api, transport):
+    a, b = add_driver(dsn), add_driver(dsn)
+    ma, mb = link_me(client, keys, a["drv"]), link_me(client, keys, b["drv"])
+    oa, ob = send_offer(client, keys, a), send_offer(client, keys, b)
+    api.ids.pop(str(ma.uid), None), api.ids.pop(str(mb.uid), None)     # both chats now answer message_id 1
+    flush(dsn, transport)
+    ra, rb = _offer_ref(dsn, oa), _offer_ref(dsn, ob)
+    assert ra.endswith(".1") and rb.endswith(".1") and ra != rb
+    assert q(dsn, "SELECT status FROM notifications WHERE chat_message_id IN (%s,%s)",
+             oa["read_back_message_id"], ob["read_back_message_id"]) == [("SENT",), ("SENT",)]
+
+
+def test_a_reference_from_another_chat_is_never_edited():
+    from setuhaul.notify.telegram import message_id_for_chat, provider_ref
+    ref = provider_ref("5550001001", 42)
+    assert message_id_for_chat(ref, "5550001001") == 42
+    assert message_id_for_chat(ref, "5550001002") is None
+    assert message_id_for_chat("tg.42", "5550001001") is None and message_id_for_chat(None, "1") is None
+    assert "5550001001" not in ref

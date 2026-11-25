@@ -467,6 +467,8 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
                 app.state.telegram.answer_callback(cq_id)
             if out.get("clear_buttons") and isinstance(chat.get("id"), int) and isinstance(cq_msg.get("message_id"), int):
                 app.state.telegram.clear_buttons(str(chat["id"]), cq_msg["message_id"])
+            if isinstance(out.get("clear_message_id"), int) and isinstance(chat.get("id"), int):
+                app.state.telegram.clear_buttons(str(chat["id"]), out["clear_message_id"])   # typed yes / no (0038)
             if out.get("reply") and isinstance(chat.get("id"), int):
                 app.state.telegram.reply(str(chat["id"]), out["reply"],
                                          REMOVE_KEYBOARD if out.get("remove_keyboard") else None)
