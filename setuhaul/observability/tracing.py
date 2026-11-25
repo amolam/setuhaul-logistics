@@ -118,6 +118,7 @@ class TracerConfig:
     max_runs_per_turn: int = 60
     max_attempts: int = 2                 # per batch: one retry, then dropped
     agent_version: str = "unknown"
+    release_commit: str | None = None     # Full Activation: the git commit of the release (metadata only)
     ui_url: str | None = None             # for links only (console), never a credential
 
 
@@ -160,7 +161,8 @@ class Tracer:
             root = Run(id=tid, trace_id=tid, name=name, run_type="chain", start_time=start,
                        dotted_order=_dotted(start, tid), inputs=dict(inputs or {}),
                        metadata={"environment": self.config.environment, "agent_version": self.config.agent_version,
-                                 **(metadata or {})}, tags=["setuhaul", self.config.environment])
+                                 "release_commit": self.config.release_commit, **(metadata or {})},
+                       tags=["setuhaul", self.config.environment])
             buf = [root]
             tok_b, tok_r = _buffer.set(buf), _current.set(root)
         except Exception:                                   # noqa: BLE001 — tracing never breaks a turn

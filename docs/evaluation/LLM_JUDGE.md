@@ -518,3 +518,25 @@ Four bad replies (J16, J18, J19, J20) were among the rejected answers, so they w
 - It can **over-flag**: a false language mismatch, and harsh clarity on a terse but actionable reply.
 - Its scores are advisory and need a person's review before anyone acts on them.
 - The next step towards trusting it is human calibration (§7), not more AI agreement.
+
+
+## 12. Online advisory judging in the synthetic pilot (Full Activation, implemented, not deployed)
+
+The accepted judge (prompt `judge-p2`, the same tool and the same strict validator) can now score pilot agent replies after each turn. The prompt, tool, validation and scoring loop moved unchanged to `setuhaul/agent/judge_core.py`, the single source for both modes.
+
+- **Where:** `setuhaul/agent/online_judge.py`, in the agent worker after the turn is final.
+- **Recorded:** advisory rows in `agent_turn_judgements` (migration 0043), linked to the turn's trace.
+- **Off until approved:** the pilot is configured with `SETUHAUL_LLM_JUDGE_ENABLED=true` but a daily budget of **0**, so nothing is sent until the owner approves a budget.
+- **Cost controls:**
+  - per-judgement cap of USD 0.01;
+  - its own daily sub-cap, at most USD 1;
+  - a reserve kept for the agent on the shared ledger;
+  - one attempt, a 20 s timeout;
+  - deterministic sampling (default 20%);
+  - one paid call per turn at most.
+
+**Scope.** The judge's dimensions are unchanged. Policy compliance, factual correctness, instruction following and booking safety are still judged only by the deterministic checks (`NEVER_JUDGED`), never by the model.
+
+**Status.** Every row says `advisory = true` and `calibration_status = HUMAN_CALIBRATION_OUTSTANDING`. The §11 limitations apply: false language-mismatch alarms on correct Hinglish, and harsh clarity on terse replies.
+
+See `docs/operations/FULL_ACTIVATION_RUNBOOK.md` §5 for the controls and §11 for rollback.

@@ -641,34 +641,115 @@ def test_g1_the_openrouter_secret_resource_is_unchanged_so_a_deploy_cannot_overw
     assert props["Name"] == "setuhaul/pilot/openrouter"
 
 
-def test_g1_langsmith_is_off_by_default_no_secret_no_permission_no_environment(t):
-    assert not [lid for lid in resources(t, "AWS::SecretsManager::Secret") if lid.startswith("LangSmith")]
-    for name, f in functions(t).items():
-        assert not [k for k in f.get("Environment", {}).get("Variables", {}) if "LANGSMITH" in k or k == "SETUHAUL_TRACE_CONTENT"], name
+def _stack(tmp_path, tag, **kw):
+    app = cdk.App(outdir=str(tmp_path / f"o-{tag}"))
+    return SetuHaulPilotStack(app, "SetuHaulPilot", lambda_asset=str(_zip(tmp_path / f"{tag}.zip")),
+                              env=cdk.Environment(account="000000000000", region="ap-southeast-2"), **kw)
 
 
-def test_g1_langsmith_opt_in_reaches_the_agent_only_with_an_explicit_empty_placeholder(tmp_path):
-    zip_path = _zip(tmp_path / "lambda.zip")
-    app = cdk.App(outdir=str(tmp_path / "cdk.out"))
-    stack = SetuHaulPilotStack(app, "SetuHaulPilot", lambda_asset=str(zip_path), langsmith_tracing="on",
-                               langsmith_ui_url="https://smith.langchain.com/o/x/projects/p/y",
-                               env=cdk.Environment(account="000000000000", region="ap-southeast-2"))
-    tl = Template.from_stack(stack)
-    (lid, sec), = [(k, r) for k, r in resources(tl, "AWS::SecretsManager::Secret").items() if k.startswith("LangSmith")]
+def _readers(tl, lid) -> list[str]:
+    """Function names whose role policy references the resource `lid`."""
+    out = []
+    for n in functions(tl):
+        fid = next(k for k, r in resources(tl, "AWS::Lambda::Function").items() if r["Properties"].get("FunctionName") == n)
+        if lid in json.dumps(_policy_resources(tl, fid)):
+            out.append(n)
+    return sorted(out)
+
+
+def test_full_activation_langsmith_is_on_by_default_in_the_pilot_for_the_three_tracing_functions(t):
+    """Full Activation (replaces G.1's opt-in for the PILOT): traces on by default, content off, an explicit empty key
+    placeholder, read only by the agent, the api (Telegram inbound) and the sender (Telegram outbound)."""
+    (lid, sec), = [(k, r) for k, r in resources(t, "AWS::SecretsManager::Secret").items() if k.startswith("LangSmith")]
     assert sec["Properties"]["SecretString"] == '{"api_key": ""}' and "GenerateSecretString" not in sec["Properties"]
-    fns = functions(tl)
-    agent, api = fns["setuhaul-pilot-agent"]["Environment"]["Variables"], fns["setuhaul-pilot-api"]["Environment"]["Variables"]
-    assert agent["SETUHAUL_LANGSMITH_TRACING"] == "on" and agent["SETUHAUL_TRACE_CONTENT"] == "off"
-    assert agent["SETUHAUL_LANGSMITH_PROJECT"] == "setuhaul-synthetic-pilot" and "SETUHAUL_LANGSMITH_SECRET_ID" in agent
-    assert "SETUHAUL_LANGSMITH_SECRET_ID" not in api and api["SETUHAUL_LANGSMITH_UI_URL"].startswith("https://smith.")
-    readers = [n for n, f in fns.items()
-               for lid2 in [next(k for k, r in resources(tl, "AWS::Lambda::Function").items()
-                                 if r["Properties"].get("FunctionName") == n)]
-               if lid in json.dumps(_policy_resources(tl, lid2))]
-    assert readers == ["setuhaul-pilot-agent"]                          # only the agent can read the LangSmith key
+    fns = functions(t)
+    tracers = {"setuhaul-pilot-agent", "setuhaul-pilot-api", "setuhaul-pilot-outbound"}
+    for n, f in fns.items():
+        v = f["Environment"]["Variables"]
+        if n in tracers:
+            assert v["SETUHAUL_LANGSMITH_TRACING"] == "on" and v["SETUHAUL_TRACE_CONTENT"] == "off", n
+            assert v["SETUHAUL_LANGSMITH_PROJECT"] == "setuhaul-synthetic-pilot" and "SETUHAUL_LANGSMITH_SECRET_ID" in v
+        else:
+            assert not [k for k in v if "LANGSMITH" in k], n
+    assert set(_readers(t, lid)) == tracers
+
+
+def test_full_activation_langsmith_opt_out_removes_secret_permission_and_variables(tmp_path):
+    tl = Template.from_stack(_stack(tmp_path, "lsoff", langsmith_tracing="off"))
+    assert not [lid for lid in resources(tl, "AWS::SecretsManager::Secret") if lid.startswith("LangSmith")]
+    for name, f in functions(tl).items():
+        assert not [k for k in f.get("Environment", {}).get("Variables", {}) if "LANGSMITH" in k or k == "SETUHAUL_TRACE_CONTENT"], name
+    assert tl.to_json()["Outputs"]["LangSmithTracing"]["Value"] == "OFF"
+
+
+def test_g1_langsmith_ui_url_is_checked(tmp_path):
+    tl = Template.from_stack(_stack(tmp_path, "ui", langsmith_ui_url="https://smith.langchain.com/o/x/projects/p/y"))
+    assert functions(tl)["setuhaul-pilot-api"]["Environment"]["Variables"]["SETUHAUL_LANGSMITH_UI_URL"].startswith("https://smith.")
     with pytest.raises(ValueError):
-        SetuHaulPilotStack(cdk.App(outdir=str(tmp_path / "o2")), "X", lambda_asset=str(zip_path),
-                           langsmith_ui_url="https://evil.example.com/")
+        _stack(tmp_path, "evil", langsmith_ui_url="https://evil.example.com/")
+
+
+def test_full_activation_telegram_stays_on_the_test_sink_without_its_own_approval(t):
+    for n, f in functions(t).items():
+        assert not [k for k in f["Environment"]["Variables"] if k.startswith("SETUHAUL_TELEGRAM_")], n
+    assert not [k for k in resources(t, "AWS::SecretsManager::Secret") if k.startswith("Telegram")]
+    assert t.to_json()["Outputs"]["TelegramMode"]["Value"] == "TEST_SINK"
+
+
+def test_full_activation_live_telegram_with_its_approval_reaches_only_the_api_and_the_sender(tmp_path):
+    tl = Template.from_stack(_stack(tmp_path, "tg", telegram_live_approval="OWNER-APPROVAL-20261126-telegram1"))
+    fns = functions(tl)
+    live = {n for n, f in fns.items() if f["Environment"]["Variables"].get("SETUHAUL_TELEGRAM_DELIVERY") == "live"}
+    assert live == {"setuhaul-pilot-api", "setuhaul-pilot-outbound"}
+    api, out = (fns[n]["Environment"]["Variables"] for n in ("setuhaul-pilot-api", "setuhaul-pilot-outbound"))
+    for v in (api, out):
+        assert v["SETUHAUL_TELEGRAM_LIVE_AUTHORIZED"] == "true" and v["SETUHAUL_TELEGRAM_OUTBOUND_ENABLED"] == "true"
+        assert v["SETUHAUL_TELEGRAM_BOT_SECRET_ID"] == "setuhaul/pilot/telegram/bot"        # a NAME, never a value
+        assert not [k for k in v if "TOKEN" in k] and "SETUHAUL_TELEGRAM_WEBHOOK_SECRET" not in v
+    assert api["SETUHAUL_TELEGRAM_WEBHOOK_ENABLED"] == "true" and "SETUHAUL_TELEGRAM_WEBHOOK_SECRET_ID" in api
+    assert "SETUHAUL_TELEGRAM_WEBHOOK_SECRET_ID" not in out
+    # the bot token secret is NOT created by CDK (the owner creates and fills it); the webhook secret is generated
+    secs = resources(tl, "AWS::SecretsManager::Secret")
+    (wid, wsec), = [(k, r) for k, r in secs.items() if k.startswith("TelegramWebhookSecret")]
+    assert not [k for k in secs if k.startswith("TelegramBotToken")]
+    gen = wsec["Properties"]["GenerateSecretString"]
+    assert gen["PasswordLength"] == 48 and gen["ExcludePunctuation"] is True and "SecretString" not in wsec["Properties"]
+    assert _readers(tl, wid) == ["setuhaul-pilot-api"]
+    pol = json.dumps(resources(tl, "AWS::IAM::Policy"))
+    assert "secret:setuhaul/pilot/telegram/bot-??????" in pol                     # least privilege: that name only
+    readers = [n for n in functions(tl) if "telegram/bot" in json.dumps(_policy_resources(tl, next(
+        k for k, r in resources(tl, "AWS::Lambda::Function").items() if r["Properties"].get("FunctionName") == n)))]
+    assert sorted(readers) == ["setuhaul-pilot-api", "setuhaul-pilot-outbound"]
+    assert tl.to_json()["Outputs"]["TelegramMode"]["Value"] == "LIVE (OWNER-APPROVAL-20261126-telegram1)"
+
+
+@pytest.mark.parametrize("kw,err", [
+    ({"telegram_live_approval": "yes please"}, "telegram_live_approval"),
+    ({"telegram_live_approval": "OWNER-APPROVAL-20261126-x1y", "environment_name": "production"}, "only in the synthetic pilot"),
+    ({"llm_judge_budget_usd": "1.5"}, "llm_judge_budget_usd"),
+    ({"llm_judge_budget_usd": "-1"}, "llm_judge_budget_usd"),
+    ({"release_commit": "not-a-sha"}, "release_commit")])
+def test_full_activation_context_is_validated(tmp_path, kw, err):
+    with pytest.raises(ValueError, match=err):
+        _stack(tmp_path, "bad", **kw)
+
+
+def test_full_activation_judge_is_configured_on_the_agent_only_with_a_zero_budget_by_default(t, tmp_path):
+    fns = functions(t)
+    a = fns["setuhaul-pilot-agent"]["Environment"]["Variables"]
+    assert a["SETUHAUL_LLM_JUDGE_ENABLED"] == "true" and a["SETUHAUL_LLM_JUDGE_DAILY_BUDGET_USD"] == "0"
+    assert a["SETUHAUL_LLM_JUDGE_RUN_CAP_USD"] == "0.01" and a["SETUHAUL_LLM_JUDGE_TIMEOUT_S"] == "20"
+    assert {n for n, f in fns.items() if "SETUHAUL_LLM_JUDGE_RUN_CAP_USD" in f["Environment"]["Variables"]} == {"setuhaul-pilot-agent"}
+    tl = Template.from_stack(_stack(tmp_path, "j", llm_judge_budget_usd="0.25", release_commit="96a49ec"))
+    v = functions(tl)["setuhaul-pilot-agent"]["Environment"]["Variables"]
+    assert v["SETUHAUL_LLM_JUDGE_DAILY_BUDGET_USD"] == "0.25" and v["SETUHAUL_RELEASE_COMMIT"] == "96a49ec"
+
+
+def test_full_activation_a_non_pilot_stack_gets_no_judge_no_default_tracing_and_no_live_telegram(tmp_path):
+    tl = Template.from_stack(_stack(tmp_path, "stg", environment_name="staging"))
+    for n, f in functions(tl).items():
+        v = f.get("Environment", {}).get("Variables", {})
+        assert not [k for k in v if "LLM_JUDGE" in k or "LANGSMITH" in k or k.startswith("SETUHAUL_TELEGRAM_")], n
 
 
 # ================================================================ M2 (0032): a database identity and an IAM role per release
@@ -695,31 +776,36 @@ def test_the_booking_logins_and_execution_roles_are_per_release(t, built):
 
 
 # ================================================================ Phase G.2: LangSmith opt-in through the activation workflow
-def test_g2_the_activation_workflow_passes_langsmith_only_on_request_and_its_check_pins_the_agent(tmp_path):
-    """activate-booking.yml: `langsmith` defaults to off; on adds langsmith_tracing=on to the SAME synth context as the
-    approval. The workflow's own template check (run here on both templates) accepts the key only on the agent, the
-    pilot project and content off, and refuses any LangSmith secret or variable when the input is off."""
+def test_full_activation_the_workflow_passes_every_control_explicitly_and_its_check_pins_them(tmp_path):
+    """activate-booking.yml: langsmith defaults to on and is passed explicitly; live Telegram only with its own approval
+    (never the booking reference); the judge budget 0-1; the commit SHA. Its own template check (run here) accepts a
+    template only when it matches the inputs given."""
     import os
     import subprocess
     wf = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "activate-booking.yml").read_text(encoding="utf-8")
     inputs = wf.split("\n    inputs:", 1)[1].split("\npermissions:", 1)[0]
-    assert '      langsmith:\n' in inputs and 'default: "off"' in inputs.split("langsmith:", 1)[1]
-    assert "{langsmith_tracing: \"on\"}" in wf and "ci.yml" not in inputs
+    assert 'default: "on"' in inputs.split("langsmith:", 1)[1].split("telegram_live_approval:", 1)[0]
+    assert "telegram_live_approval:" in inputs and "llm_judge_budget_usd:" in inputs and "ci.yml" not in inputs
+    assert "langsmith_tracing: $l" in wf and "release_commit: $c" in wf and "telegram_live_approval: $t" in wf
+    assert "live Telegram needs its own approval, not the booking reference" in wf
     check = wf.split("python - <<'PY'\n", 1)[1].split("\n          PY\n", 1)[0]
     check = "\n".join(line[10:] for line in check.splitlines())
-    for ls in ("off", "on"):
-        app = cdk.App(outdir=str(tmp_path / f"o-{ls}"))
-        s = SetuHaulPilotStack(app, "SetuHaulPilot", lambda_asset=str(_zip(tmp_path / f"{ls}.zip")),
-                               booking_approval="OWNER-APPROVAL-20261125-test1", langsmith_tracing=ls if ls == "on" else "",
-                               env=cdk.Environment(account="000000000000", region="ap-southeast-2"))
-        tpl = Template.from_stack(s).to_json()
-        d = tmp_path / f"run-{ls}" / "cdk.out"
+    cases = {"ls-on": dict(langsmith_tracing="on"), "ls-off": dict(langsmith_tracing="off"),
+             "tg": dict(langsmith_tracing="on", telegram_live_approval="OWNER-APPROVAL-20261126-telegram1"),
+             "judge": dict(langsmith_tracing="on", llm_judge_budget_usd="0.25")}
+    given = {"ls-on": {"LANGSMITH": "on"}, "ls-off": {"LANGSMITH": "off"},
+             "tg": {"LANGSMITH": "on", "TELEGRAM_LIVE_APPROVAL": "OWNER-APPROVAL-20261126-telegram1"},
+             "judge": {"LANGSMITH": "on", "JUDGE_BUDGET": "0.25"}}
+    for tag, kw in cases.items():
+        s_ = _stack(tmp_path, tag, booking_approval="OWNER-APPROVAL-20261125-test1", **kw)
+        d = tmp_path / f"run-{tag}" / "cdk.out"
         d.mkdir(parents=True)
-        (d / "SetuHaulPilot.template.json").write_text(json.dumps(tpl), encoding="utf-8")
-        for given in ("off", "on"):
+        (d / "SetuHaulPilot.template.json").write_text(json.dumps(Template.from_stack(s_).to_json()), encoding="utf-8")
+        for g_tag, g_env in given.items():
+            env = {k: v for k, v in os.environ.items() if k not in ("LANGSMITH", "TELEGRAM_LIVE_APPROVAL", "JUDGE_BUDGET")}
             r = subprocess.run([sys.executable, "-c", check], cwd=d.parent, capture_output=True, text=True,
-                               env=dict(os.environ, LANGSMITH=given))
-            assert (r.returncode == 0) == (given == ls), (ls, given, r.stdout, r.stderr[-300:])
+                               env={**env, **g_env})
+            assert (r.returncode == 0) == (g_tag == tag), (tag, g_tag, r.stdout, r.stderr[-300:])
 
 
 def test_demo_fast_track_readiness_runs_before_the_deploy_in_provisional_mode():

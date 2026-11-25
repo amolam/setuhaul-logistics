@@ -40,6 +40,9 @@ ROOT = Path(__file__).resolve().parents[1]
 ASL = ROOT / "setuhaul" / "workflow" / "approval_workflow.asl.json"
 REGION = "ap-southeast-2"
 BOOKING_APPROVAL = re.compile(r"OWNER-APPROVAL-20\d{6}-[A-Za-z0-9-]{3,40}")
+RELEASE_COMMIT = re.compile(r"[0-9a-f]{7,40}")
+JUDGE_DAILY_MAX_USD = 1.00                       # online judge: the code refuses more (setuhaul/agent/online_judge.py)
+TELEGRAM_BOT_SECRET_NAME = "setuhaul/{env}/telegram/bot"          # created and filled by the OWNER, never by CDK
 LEASE_S = 120                                      # orchestrator processing lease; queue visibility >= 2x
 SYDNEY_AZS = ("ap-southeast-2a", "ap-southeast-2b", "ap-southeast-2c")
 DB_PARAMETER_FAMILY = "aurora-postgresql17"         # express configuration creates the Region default (17.9)
@@ -78,11 +81,32 @@ class SetuHaulPilotStack(Stack):
     def __init__(self, scope: Construct, cid: str, *, lambda_asset: str, environment_name: str = "pilot",
                  whatsapp_phone_number_id: str = "", alarm_email: str = "", llm_daily_budget_usd: str = "0.25",
                  approved_templates: str = "[]", booking_approval: str = "", langsmith_tracing: str = "",
-                 langsmith_ui_url: str = "", **kw) -> None:
+                 langsmith_ui_url: str = "", telegram_live_approval: str = "", llm_judge_budget_usd: str = "0",
+                 llm_judge_sample_rate: str = "0.2", release_commit: str = "", **kw) -> None:
         super().__init__(scope, cid, **kw)
-        # G.1: LangSmith Cloud tracing is opt-in (context langsmith_tracing=on). Off (the default): no LangSmith secret,
-        # no permission, no environment variable; the template is exactly what it was before G.1.
-        self.langsmith = (langsmith_tracing or "").strip().lower() in ("on", "true", "1")
+        # Full Activation: LangSmith tracing is ON by default for the synthetic pilot (context langsmith_tracing=off
+        # opts out). Any other environment keeps the G.1 rule: opt-in only. Content stays off (redacted traces).
+        ls_ctx = (langsmith_tracing or "").strip().lower()
+        self.langsmith = ls_ctx in ("on", "true", "1") or (environment_name == "pilot" and ls_ctx not in ("off", "false", "0"))
+        # Full Activation: live Telegram needs its OWN owner approval reference (never the booking one), pilot only.
+        telegram_live_approval = (telegram_live_approval or "").strip()
+        if telegram_live_approval and not BOOKING_APPROVAL.fullmatch(telegram_live_approval):
+            raise ValueError("telegram_live_approval must look like OWNER-APPROVAL-YYYYMMDD-<ref>")
+        if telegram_live_approval and environment_name != "pilot":
+            raise ValueError("live Telegram is allowed only in the synthetic pilot")
+        self.telegram_live = bool(telegram_live_approval)
+        # Full Activation: the online judge is configured ON in the pilot but sends nothing until the owner approves a
+        # positive daily budget (default 0 = every eligible turn is skipped with the reason "no approved budget").
+        try:
+            judge_budget = float(llm_judge_budget_usd or "0")
+            judge_rate = float(llm_judge_sample_rate or "0.2")
+        except ValueError:
+            raise ValueError("llm_judge_budget_usd and llm_judge_sample_rate must be numbers") from None
+        if not (0 <= judge_budget <= JUDGE_DAILY_MAX_USD) or not (0 <= judge_rate <= 1):
+            raise ValueError(f"llm_judge_budget_usd must be 0..{JUDGE_DAILY_MAX_USD}; sample rate 0..1")
+        release_commit = (release_commit or "").strip().lower()
+        if release_commit and not RELEASE_COMMIT.fullmatch(release_commit):
+            raise ValueError("release_commit must be a git commit SHA")
         if langsmith_ui_url and not langsmith_ui_url.startswith(("https://smith.langchain.com/", "https://eu.smith.langchain.com/")):
             raise ValueError("langsmith_ui_url must be a https://[eu.]smith.langchain.com/ project page")
         # Option D switch. Off unless the owner's written approval reference is passed as context (booking_approval);
@@ -190,7 +214,10 @@ class SetuHaulPilotStack(Stack):
             "COGNITO_ISSUER": f"https://cognito-idp.{REGION}.amazonaws.com/{pool.user_pool_id}",
             "COGNITO_CLIENT_IDS": client.user_pool_client_id, "FACILITIES": ",".join(FACILITY_IDS),
             "SETUHAUL_PROCESSING_LEASE_S": str(LEASE_S),
-            "SETUHAUL_DB_RESUME_WAIT_S": "40"}           # wait for a paused Aurora to resume (the api overrides it)
+            "SETUHAUL_DB_RESUME_WAIT_S": "40",            # wait for a paused Aurora to resume (the api overrides it)
+            "SETUHAUL_RELEASE": f"release-{self.release}"}  # trace / log correlation (metadata only)
+        if release_commit:
+            base_env["SETUHAUL_RELEASE_COMMIT"] = release_commit
         self.functions: dict[str, lambda_.Function] = {}
 
         def release_role(name: str) -> iam.Role:
@@ -241,19 +268,44 @@ class SetuHaulPilotStack(Stack):
                         "SETUHAUL_LANGSMITH_PROJECT": f"setuhaul-synthetic-{environment_name}",
                         "SETUHAUL_TRACE_CONTENT": "off", "SETUHAUL_LANGSMITH_SAMPLE_RATE": "1.0",
                         "SETUHAUL_TRACE_FLUSH_S": "0.5"}
-            ls_api = {"SETUHAUL_LANGSMITH_TRACING": "on"}           # links only: the api never reads the key
+            # Full Activation: the api (Telegram inbound) and the sender (Telegram outbound) export traces too
+            ls_api = {k: v for k, v in ls_agent.items() if k != "SETUHAUL_TRACE_FLUSH_S"}
             if langsmith_ui_url:
                 ls_agent["SETUHAUL_LANGSMITH_UI_URL"] = ls_api["SETUHAUL_LANGSMITH_UI_URL"] = langsmith_ui_url
+        ls_outbound = {k: v for k, v in ls_api.items() if k != "SETUHAUL_LANGSMITH_UI_URL"}
+        # Full Activation: Telegram. Without the owner's Telegram approval nothing changes (the test sink, no webhook
+        # route, no Telegram secret). With it (pilot only): live delivery, the bot token from a secret the OWNER
+        # creates and fills (imported by name: a deploy can never create, overwrite or print it), a webhook secret
+        # generated by Secrets Manager (48 characters of A-Z a-z 0-9), and each read by only the function that needs
+        # it. Both kill switches default to enabled and are separate variables (rollback without a code change).
+        tg_api, tg_outbound, bot_secret, webhook_secret = {}, {}, None, None
+        if self.telegram_live:
+            bot_secret = sm.Secret.from_secret_name_v2(self, "TelegramBotToken",
+                                                       TELEGRAM_BOT_SECRET_NAME.format(env=environment_name))
+            webhook_secret = sm.Secret(self, "TelegramWebhookSecret",
+                                       secret_name=f"setuhaul/{environment_name}/telegram/webhook", encryption_key=key,
+                                       description="Telegram setWebhook secret_token (generated; never logged)",
+                                       generate_secret_string=sm.SecretStringGenerator(
+                                           password_length=48, exclude_punctuation=True, include_space=False))
+            live = {"SETUHAUL_TELEGRAM_DELIVERY": "live", "SETUHAUL_TELEGRAM_LIVE_AUTHORIZED": "true",
+                    "SETUHAUL_TELEGRAM_BOT_SECRET_ID": bot_secret.secret_name,
+                    "SETUHAUL_TELEGRAM_OUTBOUND_ENABLED": "true", "SETUHAUL_TELEGRAM_LIVE_APPROVAL": telegram_live_approval}
+            tg_api = {**live, "SETUHAUL_TELEGRAM_WEBHOOK_ENABLED": "true",
+                      "SETUHAUL_TELEGRAM_WEBHOOK_SECRET_ID": webhook_secret.secret_arn}
+            tg_outbound = dict(live)
+        judge = {"SETUHAUL_LLM_JUDGE_ENABLED": "true", "SETUHAUL_LLM_JUDGE_DAILY_BUDGET_USD": f"{judge_budget:g}",
+                 "SETUHAUL_LLM_JUDGE_SAMPLE_RATE": f"{judge_rate:g}", "SETUHAUL_LLM_JUDGE_RUN_CAP_USD": "0.01",
+                 "SETUHAUL_LLM_JUDGE_TIMEOUT_S": "20"} if environment_name == "pilot" else {}
+        judge_info = {k: judge[k] for k in ("SETUHAUL_LLM_JUDGE_ENABLED", "SETUHAUL_LLM_JUDGE_DAILY_BUDGET_USD")
+                      if k in judge}                               # /health only: the api never calls the judge
         api_fn = fn("api", "api_handler", "api", timeout_s=29, extra={**booking, "SETUHAUL_TOOLS_ROUTE": "off",
                     "SETUHAUL_DB_RESUME_WAIT_S": "20",       # API Gateway ends a request at 29 s
                     "COGNITO_DOMAIN": cognito_domain,         # the console page's sign-in (public values only)
-                    "COGNITO_CONSOLE_CLIENT_ID": client.user_pool_client_id, **ls_api})
+                    "COGNITO_CONSOLE_CLIENT_ID": client.user_pool_client_id, **ls_api, **tg_api, **judge_info})
         agent_fn = fn("agent", "agent_handler", "agent", timeout_s=LEASE_S + 60, memory=1024, extra={**booking,
             "SETUHAUL_MODEL_PROVIDER": "openrouter", "SETUHAUL_OPENROUTER_SECRET_ID": openrouter.secret_arn,
             "SETUHAUL_OR_EXTRACT_MODEL": "anthropic/claude-haiku-4.5", "SETUHAUL_OR_PROVIDER": "amazon-bedrock",
-            "SETUHAUL_LLM_DAILY_BUDGET_USD": llm_daily_budget_usd, **ls_agent})
-        if langsmith_secret is not None:
-            langsmith_secret.grant_read(agent_fn)                   # the agent only (it exports the traces)
+            "SETUHAUL_LLM_DAILY_BUDGET_USD": llm_daily_budget_usd, **ls_agent, **judge})
         recovery_fn = fn("recovery", "recovery_handler", "recovery", timeout_s=60)
         outbound_fn = fn("outbound", "outbound_handler", "outbound", timeout_s=60,
                          extra={# synthetic pilot: the internal test sink; WhatsApp stays off (no Meta call)
@@ -262,7 +314,14 @@ class SetuHaulPilotStack(Stack):
                                 "SETUHAUL_WHATSAPP_PHONE_NUMBER_ID": whatsapp_phone_number_id,
                                 "SETUHAUL_WHATSAPP_SECRET_ID": whatsapp_secret.secret_arn,
                                 # names of templates Meta has approved, as "name:language"; none until E6 submission
-                                "SETUHAUL_WA_APPROVED_TEMPLATES": approved_templates})
+                                "SETUHAUL_WA_APPROVED_TEMPLATES": approved_templates, **ls_outbound, **tg_outbound})
+        if langsmith_secret is not None:                            # the functions that export traces
+            for f in (agent_fn, api_fn, outbound_fn):
+                langsmith_secret.grant_read(f)
+        if bot_secret is not None:
+            bot_secret.grant_read(api_fn)                           # webhook replies (link results, button answers)
+            bot_secret.grant_read(outbound_fn)                      # the relay's sends
+            webhook_secret.grant_read(api_fn)                       # the api only: it verifies the webhook
         notify_fn = fn("approval-notify", "notify_approvers_handler", "approval")
         token_fn = fn("approval-token", "record_task_token_handler", "approval")
         expire_fn = fn("approval-expire", "expire_approval_handler", "approval")
@@ -368,7 +427,10 @@ class SetuHaulPilotStack(Stack):
                      "LoginSecretArns": self.to_json_string({r: s.secret_arn for r, s in self.login_secrets.items()}),
                      "ConsoleUrl": console_url, "CognitoDomain": cognito_domain,
                      "ConsoleClientId": client.user_pool_client_id,
-                     "BookingMode": f"ON ({booking_approval})" if self.booking_enabled else "OFF"}.items():
+                     "BookingMode": f"ON ({booking_approval})" if self.booking_enabled else "OFF",
+                     "TelegramMode": f"LIVE ({telegram_live_approval})" if self.telegram_live else "TEST_SINK",
+                     "LlmJudge": f"ON budget USD {judge_budget:g}/day sample {judge_rate:g}" if judge else "OFF",
+                     "LangSmithTracing": "ON" if self.langsmith else "OFF"}.items():
             CfnOutput(self, k, value=v)
 
     # ------------------------------------------------------------ database (AURORA gate), docs/release/10_EXPRESS_AURORA.md

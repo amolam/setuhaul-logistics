@@ -211,8 +211,21 @@ def _per_app(build):
 
 
 # ---------------------------------------------------------------- E1: the HTTP API
+def _install_process_tracer() -> None:
+    """Full Activation: the api and the outbound sender trace Telegram inbound / outbound too. Off unless
+    SETUHAUL_LANGSMITH_TRACING=on with a readable key; any problem leaves tracing off (logged), never the function."""
+    try:
+        from ..observability import tracing
+        from ..observability.langsmith import tracer_from_env
+        if not tracing.tracer().enabled:
+            tracing.install(tracer_from_env(dict(os.environ)))
+    except Exception as e:                                          # noqa: BLE001 — tracing is non-critical
+        log.warning("tracer not installed (%s)", type(e).__name__)
+
+
 def _build_asgi(app):
     from mangum import Mangum
+    _install_process_tracer()
     return Mangum(app, lifespan="off")
 
 
@@ -252,6 +265,33 @@ def _build_orchestrator(app):
 _orchestrator = _per_app(_build_orchestrator)
 
 
+def _build_online_judge(app):
+    """Full Activation: the advisory online judge (setuhaul.agent.online_judge). Off unless SETUHAUL_LLM_JUDGE_ENABLED
+    =true with an approved positive daily budget; never raises (a problem leaves it off, logged)."""
+    from ..agent.online_judge import online_judge_from_env
+    from ..observability import tracing
+    _orchestrator()                                                 # the tracer is installed with the orchestrator
+    return online_judge_from_env(dict(os.environ), app.state.service.db, tracing.tracer())
+
+
+_online_judge = _per_app(_build_online_judge)
+
+
+def _judge_after_turn(res) -> None:
+    """After the turn's outcome is final and its reply committed. Never raises, never changes the turn's outcome."""
+    try:
+        if res is None or not getattr(res, "reply", None):
+            return
+        out = _online_judge().after_turn(res, getattr(res, "driver_text", None), getattr(res, "language", None))
+        if out.get("status") not in ("DISABLED", "SAMPLED_OUT", "INELIGIBLE"):
+            log.info("online judge %s", {k: v for k, v in out.items() if k in ("status", "reason")})
+    except Exception as e:                                          # noqa: BLE001 — advisory only
+        log.warning("online judge skipped (%s)", type(e).__name__)
+    finally:
+        if res is not None:
+            res.driver_text = None                                  # drop the driver's words as soon as possible
+
+
 def _flush_traces() -> None:
     """After the batch has been processed and its outcome decided: post queued traces, bounded. Never raises."""
     try:
@@ -289,6 +329,7 @@ def agent_handler(event, context, sqs=None):
                      getattr(res, "extractor", None), getattr(res, "fallback_reason", None),
                      getattr(res, "correlation_id", None), getattr(res, "turn_ref", None),
                      getattr(res, "ingest_correlation_id", None))
+            _judge_after_turn(res)                                 # advisory; never fails the record
         except Exception:                                          # logged with its type; redelivered by SQS
             log.exception("agent turn failed for SQS message %s", rec.get("messageId"))
             failures.append({"itemIdentifier": rec["messageId"]})
@@ -336,9 +377,13 @@ def telegram_transport(env: dict | None = None, client=None):
       test_bot             a dedicated TEST bot, allowlisted chats only, SETUHAUL_ENV local/dev only (see
                            setuhaul.notify.telegram.telegram_from_env); refused in the pilot.
     Anything else is refused."""
-    from ..notify.telegram import telegram_from_env
+    from ..notify.telegram import TracedTelegram, telegram_from_env
+    from ..observability import tracing
     env = dict(os.environ) if env is None else env
-    return telegram_from_env(env, client)[0]
+    transport = telegram_from_env(env, client)[0]
+    if transport is not None and tracing.tracer().enabled:
+        transport = TracedTelegram(transport, tracing.tracer())     # one telegram_outbound trace per send
+    return transport
 
 
 def outbound_handler(event, context):
@@ -347,12 +392,16 @@ def outbound_handler(event, context):
     none approved it fails with an escalation, never silently (E6-01)."""
     from ..notify.outbound import ApprovedTemplates, OutboundRelay
     app = runtime()
+    _install_process_tracer()
     provider = notification_provider()
     relay = OutboundRelay(app.state.service.db, provider,
                           approved_templates=ApprovedTemplates.parse(os.environ.get("SETUHAUL_WA_APPROVED_TEMPLATES")),
                           window_margin_min=int(os.environ.get("SETUHAUL_WA_WINDOW_MARGIN_MIN", "30")),
                           telegram=telegram_transport())
-    result = relay.run_once(limit=int(os.environ.get("SETUHAUL_OUTBOUND_BATCH", "50")))
+    try:
+        result = relay.run_once(limit=int(os.environ.get("SETUHAUL_OUTBOUND_BATCH", "50")))
+    finally:
+        _flush_traces()                                             # bounded; never raises
     log.info("outbound %s", {k: v for k, v in result.items() if isinstance(v, (int, str))})
     return {k: v for k, v in result.items() if isinstance(v, (int, str, bool))}
 

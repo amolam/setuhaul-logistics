@@ -1906,6 +1906,8 @@ class BookingService:
                     "event": None, "linked": False}
         with self.db.tx("ingest", readonly=True) as c:
             drv = c.execute("SELECT driver_for_channel('TELEGRAM', %s)", (ev.user_id,)).fetchone()[0]
+        from ..observability import tracing                       # the inbound trace's driver (id-gated at export)
+        tracing.safe(lambda: tracing.current().set(driver_id=drv, linked=drv is not None, update_kind=ev.kind))
         if drv is None:
             return {"reply": tg.TEXT_NOT_LINKED, "event": None}
         if ev.kind == "start":

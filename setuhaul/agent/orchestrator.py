@@ -92,6 +92,10 @@ class TurnResult:
     tool_calls: list[dict] = field(default_factory=list)      # {"tool", "status", "ms"} only
     turn_ms: int = 0
     expired_pick: bool = False                                  # a pick of slots whose 5-minute offer has expired
+    # Online judge (advisory, after the turn): the reply language and the driver's message, IN MEMORY ONLY. Never
+    # exported, logged or stored by the turn; the judge sends them on the same ZDR route as the extraction call.
+    language: str | None = None
+    driver_text: str | None = field(default=None, repr=False)
 
 
 _NUMBER_ANSWER = re.compile(r"^\s*(?:no\.?\s*)?([1-9])\s*(?:number|no\.?|wala|vala|वाला|नंबर)?\s*[.!]?\s*$", re.I)
@@ -246,6 +250,7 @@ class Orchestrator:
         # B-AI-3: answer in the conversation's language, not the last message's (a one-word "हाँ" or "yes")
         earlier = [b for mid, b in data.get("recent_driver_messages", []) if mid < turn]
         lang = replies.reply_language(text, ex.language, earlier)
+        res.language, res.driver_text = lang, text
 
         # Earlier turns' facts come from the database (migration 0008), never from the model's memory.
         # Facts are cleared whenever an option is selected, so any stored facts in SELECTED come from a constraint question
