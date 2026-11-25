@@ -10,7 +10,7 @@ Configuration (standard LangSmith names; nothing is read at application start-up
     LANGSMITH_TRACING   true | on       required for the full run (off by default)
     LANGSMITH_API_KEY   the key         set by the owner in the shell, never logged or printed (only its shape)
     LANGSMITH_PROJECT   default setuhaul-synthetic-pilot (where the agent traces go)
-    LANGSMITH_ENDPOINT  only if the workspace needs it: https://api.smith.langchain.com (default) or the EU endpoint
+    LANGSMITH_ENDPOINT  only if the workspace needs it: https://api.smith.langchain.com (default), the EU or the APAC endpoint
 
 What it reuses (nothing new on the agent path): the Phase G executors and isolated LOCAL database
 (evals/phase_g/run_eval.py, local_env.py), the scripted model (FakeModel, $0), the G.1 tracer, redaction and export
@@ -92,7 +92,7 @@ def config(env: dict) -> dict:
         problems.append("SETUHAUL_DSN points at the RDS Data API (the pilot): local database only")
     return {"ready": not problems, "tracing": tracing_on, "environment": environment,
             "project": (env.get("LANGSMITH_PROJECT") or DEFAULT_PROJECT).strip(), "endpoint": endpoint,
-            "ui": endpoint.replace("://api.", "://").replace("://eu.api.", "://eu."),
+            "ui": endpoint.replace("api.smith.langchain.com", "smith.langchain.com"),
             "key": f"present ({key_shape(key)})" if key else "missing", "problems": problems,
             "model": "scripted FakeModel (no paid call)", "max_model_cost_usd": MAX_MODEL_COST_USD}
 

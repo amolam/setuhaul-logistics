@@ -108,6 +108,8 @@ def test_config_with_a_key_shows_only_its_shape_and_refuses_pilot_and_unknown_en
     assert c["ui"] == "https://smith.langchain.com"
     eu = g2.config(dict(READY, LANGSMITH_ENDPOINT="https://eu.api.smith.langchain.com/api/v1"))
     assert eu["ready"] and eu["endpoint"] == "https://eu.api.smith.langchain.com" and eu["ui"] == "https://eu.smith.langchain.com"
+    ap = g2.config(dict(READY, LANGSMITH_ENDPOINT="https://apac.api.smith.langchain.com"))
+    assert ap["ready"] and ap["ui"] == "https://apac.smith.langchain.com"
     assert not g2.config(dict(READY, SETUHAUL_ENV="pilot"))["ready"]
     assert not g2.config(dict(READY, LANGSMITH_ENDPOINT="https://evil.example.com"))["ready"]
     assert not g2.config(dict(READY, SETUHAUL_DSN="rds-data://cluster"))["ready"]

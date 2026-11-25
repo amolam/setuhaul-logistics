@@ -10,7 +10,8 @@ Configuration (all optional; tracing is OFF unless SETUHAUL_LANGSMITH_TRACING=on
                                  bare key). dev/eval/ci may instead set LANGSMITH_API_KEY.
   SETUHAUL_LANGSMITH_PROJECT     default by environment: setuhaul-dev | setuhaul-synthetic-staging |
                                  setuhaul-synthetic-pilot. A pilot may not write to a dev project and vice versa.
-  SETUHAUL_LANGSMITH_ENDPOINT    https://api.smith.langchain.com (default) or https://eu.api.smith.langchain.com only
+  SETUHAUL_LANGSMITH_ENDPOINT    https://api.smith.langchain.com (default), https://eu.api.smith.langchain.com or
+                                 https://apac.api.smith.langchain.com only
   SETUHAUL_LANGSMITH_UI_URL      the project's page in the LangSmith UI (links only; https://[eu.]smith.langchain.com/…)
   SETUHAUL_TRACE_CONTENT         on | off (default off): export sanitised driver text. Synthetic data only.
   SETUHAUL_LANGSMITH_SAMPLE_RATE 0..1 (default 1.0)
@@ -26,8 +27,9 @@ from ..agent.errors import EMPTY_SECRET, MISSING_SECRET, SECRET_RETRIEVAL_ERROR,
 from .tracing import Exporter, Tracer, TracerConfig
 
 log = logging.getLogger("setuhaul.langsmith")
-ALLOWED_ENDPOINTS = ("https://api.smith.langchain.com", "https://eu.api.smith.langchain.com")
-ALLOWED_UI = ("https://smith.langchain.com/", "https://eu.smith.langchain.com/")
+ALLOWED_ENDPOINTS = ("https://api.smith.langchain.com", "https://eu.api.smith.langchain.com",
+                     "https://apac.api.smith.langchain.com")      # LangSmith Cloud US / EU / APAC (Sydney)
+ALLOWED_UI = ("https://smith.langchain.com/", "https://eu.smith.langchain.com/", "https://apac.smith.langchain.com/")
 DEFAULT_PROJECT = {"dev": "setuhaul-dev", "eval": "setuhaul-dev", "ci": "setuhaul-dev",
                    "staging": "setuhaul-synthetic-staging", "pilot": "setuhaul-synthetic-pilot"}
 KEY_FROM_ENV = frozenset({"dev", "eval", "ci"})

@@ -76,10 +76,10 @@ refuse or retry a booking. There is no LLM judge.
    $env:LANGSMITH_PROJECT = "setuhaul-synthetic-pilot"
    ```
 
-   Set `LANGSMITH_ENDPOINT` only for an EU workspace:
+   Set `LANGSMITH_ENDPOINT` only for a non-US workspace (EU or APAC/Sydney):
 
    ```powershell
-   $env:LANGSMITH_ENDPOINT = "https://eu.api.smith.langchain.com"
+   $env:LANGSMITH_ENDPOINT = "https://apac.api.smith.langchain.com"
    ```
 
 3. Make sure the local test PostgreSQL is running on port 55432. The runner refuses any other host and the RDS Data
@@ -130,7 +130,7 @@ python -m evals.langsmith.g2_smoke --offline
 - **No paid model call.** The model is the scripted `FakeModel`, so the estimated maximum model cost is $0.00. The
   script cannot select a paid provider.
 - **Safe environments only.** The script refuses `SETUHAUL_ENV=pilot` or `staging`, the RDS Data API, and endpoints
-  other than the two LangSmith Cloud endpoints.
+  other than the LangSmith Cloud US, EU and APAC endpoints.
 
 ## 6. Notes and gaps
 
