@@ -734,7 +734,11 @@ class BookingService:
         """The facility's structured state (feasibility role, read-only). The scope adds the other configured
         facilities only so the double-assignment check sees a driver's or truck's other shipments, as the
         feasibility engine does; every proposal covers `facility` alone."""
-        with self.db.tx("feasibility", (facility,) + tuple(x for x in self.facilities if x != facility), readonly=True) as c:
+        # Pilot E2E (26 Nov 2026): the deployed api has no feasibility login (WORKLOAD_ROLES: ingest, console), so the
+        # console's schedule proposal failed with PermissionError. Read-only, it uses the console role there, exactly
+        # as _dispatch_engine does for the dispatcher's options.
+        role = "feasibility" if self._has_login("feasibility") else "console"
+        with self.db.tx(role, (facility,) + tuple(x for x in self.facilities if x != facility), readonly=True) as c:
             row = c.execute("SELECT schedule_version FROM facilities WHERE facility_id=%s", (facility,)).fetchone()
             if not row:
                 raise ServiceError(404, "NOT_FOUND", "no such facility")
@@ -1842,12 +1846,24 @@ class BookingService:
         if after["kind"] == "CONFIRMED_REASSIGNMENT":
             # the database switched the driver on the EXISTING confirmed appointment; nothing to hold or request
             return {"result": "REASSIGNED", "offer_id": o["offer_id"], "appointment_id": after["appointment_id"]}
-        # accepted: the existing booking path, as the driver, in their own conversation
+        if not self._has_login("agent"):
+            # Pilot E2E (26 Nov 2026): the deployed api has no agent login (WORKLOAD_ROLES: ingest, console), so the
+            # hold and request below failed there with PermissionError after the offer was already ACCEPTED. The
+            # api now hands the accepted offer to the agent worker (which holds the agent login) through the inbound
+            # queue; continue_accepted_offer runs the same steps there and tells the driver the outcome.
+            return {"result": "QUEUED", "offer_id": o["offer_id"],
+                    "continuation": {"kind": "offer_continuation", "driver_id": drv, "offer_id": o["offer_id"],
+                                     "message_id": ev["message_id"], "generation": 0,
+                                     "external_message_id": f"offer:{o['offer_id']}"}}
+        return self._book_accepted_offer(drv, o, after, ev["message_id"])
+
+    def _book_accepted_offer(self, drv: str, o: dict, after: dict, mid: int) -> dict:
+        """The existing booking path for an ACCEPTED offer, as the driver, in their own conversation (agent role)."""
         with self.db.tx("ingest", driver=drv, readonly=True) as c:
             fac = c.execute("SELECT destination_facility_id FROM shipments WHERE shipment_id=%s",
                             (after["shipment_id"],)).fetchone()
         p = self._driver_principal(drv, o["thread_id"], fac[0] if fac else None)
-        mid, steps = ev["message_id"], {}
+        steps = {}
         steps["confirm"] = self.call_tool(p, "confirm_selection", mid, {"message_id": mid})
         if steps["confirm"]["status"] != "OK":
             return {"result": "ACCEPTED", "offer_id": o["offer_id"], "booking": steps}
@@ -1861,6 +1877,19 @@ class BookingService:
         ok = steps["submit"]["status"] == "OK"
         return {"result": "SUBMITTED" if ok else "ACCEPTED", "offer_id": o["offer_id"], "booking": steps,
                 "appointment_id": steps["submit"]["data"].get("appointment_id") if ok else None}
+
+    def continue_accepted_offer(self, event: dict) -> dict:
+        """Agent worker: finish an offer the api recorded as ACCEPTED (event from respond_to_offer's continuation).
+        Idempotent: the tools are keyed by the acceptance message, and the driver's update is one reply to it."""
+        from ..notify.telegram import OFFER_REPLIES
+        drv, offer_id, mid = event["driver_id"], str(event["offer_id"]), int(event["message_id"])
+        o = self._offer_for_driver(offer_id, drv)
+        if o["status"] != "ACCEPTED" or o.get("kind") == "CONFIRMED_REASSIGNMENT":
+            return {"result": o["status"], "offer_id": offer_id, "skipped": True}
+        r = self._book_accepted_offer(drv, o, o, mid)
+        p = self._driver_principal(drv, o["thread_id"], None)
+        self.record_reply(p, OFFER_REPLIES.get(r["result"], OFFER_REPLIES["ACCEPTED"]), reply_to=mid, generation=0)
+        return r
 
     # ---------------------------------------------------------------- roadmap Phase 4: driver location (0035)
     def record_location(self, drv: str, report, dedupe_key: str, source: str = "TELEGRAM", config=None) -> dict:
@@ -1898,6 +1927,8 @@ class BookingService:
         ev = tg.parse_update(update)
         if ev.kind == "ignored" or ev.user_id is None:
             return {"reply": None, "event": None}
+        if ev.kind == "start" and ev.code == "":               # "/start <something that is not a code>"
+            return {"reply": tg.TEXT_LINK_FAILED, "event": None, "linked": False}
         if ev.kind == "start" and ev.code:
             with self.db.tx("ingest") as c:
                 r = c.execute("SELECT redeem_driver_link_code(%s,%s,%s)",
@@ -1916,12 +1947,12 @@ class BookingService:
         if drv is None or not tg.driver_authorized(drv):          # unlinked, or not on the pilot-driver list
             return {"reply": tg.TEXT_NOT_LINKED, "event": None}
         if ev.kind == "start":
-            return {"reply": tg.TEXT_LINKED, "event": None}
+            return {"reply": tg.TEXT_ALREADY_LINKED, "event": None}
         if ev.kind == "callback":
             r = self.respond_to_offer(drv, ev.offer_id, ev.action, ev.external_id, sessions)
             # a valid answer (or one that can no longer count) clears the buttons; another driver's tap does not
-            return {"reply": tg.OFFER_REPLIES.get(r["result"], tg.OFFER_REPLIES["ACCEPTED"]), "event": None, "result": r,
-                    "clear_buttons": r["result"] != "NOT_FOUND"}
+            return {"reply": tg.OFFER_REPLIES.get(r["result"], tg.OFFER_REPLIES["ACCEPTED"]),
+                    "event": r.pop("continuation", None), "result": r, "clear_buttons": r["result"] != "NOT_FOUND"}
         if ev.kind == "text" and ev.text.strip().lower() == tg.NOT_NOW.lower():
             # the reply-keyboard "Not now" after a location request: recorded, and the delay report stands
             r = self.record_location(drv, LocationReport(False), ev.external_id)
@@ -1938,8 +1969,9 @@ class BookingService:
                     # refused by the offer's status anyway). Only a message the relay sent to THIS chat.
                     with self.db.tx("ingest", driver=drv) as c:
                         ref = c.execute("SELECT offer_telegram_message(%s, %s)", (str(open_offer), drv)).fetchone()[0]
-                    return {"reply": tg.OFFER_REPLIES.get(r["result"], tg.OFFER_REPLIES["ACCEPTED"]), "event": None,
-                            "result": r, "clear_message_id": tg.message_id_for_chat(ref, ev.chat_id)}
+                    return {"reply": tg.OFFER_REPLIES.get(r["result"], tg.OFFER_REPLIES["ACCEPTED"]),
+                            "event": r.pop("continuation", None), "result": r,
+                            "clear_message_id": tg.message_id_for_chat(ref, ev.chat_id)}
                 if _answers_offer(ev.text):           # "haan lekin D3": never guessed, the driver is asked again
                     kind = self._offer_for_driver(str(open_offer), drv).get("kind")
                     self.ingest_driver(drv, ev.external_id, ev.text, sessions, channel="TELEGRAM", agent_turn=False)

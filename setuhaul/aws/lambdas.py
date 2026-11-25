@@ -27,6 +27,11 @@ from functools import lru_cache
 
 log = logging.getLogger("setuhaul.lambda")
 logging.getLogger().setLevel(os.environ.get("SETUHAUL_LOG_LEVEL", "INFO"))
+# Pilot E2E (26 Nov 2026): httpx logs every request line at INFO, and the Telegram Bot API carries the bot token in its
+# URL path, so the token reached CloudWatch Logs. The HTTP clients log at WARNING and above only (no URLs at INFO).
+QUIET_HTTP_LOGGERS = ("httpx", "httpcore")
+for _name in QUIET_HTTP_LOGGERS:
+    logging.getLogger(_name).setLevel(logging.WARNING)
 
 # Keys the application secret may set (SETUHAUL_APP_SECRET_ID: one JSON secret per environment, read by every function).
 SECRET_KEYS = ("SESSION_SECRET", "META_APP_SECRET")
@@ -165,20 +170,48 @@ class _Runtime:
                     self._app = self._build()
                     self.generation += 1
                 return self._app
-        if not in_booking_fallback(app) or self._settings is None or self._clock() < self._next_retry:
+        if self._settings is None or self._clock() < self._next_retry:
             return app
-        if not self._lock.acquire(blocking=False):                 # another caller is retrying: keep the fallback
+        fallback = in_booking_fallback(app)
+        if not fallback and not getattr(self._settings, "booking_enabled", False):
+            return app
+        if not self._lock.acquire(blocking=False):                 # another caller is retrying: keep the current app
             return app
         try:
             if self._app is app and self._clock() >= self._next_retry:
                 self._next_retry = self._clock() + self.RETRY_S    # throttle before the attempt (success or not)
-                new = self._retry(app)
-                if new is not None:
-                    self._app = new                                 # only a complete app is ever published
-                    self.generation += 1
+                if fallback or self._superseded(app):
+                    new = self._retry(app)
+                    if new is not None:
+                        self._app = new                             # only a complete app is ever published
+                        self.generation += 1
             return self._app
         finally:
             self._lock.release()
+
+    @staticmethod
+    def _superseded(app) -> bool:
+        """Pilot E2E (26 Nov 2026): a booking-ON container that started between a deploy and the recording of that
+        deployment's manifest declared the PREVIOUS deployment of the same code, and the database then refused every
+        booking it made (DEPLOYMENT_SUPERSEDED) until AWS recycled it. True when the newest recorded manifest is a
+        different deployment of the code this container runs; the caller then re-runs the normal start-up check
+        (create_app), which the database still judges. Any error reads as False (the database refuses anyway)."""
+        db = getattr(getattr(getattr(app, "state", None), "service", None), "db", None)
+        dep = getattr(db, "deployment", None)
+        if not isinstance(dep, dict) or not dep.get("deployment_id"):
+            return False
+        try:
+            from ..api.inbound import gate_snapshot
+            m = gate_snapshot(db, dep.get("environment"))["manifest"] or {}
+        except Exception as e:                                      # noqa: BLE001
+            log.warning("deployment supersession check failed (%s)", type(e).__name__)
+            return False
+        stale = bool(m) and m.get("deployment_id") != dep["deployment_id"] and \
+            m.get("artifact_sha256") == dep.get("code_sha256")
+        if stale:
+            log.warning("this container declares deployment %s but the newest recorded deployment of its code is %s: "
+                        "re-running the start-up check", str(dep["deployment_id"])[:14], str(m["deployment_id"])[:14])
+        return stale
 
 
 _RUNTIME = _Runtime()
@@ -322,7 +355,14 @@ def agent_handler(event, context, sqs=None):
                                           VisibilityTimeout=2 * orch.lease_s)
         orch.on_heartbeat = extend
         try:
-            res = orch.handle(json.loads(rec["body"]))
+            body = json.loads(rec["body"])
+            if body.get("kind") == "offer_continuation":
+                # an offer the api recorded as ACCEPTED: the hold and request run here, under the agent login
+                r = orch.svc.continue_accepted_offer(body)
+                log.info("offer continuation message=%s offer=%s result=%s", rec.get("messageId"),
+                         body.get("offer_id"), r.get("result"))
+                continue
+            res = orch.handle(body)
             log.info("agent turn message=%s path=%s extractor=%s fallback=%s correlation_id=%s turn_ref=%s "
                      "ingest_correlation_id=%s",
                      rec.get("messageId"), None if res is None else "->".join(res.path),

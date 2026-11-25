@@ -41,11 +41,16 @@ TEXT_NOT_LINKED = ("This chat is not linked to a SetuHaul driver yet. Ask your d
                    "here as: /start YOURCODE")
 TEXT_LINKED = "You are linked to SetuHaul. Booking offers and updates for your trips will arrive here."
 TEXT_LINK_FAILED = "That code did not work. It may be wrong, used or expired. Ask your dispatcher for a new one."
-TEXT_ACCOUNT_TAKEN = "This Telegram account is already linked. Ask your dispatcher if this is wrong."
+TEXT_ACCOUNT_TAKEN = ("This Telegram account is already linked to a SetuHaul driver, so the code was not used. To link "
+                      "another driver, send the code from that driver's own Telegram account.")
+# a bare /start from an account that is already linked (pilot E2E, 26 Nov 2026: it used to say only "You are linked")
+TEXT_ALREADY_LINKED = ("This Telegram account is already linked to a SetuHaul driver. Booking offers and updates for "
+                       "your trips arrive here. A link code for another driver must be sent from that driver's account.")
 TEXT_DRIVER_TAKEN = "Your driver profile is already linked to another Telegram account. Ask your dispatcher to reset it."
 OFFER_REPLIES = {
     "SUBMITTED": "Thanks. Your slot is held and the request is with the warehouse planner. You will hear back here.",
     "ACCEPTED": "Thanks, your acceptance is recorded. A coordinator will confirm the next step.",
+    "QUEUED": "Thanks, your acceptance is recorded. I am requesting the slot now and will update you here.",
     "DECLINED": "Understood, you declined this offer. Your dispatcher has been told.",
     "ALTERNATIVE_REQUESTED": "Understood. Your dispatcher will send you another time.",
     "EXPIRED": "This offer has expired. Your dispatcher can send a new one.",
@@ -169,8 +174,18 @@ def parse_update(u: dict) -> TelegramEvent:
         return TelegramEvent("ignored", uid, user, chat_id, None)
     if text.startswith("/start"):
         parts = text.split(maxsplit=1)
-        return TelegramEvent("start", uid, user, chat_id, ext, code=normalize_code(parts[1]) if len(parts) > 1 else None)
+        # pilot E2E (26 Nov 2026): an argument that is not a well-formed code is "" (a failed code), never a bare /start
+        return TelegramEvent("start", uid, user, chat_id, ext,
+                             code=(normalize_code(parts[1]) or "") if len(parts) > 1 else None)
+    if looks_like_code(text):                   # a code typed without /start is still a code, never an agent message
+        return TelegramEvent("start", uid, user, chat_id, ext, code=normalize_code(text))
     return TelegramEvent("text", uid, user, chat_id, ext, text=text[:2000])
+
+
+def looks_like_code(text: str) -> bool:
+    """A link code typed on its own: upper case as the console shows it, optionally grouped with spaces or hyphens."""
+    t = (text or "").strip()
+    return bool(re.fullmatch(r"[A-Z0-9][A-Z0-9 -]{8,14}", t)) and normalize_code(t) is not None
 
 
 def chat_tag(chat_id) -> str:
