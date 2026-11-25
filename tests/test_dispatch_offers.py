@@ -629,3 +629,45 @@ def test_a_confirmed_request_reconciles_to_booked_and_is_not_offered_again(clien
     client.post(f"/console/requests/{appt}/decision", headers=planner(keys),
                 json={"decision": "CONFIRM", "idempotency_key": uuid.uuid4().hex})
     assert offer(client, keys, d, expect=409)["error"] == "SHIPMENT_ALREADY_BOOKED"
+
+
+# ================================================================ 0040: a closed offer can never be booked via chat
+def _agent_tool(client, event, turn, name, **args):
+    r = client.post(f"/tools/{name}", json={"turn_id": turn, "args": args},
+                    headers={"X-Setuhaul-Session": event["session_token"]})
+    return r.status_code, (r.json() if r.headers.get("content-type", "").startswith("application/json") else r.text)
+
+
+@pytest.mark.parametrize("close", ["typed_no", "button_decline", "another_time"])
+def test_a_closed_offer_is_never_held_or_requested_by_a_later_yes(client, dsn, keys, app, close):
+    d = add_driver(dsn, eta_at=datetime.now(IST) + timedelta(hours=26))
+    tg = link(client, keys, dsn, d["drv"])
+    o = offer(client, keys, d)
+    if close == "typed_no":
+        assert "declined" in tg.text("no")
+    elif close == "button_decline":
+        assert "declined" in tg.press(o["offer_id"], "D")
+    else:
+        tg.press(o["offer_id"], "R")
+    assert offer_status(dsn, o["offer_id"]) in ("DECLINED", "ALTERNATIVE_REQUESTED")
+    # the conversation no longer holds the offer's option, and the option's window is closed
+    assert _flow(dsn, d["sid"]) in ("NO_OPTIONS", "CLOSED", "OPTIONS_SHOWN")
+    assert q(dsn, "SELECT expires_at <= now() FROM shown_options WHERE option_id=%s", o["option_id"])[0][0]
+    # the driver now writes "yes": the agent's turn may try every booking tool on that option; all are refused
+    before = len(app.state.inbound)
+    tg.text("Yes")
+    ev = next(e for e in list(app.state.inbound)[before:] if e.get("driver_id") == d["drv"])
+    for turn, tool in enumerate(("hold_option", "submit_booking_request"), start=1):
+        status, body = _agent_tool(client, ev, turn, tool, option_id=o["option_id"])
+        assert not (status == 200 and isinstance(body, dict) and body.get("status") == "OK"), (tool, status, body)
+    assert appointments(dsn, d["sid"]) == []
+    assert q(dsn, "SELECT count(*) FROM dock_occupancy WHERE shipment_id=%s AND active", d["sid"])[0][0] == 0
+
+
+def test_an_accepted_offer_still_books_exactly_as_before(client, dsn, keys):
+    d = add_driver(dsn, eta_at=datetime.now(IST) + timedelta(hours=28))
+    tg = link(client, keys, dsn, d["drv"])
+    o = offer(client, keys, d)
+    assert "planner" in tg.press(o["offer_id"], "A")
+    assert [s for _, s in appointments(dsn, d["sid"])] == ["PENDING_CONFIRMATION"]
+    assert _flow(dsn, d["sid"]) == "SUBMITTED"
