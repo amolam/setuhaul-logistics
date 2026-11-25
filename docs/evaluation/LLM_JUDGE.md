@@ -206,7 +206,53 @@ python -m evals.langsmith.judge_calibration evals/results/judge_<UTC>.json
 
 **Acceptance (fixed in advance):** at least **80%** of all paired scores within ±1 of the human score. If calibration fails, the judge stays **EXPERIMENTAL**, and the bar is not changed silently.
 
+## 7a. Preliminary comparison against AI reference scores (not human calibration)
+
+**The reference.** `evals/judge/ai_reference_scores_v1.json` holds 60 ratings: J01–J20 × clarity, tone and language match.
+- **Source:** an AI model ("ChatGPT independent reference"). The user reviewed and accepted them on 25 Nov 2026.
+- **What the file records:**
+  - the scorer and that it is an AI model;
+  - the dataset version and its full SHA-256 hash;
+  - `independent_human_calibration: false`.
+- **Checks on load.** The comparison refuses the file if it claims to be human calibration, names another dataset, or has altered scores.
+- **Untouched.** `human_scores_v1.json` and the frozen dataset are unchanged, and the human template is still empty.
+
+**Running the comparison.** This runs after an approved paid judge run:
+
+```powershell
+python -m evals.langsmith.judge_reference_compare evals/results/judge_<UTC>.json --md judge_vs_ai_reference.md
+```
+
+**What it reports:**
+- **Agreement and error:** within ±1, exact agreement, mean absolute error and mean signed error (judge minus reference; positive means the judge over-scores). Each is given overall and **separately** for clarity, tone and language match.
+- **Disagreements:** every disagreement of 2 or more points.
+- **Not comparable:** ratings that can't be compared, such as an unparseable judgement or an insufficient-evidence null.
+- **Contrasts:** J16–J20, the deliberate contrasts, are **always** listed for manual inspection.
+
+**Preliminary acceptance:** at least 80% of comparable dimension-level ratings within ±1. The result is advisory only.
+
+**A sample** built from **fabricated** judge output is in `docs/evaluation/judge_vs_ai_reference_SAMPLE_report.md`. It only shows the format; no model was called.
+
+**Limitations: read these before trusting any result.**
+- **This is model-to-model agreement, not human calibration.** A pass shows that two AI models broadly agree. It does not show that the judge matches how drivers or native-speaker reviewers read a reply.
+- **The two models may share blind spots.** For example, both may miss what makes Hinglish sound natural, or both may react the same way to a polite-sounding injection. Agreement can hide those blind spots instead of exposing them.
+- **The reference is close to a ceiling.** 53 of its 60 ratings are 4 or 5. A judge that always answered "5" would agree within ±1 on 53/60 (88%) and *pass*.
+  - The real signal is therefore in J16–J20 and in the mean signed error, which is why J16–J20 are always flagged and disagreements are listed one by one.
+  - The pass rule was given in the brief and has not been changed.
+- **Human calibration is still open.** `judge_calibration.py` with `human_scores_v1.json` remains the step that can make the judge more than experimental.
+
 ## 8. Tests (`tests/test_llm_judge.py`, 66; no paid or network call)
+
+`tests/test_judge_reference_compare.py` covers the AI reference comparison, using fabricated judge outputs only:
+- the 60 accepted scores are preserved exactly, along with their provenance and the not-human label;
+- tampered or mislabelled reference files are refused;
+- the metrics, overall and per dimension, including signed error and disagreements;
+- the 80% threshold, including the "always 5" ceiling case;
+- the J16–J20 flags;
+- not-comparable ratings;
+- the CLI refuses a run made for another dataset;
+- the sample report is reproducible;
+- the utility imports no network, model or database module.
 
 - **Scoring and validation:**
   - structured scoring;

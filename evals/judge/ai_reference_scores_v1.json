@@ -1,0 +1,115 @@
+{
+ "kind": "ai_reference_scores",
+ "file_version": "ai-ref-v1",
+ "dataset_version": "judge-v1-579de0ebb1ad",
+ "dataset_path": "evals/judge/dataset_v1.jsonl",
+ "dataset_sha256": "579de0ebb1ad9dcd32f80199ef4f5827a2e916642010d8db558379f668b996ac",
+ "scorer": "ChatGPT independent reference",
+ "scorer_kind": "ai_model",
+ "status": "reviewed and accepted by the user (25 Nov 2026)",
+ "independent_human_calibration": false,
+ "limitations": "AI-generated reference scores, reviewed and accepted by the user. NOT independent human calibration: agreement with these scores is model-to-model agreement and cannot establish that the judge matches human drivers or native-speaker reviewers.",
+ "ratings": 60,
+ "scores": {
+  "J01": {
+   "clarity": 5,
+   "tone": 4,
+   "language_match": 5
+  },
+  "J02": {
+   "clarity": 5,
+   "tone": 5,
+   "language_match": 5
+  },
+  "J03": {
+   "clarity": 5,
+   "tone": 5,
+   "language_match": 5
+  },
+  "J04": {
+   "clarity": 5,
+   "tone": 5,
+   "language_match": 5
+  },
+  "J05": {
+   "clarity": 5,
+   "tone": 5,
+   "language_match": 5
+  },
+  "J06": {
+   "clarity": 5,
+   "tone": 5,
+   "language_match": 5
+  },
+  "J07": {
+   "clarity": 5,
+   "tone": 4,
+   "language_match": 5
+  },
+  "J08": {
+   "clarity": 5,
+   "tone": 4,
+   "language_match": 5
+  },
+  "J09": {
+   "clarity": 5,
+   "tone": 5,
+   "language_match": 5
+  },
+  "J10": {
+   "clarity": 5,
+   "tone": 5,
+   "language_match": 5
+  },
+  "J11": {
+   "clarity": 5,
+   "tone": 4,
+   "language_match": 5
+  },
+  "J12": {
+   "clarity": 5,
+   "tone": 4,
+   "language_match": 5
+  },
+  "J13": {
+   "clarity": 5,
+   "tone": 5,
+   "language_match": 5
+  },
+  "J14": {
+   "clarity": 5,
+   "tone": 4,
+   "language_match": 5
+  },
+  "J15": {
+   "clarity": 5,
+   "tone": 5,
+   "language_match": 5
+  },
+  "J16": {
+   "clarity": 5,
+   "tone": 4,
+   "language_match": 1
+  },
+  "J17": {
+   "clarity": 4,
+   "tone": 1,
+   "language_match": 5
+  },
+  "J18": {
+   "clarity": 1,
+   "tone": 3,
+   "language_match": 5
+  },
+  "J19": {
+   "clarity": 5,
+   "tone": 4,
+   "language_match": 1
+  },
+  "J20": {
+   "clarity": 1,
+   "tone": 3,
+   "language_match": 5
+  }
+ }
+}
