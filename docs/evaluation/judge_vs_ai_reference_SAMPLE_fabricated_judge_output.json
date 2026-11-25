@@ -1,6 +1,6 @@
 {
  "kind": "llm_judge_run",
- "sample_note": "FABRICATED judge output for illustrating the report format only. No model was called; these are not real judge scores.",
+ "sample_note": "SAMPLE ONLY - FABRICATED judge output, written by hand to illustrate the report format. No model was called; these are NOT real judge scores and NOT an evaluation result.",
  "dataset_version": "judge-v1-579de0ebb1ad",
  "judgements": [
   {

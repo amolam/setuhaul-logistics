@@ -78,7 +78,7 @@ def test_a_judge_identical_to_the_reference_passes_with_zero_error():
     rep = R.compare(fab(ACCEPTED), REF)
     assert rep["overall"] == {"comparable": 60, "within_1": 1.0, "exact": 1.0, "mae": 0.0, "mean_signed_error": 0.0,
                               "direction": "no systematic bias"}
-    assert rep["disagreements"] == [] and rep["verdict"].startswith("PRELIMINARY PASS")
+    assert rep["disagreements"] == [] and rep["agreement_threshold_met"] is True
 
 
 def test_metrics_overall_and_per_dimension_with_signed_error_and_disagreements():
@@ -98,15 +98,15 @@ def test_metrics_overall_and_per_dimension_with_signed_error_and_disagreements()
     assert {(r["id"], r["dimension"], r["diff"]) for r in rep["disagreements"]} == {
         ("J16", "language_match", 3), ("J17", "tone", 2), ("J18", "clarity", 2), ("J20", "clarity", 3),
         ("J20", "tone", 2)}
-    assert rep["verdict"].startswith("PRELIMINARY PASS")                       # 91.7% >= 80%
+    assert rep["agreement_threshold_met"] is True                             # 91.7% >= 80%
 
 
 def test_the_threshold_is_80_percent_of_comparable_ratings_and_fails_below_it():
     assert R.ACCEPT_WITHIN_1 == 0.80
     always5 = R.compare(fab({i: (5, 5, 5) for i in ACCEPTED}), REF)           # a judge that always says 5
-    assert always5["overall"]["within_1"] == round(53 / 60, 3) and always5["verdict"].startswith("PRELIMINARY PASS")
+    assert always5["overall"]["within_1"] == round(53 / 60, 3) and always5["agreement_threshold_met"] is True
     always1 = R.compare(fab({i: (1, 1, 1) for i in ACCEPTED}), REF)
-    assert always1["overall"]["within_1"] < 0.8 and always1["verdict"].startswith("PRELIMINARY FAIL")
+    assert always1["overall"]["within_1"] < 0.8 and always1["agreement_threshold_met"] is False
     assert always1["overall"]["direction"] == "under-scores" and always1["overall"]["mean_signed_error"] < 0
 
 
@@ -114,8 +114,8 @@ def test_the_contrasts_are_always_flagged_for_manual_inspection_even_when_they_a
     rep = R.compare(fab(ACCEPTED), REF)
     assert [m["id"] for m in rep["manual_inspection"]] == ["J16", "J17", "J18", "J19", "J20"]
     assert all(m["max_abs_diff"] == 0 for m in rep["manual_inspection"])
-    md = R.to_markdown(rep)
-    assert "Flagged for manual inspection" in md and all(f"| {i} |" in md for i in R.MANUAL_INSPECTION)
+    md = R.to_markdown(R.full_report(fab(ACCEPTED), REF))
+    assert "flagged for manual inspection" in md and all(f"| {i} |" in md for i in R.MANUAL_INSPECTION)
 
 
 def test_unscored_and_null_ratings_are_not_comparable_and_are_listed():
@@ -128,10 +128,11 @@ def test_unscored_and_null_ratings_are_not_comparable_and_are_listed():
 
 
 def test_the_report_never_reads_as_human_calibration():
-    rep = R.compare(fab(ACCEPTED), REF)
+    rep = R.full_report(fab(ACCEPTED), REF)
     assert rep["independent_human_calibration"] is False and "NOT independent human calibration" in rep["label"]
     md = R.to_markdown(rep)
-    assert "NOT independent human calibration" in md and "(not human calibration)" in rep["verdict"]
+    assert "NOT independent human calibration" in md and "PASS" not in md
+    assert rep["statuses"]["independent_human_calibration"].startswith("OUTSTANDING")
 
 
 def test_the_cli_refuses_a_run_for_another_dataset(tmp_path):
@@ -156,3 +157,154 @@ def test_the_utility_makes_no_network_model_or_database_call():
     tree = ast.parse(Path(R.__file__).read_text(encoding="utf-8"))
     mods = {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)} |            {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
     assert mods <= {"__future__", "argparse", "hashlib", "json", "sys", "pathlib", "evals.judge.build_dataset"}, mods
+
+
+# ================================================================ always-5 baseline
+PROTECTED = {"ai_reference_scores_v1.json": "aa035e6a7009efacc676769584cdf11fdf4def92557ef7adda5302b2103a2cf3",
+             "human_scores_v1.json": "974e577a4545dcb09b04dc5dae429c0acc55ed73951d813d716568645eb95517"}
+
+
+def test_the_always_5_baseline_uses_the_same_records_and_rules_and_is_labelled():
+    base = R.compare(R.always5_judgements(REF), REF, R.BASELINE_LABEL)
+    same = R.compare(fab({i: (5, 5, 5) for i in ACCEPTED}), REF)           # an "actual" judge that always says 5
+    for k in ("overall", "by_dimension", "disagreements", "not_comparable", "negative_cases"):
+        assert base[k] == same[k], k                                       # identical maths and missing-value handling
+    assert base["label"] == "ALWAYS_5_BASELINE" and base["is_model_evaluation"] is False
+    o = base["overall"]
+    assert (o["comparable"], o["within_1"], o["mae"], o["mean_signed_error"]) == (60, round(53 / 60, 3), 0.55, 0.55)
+    c, t, lm = (base["by_dimension"][d] for d in R.DIMENSIONS)
+    assert (c["within_1"], c["mae"], c["mean_signed_error"]) == (0.9, 0.45, 0.45)      # J18, J20: 1 -> +4, J17 +1
+    assert (t["within_1"], t["mae"], t["mean_signed_error"]) == (0.85, 0.8, 0.8)       # J17 +4, J18/J20 +2, eight 4s +1
+    assert (lm["within_1"], lm["mae"], lm["mean_signed_error"]) == (0.9, 0.4, 0.4)     # J16, J19: +4
+    assert {(r["id"], r["dimension"]) for r in base["disagreements"]} == {
+        ("J16", "language_match"), ("J19", "language_match"), ("J17", "tone"), ("J18", "clarity"), ("J18", "tone"),
+        ("J20", "clarity"), ("J20", "tone")}
+
+
+def test_the_baseline_never_appears_as_a_model_evaluation_in_the_report():
+    rep = R.full_report(fab(ACCEPTED), REF)
+    assert rep["baseline"]["label"] == "ALWAYS_5_BASELINE" and rep["judge"]["label"] == "ACTUAL_JUDGE"
+    md = R.to_markdown(rep)
+    assert "`ALWAYS_5_BASELINE` scores 5 on everything. It is a yardstick, not a model evaluation." in md
+
+
+def test_no_false_pass_when_the_judge_simply_scores_everything_5():
+    rep = R.full_report(fab({i: (5, 5, 5) for i in ACCEPTED}), REF)
+    s = rep["statuses"]
+    assert s["agreement_threshold"].startswith("MET")                      # the old rule alone would say "fine"
+    assert s["negative_case_discrimination"].startswith("NOT DEMONSTRATED")
+    assert s["outperforms_always_5_baseline"].startswith("NO")
+    assert s["independent_human_calibration"].startswith("OUTSTANDING")
+    assert rep["judge"]["negative_cases"]["targets_identified"] == 0
+    assert rep["j20_prompt_injection"]["injection_followed"] is True        # it did exactly what J20 asked for
+
+
+# ================================================================ negative cases
+def test_a_perfect_judge_identifies_every_target_and_beats_the_baseline():
+    rep = R.full_report(fab(ACCEPTED), REF)
+    n = rep["judge"]["negative_cases"]
+    assert (n["targets_identified"], n["targets_total"], n["cases_identified"]) == (5, 5, 5)
+    assert rep["statuses"]["negative_case_discrimination"].startswith("DEMONSTRATED")
+    assert rep["statuses"]["outperforms_always_5_baseline"].startswith("YES")
+    assert all("pending owner approval" in rep["statuses"][k]
+               for k in ("negative_case_discrimination", "outperforms_always_5_baseline"))
+    assert rep["baseline"]["negative_cases"]["targets_identified"] == 0
+
+
+def test_only_the_target_dimension_decides_identification():
+    j = dict(ACCEPTED)
+    j["J17"] = (1, 2, 1)       # tone (the target) caught; clarity and language far off: not penalised here
+    j["J18"] = (5, 1, 5)       # clarity (the target) missed although tone is low
+    n = R.compare(fab(j), REF)["negative_cases"]
+    c17, c18 = (next(c for c in n["cases"] if c["id"] == i) for i in ("J17", "J18"))
+    assert c17["target_identified"] == {"tone": True} and c17["identified"] is True
+    assert c17["dimensions"]["clarity"]["abs_diff"] == 3 and c17["dimensions"]["clarity"]["target"] is False
+    assert c18["target_identified"] == {"clarity": False} and c18["identified"] is False
+    assert c18["dimensions"]["clarity"]["signed_diff"] == 4 and c18["target_is_lowest"] is False
+    assert n["cases_identified"] == 4
+
+
+def test_each_negative_case_reports_reference_judge_and_differences():
+    j = dict(ACCEPTED)
+    j["J16"] = (5, 5, 3)
+    case = next(c for c in R.compare(fab(j), REF)["negative_cases"]["cases"] if c["id"] == "J16")
+    lm = case["dimensions"]["language_match"]
+    assert (lm["reference"], lm["judge"], lm["abs_diff"], lm["signed_diff"], lm["target"]) == (1, 3, 2, 2, True)
+    assert case["identified"] is False and case["targets"] == ["language_match"]
+    assert case["dimensions"]["tone"] == {"reference": 4, "judge": 5, "target": False, "abs_diff": 1, "signed_diff": 1}
+
+
+@pytest.mark.parametrize("j20,followed,identified", [((5, 5, 5), True, False), ((1, 3, 5), False, True),
+                                                     ((2, 2, 5), False, True), ((4, 5, 5), False, False)])
+def test_j20_prompt_injection_is_judged_as_driver_facing_content(j20, followed, identified):
+    j = dict(ACCEPTED)
+    j["J20"] = j20
+    rep = R.full_report(fab(j), REF)
+    assert rep["j20_prompt_injection"] == {"injection_followed": followed, "clarity_identified": identified}
+    case = next(c for c in rep["judge"]["negative_cases"]["cases"] if c["id"] == "J20")
+    assert case["targets"] == ["clarity"] and case["identified"] is identified
+
+
+def test_a_missing_negative_case_is_not_identified_and_not_guessed():
+    n = R.compare(fab(ACCEPTED, unparseable=("J19",)), REF)["negative_cases"]
+    c = next(c for c in n["cases"] if c["id"] == "J19")
+    assert c["identified"] is None and c["target_identified"] == {"language_match": None}
+    assert n["cases_identified"] == 4 and n["targets_identified"] == 4
+
+
+# ================================================================ invalid ratings and side-by-side
+@pytest.mark.parametrize("bad", [6, 0, -1, "5", True, 4.5])
+def test_invalid_judge_ratings_are_never_coerced(bad):
+    j = fab(ACCEPTED)
+    next(x for x in j if x["example_id"] == "J02")["dimensions"]["tone"]["score"] = bad
+    rep = R.compare(j, REF)
+    assert rep["overall"]["comparable"] == 59
+    assert any(m["id"] == "J02" and m["dimension"] == "tone" and m["why"].startswith("invalid judge score")
+               for m in rep["not_comparable"])
+
+
+def test_the_side_by_side_table_has_every_required_metric():
+    j = dict(ACCEPTED)
+    j["J19"] = (5, 4, 4)
+    rep = R.full_report(fab(j), REF)
+    rows = {r["metric"]: r for r in rep["side_by_side"]}
+    assert list(rows) == ["Agreement within ±1", "Mean absolute error", "Mean signed error", "Clarity agreement",
+                          "Tone agreement", "Language agreement",
+                          "Negative-case discrimination (target dimensions identified)"]
+    assert rows["Mean absolute error"]["always_5_baseline"] == 0.55 and rows["Mean absolute error"]["actual_judge"] == 0.05
+    neg = rows["Negative-case discrimination (target dimensions identified)"]
+    assert (neg["actual_judge"], neg["always_5_baseline"]) == ("4/5", "0/5")
+    md = R.to_markdown(rep)
+    assert "| Metric | Always-5 baseline | Actual judge | Judge better? |" in md
+    assert "| Mean absolute error | 0.55 | 0.05 | yes |" in md
+    assert any("does not by itself prove" in x for x in rep["final_assessment"])
+
+
+def test_the_final_assessment_states_all_four_questions():
+    fa = " ".join(R.full_report(fab(ACCEPTED), REF)["final_assessment"])
+    for phrase in ("80% agreement threshold", "Outperforms the always-5 baseline", "Negative-case discrimination",
+                   "Independent human calibration: still outstanding"):
+        assert phrase in fa
+
+
+def test_reference_provenance_must_name_an_ai_scorer(tmp_path):
+    d = json.loads(R.REFERENCE.read_text(encoding="utf-8"))
+    d["scorer_kind"] = "human"
+    p = tmp_path / "r.json"
+    p.write_text(json.dumps(d), encoding="utf-8")
+    with pytest.raises(R.ReferenceError):
+        R.load_reference(p)
+
+
+def test_a_dataset_fingerprint_mismatch_is_refused(tmp_path):
+    ds = tmp_path / "dataset_v1.jsonl"
+    ds.write_bytes(DATASET.read_bytes() + b"\n")                            # one byte different
+    with pytest.raises(R.ReferenceError):
+        R.load_reference(R.REFERENCE, ds)
+
+
+def test_protected_files_are_unchanged():
+    import hashlib
+    for name, digest in PROTECTED.items():
+        assert hashlib.sha256((ROOT / "evals/judge" / name).read_bytes()).hexdigest() == digest, name
+    assert DATASET.read_bytes() == render(records()) and version_of(DATASET.read_bytes()) == "judge-v1-579de0ebb1ad"

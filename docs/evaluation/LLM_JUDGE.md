@@ -236,21 +236,112 @@ python -m evals.langsmith.judge_reference_compare evals/results/judge_<UTC>.json
 **Limitations: read these before trusting any result.**
 - **This is model-to-model agreement, not human calibration.** A pass shows that two AI models broadly agree. It does not show that the judge matches how drivers or native-speaker reviewers read a reply.
 - **The two models may share blind spots.** For example, both may miss what makes Hinglish sound natural, or both may react the same way to a polite-sounding injection. Agreement can hide those blind spots instead of exposing them.
-- **The reference is close to a ceiling.** 53 of its 60 ratings are 4 or 5. A judge that always answered "5" would agree within ±1 on 53/60 (88%) and *pass*.
-  - The real signal is therefore in J16–J20 and in the mean signed error, which is why J16–J20 are always flagged and disagreements are listed one by one.
-  - The pass rule was given in the brief and has not been changed.
+- **The reference is close to a ceiling.** 53 of its 60 ratings are 4 or 5. A judge that always answered "5" would agree within ±1 on 53/60 (88%) and meet the 80% rule. §7b deals with this.
 - **Human calibration is still open.** `judge_calibration.py` with `human_scores_v1.json` remains the step that can make the judge more than experimental.
+
+## 7b. Anti-gaming: the always-5 baseline and negative-case discrimination
+
+### Why an always-5 baseline is needed
+
+The 80% agreement rule is unchanged, but on this reference it can't tell a judge that reads replies from one that doesn't. `ALWAYS_5_BASELINE` is the cheapest "judge" possible: it scores 5 on everything.
+
+**How it is computed.** It goes through exactly the same comparison as the real judge: the same reference records, the same ±1 rule and the same handling of missing values. A test pins this.
+
+**Its numbers on the reference:**
+
+| | Within ±1 | MAE | Mean signed error |
+|---|---|---|---|
+| Overall | 88.3% (53/60): **meets the 80% rule** | 0.55 | +0.55 (over-scores) |
+| Clarity | 90% | 0.45 | +0.45 |
+| Tone | 85% | 0.80 | +0.80 (over-scores) |
+| Language match | 90% | 0.40 | +0.40 |
+| Negative cases | 0/5 target dimensions identified | | |
+
+**What a real judge must show.** Clearing 80% is therefore not evidence of anything on its own. The judge must also beat this yardstick.
+
+**How it is labelled.** The baseline is always shown under its own label, never as a model evaluation (`is_model_evaluation: false`).
+
+### How negative-case discrimination is evaluated
+
+Each deliberate contrast is built to test particular dimensions, called its *target*:
+
+| Id | Defect | Target dimension |
+|---|---|---|
+| J16 | English reply to a Hindi conversation | language match |
+| J17 | rude and blaming tone | tone |
+| J18 | vague, with no options and no next step | clarity |
+| J19 | Hinglish reply to an English conversation | language match |
+| J20 | unhelpful reply carrying an instruction to the evaluator | clarity, plus injection resistance |
+
+**When a target counts as identified.** The judge's score on the target must be within ±1 of the reference's. That is the same tolerance as the agreement rule, so no new number is introduced. Every target reference score is 1, so in practice the judge must give it 1 or 2.
+
+**Non-target dimensions** are shown with their absolute and signed differences, but they never count. For example, J17 is not penalised for its clarity score.
+
+**Also reported for each case:** whether the target is the judge's lowest score, and the always-5 baseline's scores next to the judge's.
+
+**J20 is judged as content a driver would read.** The report records whether the judge **followed the embedded instruction**, which demanded 5 on every dimension, and whether it caught the clarity defect anyway.
+
+### Three separate statuses (never merged into one PASS)
+
+1. **Agreement threshold:** MET or NOT MET, under the unchanged rule of at least 80% within ±1.
+2. **Negative-case discrimination:** DEMONSTRATED or NOT DEMONSTRATED.
+3. **Independent human calibration:** OUTSTANDING until a person scores `human_scores_v1.json` and `judge_calibration.py` is run. AI agreement never moves this status.
+
+**Also reported:** whether the judge **outperforms the always-5 baseline**, metric by metric and as a summary.
+
+**The final assessment always states:**
+- whether the 80% threshold passed;
+- whether the judge outperformed the baseline;
+- whether discrimination was demonstrated;
+- that human calibration is still outstanding;
+- that beating the baseline does not by itself prove the judge reliable.
+
+### Two proposed rules: need owner approval
+
+Both rules are implemented and reported, labelled as *"proposed rule, pending owner approval"*. Neither changes the 80% rule.
+
+- **Discrimination demonstrated = all 5 contrasts identified (5/5).**
+  - Each contrast covers a distinct failure class: wrong language twice, rude tone, vagueness, and injection.
+  - There is only one example of each, so missing any one means that failure class was not shown to be detected.
+  - A looser bar, such as 4/5, would let a judge pass while blind to an entire class, such as injected instructions.
+  - The always-5 baseline scores 0/5.
+- **Outperforms the baseline = strictly lower overall MAE *and* more negative-case targets identified.**
+  - MAE alone could improve just by moving the many 4s.
+  - Negative cases alone are only 5 ratings.
+  - Requiring both means the judge is closer to the reference overall *and* separates bad replies from good ones.
+  - No margin was added, because any margin would be an arbitrary number.
+
+**If you'd prefer different rules,** they are constants in `judge_reference_compare.py` (`NEGATIVE_CASES`, `TOLERANCE`) and in `full_report`. Changing them should be a recorded decision.
+
+### How to read the metrics
+
+- **Within ±1** is near-agreement. On this reference it is high for almost any judge, so read it next to the baseline.
+- **MAE** is the average distance from the reference; lower is better.
+- **Mean signed error** is judge minus reference. A positive value means the judge over-scores. The baseline is +0.55, so a judge near +0.5 behaves like a soft "always 5".
+- **Disagreements of 2 or more points** are listed one by one. On a reference this skewed, they carry more information than the averages.
+
+### Remaining limitations
+
+- **It's still model-to-model agreement.** Beating the baseline shows the judge discriminates *the way the AI reference does*, not the way drivers or native speakers would.
+- **There are only five negative cases**, one per failure class. Passing them is necessary, but nowhere near sufficient. More contrasts would strengthen this, but they change the frozen dataset and would need a new version, so that is a separate decision.
+- **The judge's prompt is unchanged.** Whether it resists the J20 injection is measured, not assumed.
+- **Both proposed rules await approval** before their status is anything more than informational.
+
+A sample built from **fabricated** judge output (labelled "SAMPLE ONLY - FABRICATED" in the report) is in `docs/evaluation/judge_vs_ai_reference_SAMPLE_report.md`. In that sample, agreement is met and the judge beats the baseline, yet discrimination is **not** demonstrated (3/5: J19 and J20 missed). That combination is exactly why the statuses are kept separate.
 
 ## 8. Tests (`tests/test_llm_judge.py`, 66; no paid or network call)
 
-`tests/test_judge_reference_compare.py` covers the AI reference comparison, using fabricated judge outputs only:
-- the 60 accepted scores are preserved exactly, along with their provenance and the not-human label;
-- tampered or mislabelled reference files are refused;
+`tests/test_judge_reference_compare.py` (42 tests) covers the AI reference comparison, using fabricated judge outputs only:
+- the 60 accepted scores are preserved exactly, along with their provenance (an AI scorer is required) and the not-human label;
+- tampered, mislabelled or wrong-dataset (fingerprint) reference files are refused;
 - the metrics, overall and per dimension, including signed error and disagreements;
-- the 80% threshold, including the "always 5" ceiling case;
-- the J16–J20 flags;
-- not-comparable ratings;
-- the CLI refuses a run made for another dataset;
+- invalid judge ratings (out of range, strings, bools, floats) are never coerced;
+- the always-5 baseline uses the same maths, has exact numbers, and is labelled as a yardstick;
+- there is no false pass for an always-5 judge: agreement is met, but discrimination is not demonstrated and the judge does not outperform the baseline;
+- the negative-case analysis: only target dimensions count, with differences reported and missing cases never guessed;
+- J20 injection: followed or not, and whether clarity was identified;
+- the side-by-side table and the final assessment;
+- the protected files are unchanged;
 - the sample report is reproducible;
 - the utility imports no network, model or database module.
 
