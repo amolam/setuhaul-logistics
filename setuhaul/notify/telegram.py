@@ -145,6 +145,8 @@ def parse_update(u: dict) -> TelegramEvent:
         if not (isinstance(frm.get("id"), int) and m):
             return TelegramEvent("ignored", uid, None, None, None)
         chat = (msg.get("chat") or {}).get("id")
+        if msg and (msg.get("chat") or {}).get("type", "private") != "private":
+            return TelegramEvent("ignored", uid, None, None, None)      # buttons only count in the driver's private chat
         return TelegramEvent("callback", uid, str(frm["id"]), str(chat) if isinstance(chat, int) else str(frm["id"]),
                              f"tgcb:{cq.get('id') or uid}", offer_id=m.group(1), action=ACTIONS[m.group(2)],
                              callback_query_id=str(cq.get("id") or ""))
@@ -214,12 +216,18 @@ class TelegramGateway:
         self.sent: list[tuple[str, str]] = []
         self.cleared: list[tuple[str, int]] = []
 
-    def reply(self, chat_id: str, text: str) -> None:
+    def reply(self, chat_id: str, text: str, reply_markup: dict | None = None) -> None:
         self.sent.append((chat_id, text))
         if self.provider is None:
             _sink_log("reply", chat_id, text)
             return
-        self.provider.send(chat_id, text, str(uuid.uuid4()))
+        self.provider.send(chat_id, text, str(uuid.uuid4()), reply_markup=reply_markup)
+
+    def answer_callback(self, callback_query_id: str) -> None:
+        """Stops the tapped button's spinner (answerCallbackQuery). Carries no text: the reply message says it all."""
+        if self.provider is None or not callback_query_id:
+            return
+        self.provider.answer_callback(callback_query_id)
 
     def clear_buttons(self, chat_id: str, message_id: int) -> None:
         """After a valid answer the offer message keeps its text and loses its buttons (editMessageReplyMarkup)."""
@@ -250,6 +258,12 @@ class TelegramBotProvider:
         except Exception:                                     # noqa: BLE001
             log.warning("could not clear an answered offer's buttons")
 
+    def answer_callback(self, callback_query_id: str) -> None:
+        try:                                                  # best effort: only the client's spinner depends on it
+            self.http.post(f"{self._base}/answerCallbackQuery", json={"callback_query_id": callback_query_id})
+        except Exception:                                     # noqa: BLE001
+            log.warning("could not answer a callback query")
+
     def send(self, to: str, text: str, idempotency_key: str, reply_markup: dict | None = None) -> SendResult:
         import httpx
         body = {"chat_id": to, "text": text}
@@ -271,3 +285,97 @@ class TelegramBotProvider:
         if r.status_code >= 500:
             return SendResult(AMBIGUOUS, error=f"HTTP {r.status_code}")
         return SendResult(PERMANENT, error=f"HTTP {r.status_code}")        # 400 bad chat, 403 blocked by the user
+
+
+REMOVE_KEYBOARD = {"remove_keyboard": True}      # after a location share or "Not now": the one-time keyboard goes away
+
+
+class AllowlistedTelegram:
+    """TEST-BOT mode: wraps the real Bot API provider so that ONLY the configured test chats are ever contacted.
+    Any other chat is refused before a network call (PERMANENT, so the relay records FAILED with an escalation:
+    visible, never silent). A link redeemed from a non-allowlisted account therefore gets nothing either."""
+
+    supports_idempotency = False
+    service_window = False
+
+    def __init__(self, provider, allowed: frozenset[str]):
+        if not allowed:
+            raise RuntimeError("CONFIG: the Telegram test allowlist is empty")
+        self.provider, self.allowed = provider, frozenset(allowed)
+
+    def allows(self, chat_id) -> bool:
+        return str(chat_id) in self.allowed
+
+    def send(self, to: str, text: str, idempotency_key: str, reply_markup: dict | None = None) -> SendResult:
+        if not self.allows(to):
+            log.warning("TELEGRAM_TEST_BOT refused a chat outside the allowlist chat=%s",
+                        hashlib.sha256(str(to).encode()).hexdigest()[:12])
+            return SendResult(PERMANENT, error="NOT_ALLOWLISTED")
+        return self.provider.send(to, text, idempotency_key, reply_markup=reply_markup)
+
+    def clear_buttons(self, chat_id: str, message_id: int) -> None:
+        if self.allows(chat_id):
+            self.provider.clear_buttons(chat_id, message_id)
+
+    def answer_callback(self, callback_query_id: str) -> None:
+        self.provider.answer_callback(callback_query_id)        # answers the tap that was already allowlisted inbound
+
+
+TEST_BOT_ENVS = ("local", "dev")
+_CHAT_ID_RE = re.compile(r"^[1-9][0-9]{4,14}$")                # a private chat id is a positive integer
+
+
+def telegram_from_env(env: dict, secrets_client=None):
+    """The ONE place Telegram delivery is chosen (relay and webhook replies). Returns (transport, allowlist):
+
+      off        (None, None)                    no Telegram routing
+      test_sink  (TelegramTestSink(), None)      default; nothing leaves the process
+      test_bot   (AllowlistedTelegram, ids)      the real Bot API for a dedicated TEST bot, only to allowlisted chats.
+                 Needs ALL of: SETUHAUL_TELEGRAM_TEST_BOT_AUTHORIZED=true, SETUHAUL_ENV in {local, dev},
+                 SETUHAUL_TELEGRAM_TEST_CHAT_IDS (1-10 numeric ids), and the token from Secrets Manager
+                 (SETUHAUL_TELEGRAM_BOT_SECRET_ID) or, locally, SETUHAUL_TELEGRAM_TEST_BOT_TOKEN. It ignores
+                 SETUHAUL_TELEGRAM_LIVE_AUTHORIZED and is refused in pilot / staging / production.
+      live       (TelegramBotProvider, None)     production-style; needs SETUHAUL_TELEGRAM_LIVE_AUTHORIZED=true and the
+                 token from Secrets Manager only. Not used in this cycle.
+
+    Anything missing or unknown raises (fail closed). The token is never logged or returned."""
+    mode = env.get("SETUHAUL_TELEGRAM_DELIVERY", "test_sink")
+    if mode == "off":
+        return None, None
+    if mode == "test_sink":
+        return TelegramTestSink(), None
+    if mode == "test_bot":
+        if env.get("SETUHAUL_TELEGRAM_TEST_BOT_AUTHORIZED", "false").lower() != "true":
+            raise RuntimeError("CONFIG: test_bot needs SETUHAUL_TELEGRAM_TEST_BOT_AUTHORIZED=true")
+        if env.get("SETUHAUL_ENV") not in TEST_BOT_ENVS:
+            raise RuntimeError(f"CONFIG: test_bot runs only with SETUHAUL_ENV in {TEST_BOT_ENVS}")
+        ids = [x.strip() for x in env.get("SETUHAUL_TELEGRAM_TEST_CHAT_IDS", "").split(",") if x.strip()]
+        if not ids or len(ids) > 10 or not all(_CHAT_ID_RE.match(x) for x in ids):
+            raise RuntimeError("CONFIG: SETUHAUL_TELEGRAM_TEST_CHAT_IDS must list 1-10 numeric private chat ids")
+        if env.get("SETUHAUL_TELEGRAM_BOT_SECRET_ID"):
+            token = _token_from_secret(env, secrets_client)
+        else:
+            token = (env.get("SETUHAUL_TELEGRAM_TEST_BOT_TOKEN") or "").strip()
+        if not re.match(r"^[0-9]{5,15}:[A-Za-z0-9_-]{30,}$", token):
+            raise RuntimeError("CONFIG: no usable Telegram test-bot token")
+        allow = frozenset(ids)
+        return AllowlistedTelegram(TelegramBotProvider(token), allow), allow
+    if mode == "live":
+        if env.get("SETUHAUL_TELEGRAM_LIVE_AUTHORIZED", "false").lower() != "true":
+            raise RuntimeError("CONFIG: SETUHAUL_TELEGRAM_DELIVERY=live needs SETUHAUL_TELEGRAM_LIVE_AUTHORIZED=true")
+        if not env.get("SETUHAUL_TELEGRAM_BOT_SECRET_ID"):
+            raise RuntimeError("CONFIG: SETUHAUL_TELEGRAM_BOT_SECRET_ID is required for live Telegram delivery")
+        return TelegramBotProvider(_token_from_secret(env, secrets_client)), None
+    raise RuntimeError(f"CONFIG: unknown SETUHAUL_TELEGRAM_DELIVERY {mode!r}")
+
+
+def _token_from_secret(env: dict, client) -> str:
+    import json
+    if client is None:
+        import boto3
+        client = boto3.client("secretsmanager", region_name=env.get("SETUHAUL_AWS_REGION", "ap-southeast-2"))
+    try:
+        raw = client.get_secret_value(SecretId=env["SETUHAUL_TELEGRAM_BOT_SECRET_ID"])["SecretString"]
+        return json.loads(raw)["token"] if raw.strip().startswith("{") else raw.strip()
+    except Exception as e:
+        raise RuntimeError(f"CONFIG: Telegram bot secret unreadable ({type(e).__name__})") from None

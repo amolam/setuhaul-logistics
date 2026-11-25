@@ -1885,7 +1885,7 @@ class BookingService:
         if ev.kind == "text" and ev.text.strip().lower() == tg.NOT_NOW.lower():
             # the reply-keyboard "Not now" after a location request: recorded, and the delay report stands
             r = self.record_location(drv, LocationReport(False), ev.external_id)
-            return {"reply": tg.TEXT_LOCATION["UNAVAILABLE"], "event": None, "result": r}
+            return {"reply": tg.TEXT_LOCATION["UNAVAILABLE"], "event": None, "result": r, "remove_keyboard": True}
         if ev.kind == "text":
             with self.db.tx("ingest", driver=drv) as c:
                 open_offer = c.execute("SELECT open_offer_for_driver(%s)", (drv,)).fetchone()[0]
@@ -1904,7 +1904,7 @@ class BookingService:
         if ev.kind == "location":
             r = self.record_location(drv, LocationReport(True, ev.latitude, ev.longitude, ev.observed_at, ev.accuracy_m),
                                      ev.external_id)
-            return {"reply": tg.TEXT_LOCATION.get(r["assessment"]), "event": None, "result": r}
+            return {"reply": tg.TEXT_LOCATION.get(r["assessment"]), "event": None, "result": r, "remove_keyboard": True}
         e = self.ingest_driver(drv, ev.external_id, ev.text, sessions, channel="TELEGRAM")
         return {"reply": None, "event": e if "session_token" in e else None}
 

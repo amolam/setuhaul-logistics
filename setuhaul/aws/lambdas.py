@@ -333,30 +333,12 @@ def telegram_transport(env: dict | None = None, client=None):
       live                 the Bot API, ONLY with SETUHAUL_TELEGRAM_LIVE_AUTHORIZED=true (the owner's explicit
                            authorization) and the token from Secrets Manager (SETUHAUL_TELEGRAM_BOT_SECRET_ID). The
                            token is never read from a plain variable and never logged.
+      test_bot             a dedicated TEST bot, allowlisted chats only, SETUHAUL_ENV local/dev only (see
+                           setuhaul.notify.telegram.telegram_from_env); refused in the pilot.
     Anything else is refused."""
-    from ..notify.telegram import TelegramBotProvider, TelegramTestSink
+    from ..notify.telegram import telegram_from_env
     env = dict(os.environ) if env is None else env
-    mode = env.get("SETUHAUL_TELEGRAM_DELIVERY", "test_sink")
-    if mode == "off":
-        return None
-    if mode == "test_sink":
-        return TelegramTestSink()
-    if mode == "live":
-        if env.get("SETUHAUL_TELEGRAM_LIVE_AUTHORIZED", "false").lower() != "true":
-            raise RuntimeError("CONFIG: SETUHAUL_TELEGRAM_DELIVERY=live needs SETUHAUL_TELEGRAM_LIVE_AUTHORIZED=true")
-        secret_id = env.get("SETUHAUL_TELEGRAM_BOT_SECRET_ID")
-        if not secret_id:
-            raise RuntimeError("CONFIG: SETUHAUL_TELEGRAM_BOT_SECRET_ID is required for live Telegram delivery")
-        if client is None:
-            import boto3
-            client = boto3.client("secretsmanager", region_name=env.get("SETUHAUL_AWS_REGION", "ap-southeast-2"))
-        try:
-            raw = client.get_secret_value(SecretId=secret_id)["SecretString"]
-            token = json.loads(raw)["token"] if raw.strip().startswith("{") else raw.strip()
-        except Exception as e:
-            raise RuntimeError(f"CONFIG: Telegram bot secret unreadable ({type(e).__name__})") from None
-        return TelegramBotProvider(token)
-    raise RuntimeError(f"CONFIG: unknown SETUHAUL_TELEGRAM_DELIVERY {mode!r}")
+    return telegram_from_env(env, client)[0]
 
 
 def outbound_handler(event, context):

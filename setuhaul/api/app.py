@@ -64,6 +64,11 @@ class Settings:
     # Roadmap Phase 5: Telegram webhook secret (setWebhook secret_token). Unset: the /webhooks/telegram route does not
     # exist. In AWS it would come from Secrets Manager like the other secrets; NOT provisioned yet (owner approval).
     telegram_webhook_secret: str | None = None
+    # Where webhook replies go (link results, button answers, cleared buttons): None = the in-process test sink. With
+    # SETUHAUL_TELEGRAM_DELIVERY=test_bot this is the allowlisted test bot, and `telegram_allowlist` makes the webhook
+    # ignore every account outside it (setuhaul.notify.telegram.telegram_from_env; fail closed).
+    telegram_replies: object | None = None
+    telegram_allowlist: frozenset | None = None
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -80,11 +85,21 @@ class Settings:
                    optimizer_ranking=os.environ.get("SETUHAUL_OPTIMIZER_RANKING", "off").lower() in ("on", "true", "1"),
                    option_ttl_s=int(os.environ["SETUHAUL_OPTION_TTL_S"]) if os.environ.get("SETUHAUL_OPTION_TTL_S") else None,
                    telegram_webhook_secret=os.environ.get("SETUHAUL_TELEGRAM_WEBHOOK_SECRET") or None,
+                   **_telegram_replies_from_env(),
                    deployment_id=os.environ.get("SETUHAUL_DEPLOYMENT_ID") or None,
                    deployment_manifest=os.environ.get("SETUHAUL_DEPLOYMENT_MANIFEST") or None,
                    manifest_source=os.environ.get("SETUHAUL_DEPLOYMENT_MANIFEST_SOURCE", "file"),
                    tools_route=(os.environ.get("SETUHAUL_TOOLS_ROUTE", "on").lower() not in ("off", "false", "0")
                                 and os.environ.get("SETUHAUL_ENV") not in ("staging", "pilot")))
+
+
+def _telegram_replies_from_env() -> dict:
+    """Only test_bot / live put a real transport behind webhook replies; anything else keeps the test sink."""
+    if os.environ.get("SETUHAUL_TELEGRAM_DELIVERY", "test_sink") not in ("test_bot", "live"):
+        return {}
+    from ..notify.telegram import telegram_from_env
+    transport, allow = telegram_from_env(dict(os.environ))       # raises on any missing piece: the app does not start
+    return {"telegram_replies": transport, "telegram_allowlist": allow}
 
 
 class ToolCall(BaseModel):
@@ -409,8 +424,10 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
 
     # ---------------------------------------------------------------- inbound Telegram (roadmap Phase 5, 0035)
     if settings.telegram_webhook_secret:
-        from ..notify.telegram import TelegramGateway, secret_ok
-        app.state.telegram = TelegramGateway()          # test sink: replies are logged and kept, never sent
+        from ..notify.telegram import REMOVE_KEYBOARD, TelegramGateway, secret_ok
+        # test sink (default): replies are logged and kept, never sent. test_bot: the allowlisted test bot.
+        app.state.telegram = TelegramGateway(settings.telegram_replies)
+        tg_allow = settings.telegram_allowlist
         if len(settings.telegram_webhook_secret) < 32:
             raise ValueError("SETUHAUL_TELEGRAM_WEBHOOK_SECRET must be at least 32 characters")
 
@@ -426,6 +443,12 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
                 update = json.loads(raw)
             except ValueError:
                 return {"ok": True}
+            if tg_allow is not None:
+                # test_bot: an account outside the test allowlist is not processed at all (no link, no reply)
+                frm = ((update.get("message") or (update.get("callback_query") or {})) or {}).get("from") \
+                    if isinstance(update, dict) else None
+                if not (isinstance(frm, dict) and str(frm.get("id")) in tg_allow):
+                    return {"ok": True}
             try:
                 out = await run_in_threadpool(svc.handle_telegram_update, update, sessions)
             except Exception:
@@ -439,11 +462,15 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
                     log.exception("stored but not published; the recovery sweep will publish it")
             cq_msg = (update.get("callback_query") or {}).get("message") or {}
             chat = (update.get("message") or cq_msg or {}).get("chat", {})
+            cq_id = (update.get("callback_query") or {}).get("id")
+            if isinstance(cq_id, str):                    # stop the tapped button's spinner first
+                app.state.telegram.answer_callback(cq_id)
             if out.get("clear_buttons") and isinstance(chat.get("id"), int) and isinstance(cq_msg.get("message_id"), int):
                 app.state.telegram.clear_buttons(str(chat["id"]), cq_msg["message_id"])
             if out.get("reply") and isinstance(chat.get("id"), int):
-                app.state.telegram.reply(str(chat["id"]), out["reply"])
-            return {"ok": True}                          # constant: reveals nothing about links or drivers
+                app.state.telegram.reply(str(chat["id"]), out["reply"],
+                                         REMOVE_KEYBOARD if out.get("remove_keyboard") else None)
+            return {"ok": True}                         # constant: reveals nothing about links or drivers
 
     # ---------------------------------------------------------------- agent tools
     if settings.tools_route:
