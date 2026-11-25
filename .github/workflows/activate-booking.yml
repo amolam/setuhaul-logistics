@@ -39,11 +39,23 @@ on:
         required: false
         default: ""
       langsmith:
-        description: "G.2: LangSmith tracing for the agent (on = the setuhaul/pilot/langsmith secret, read by the agent only; project setuhaul-synthetic-pilot). Use the SAME value for the provisional and the renewal run of one release"
+        description: "LangSmith tracing (Full Activation: ON by default in the pilot; on = the setuhaul/pilot/langsmith secret, read by the agent, api and sender; project setuhaul-synthetic-pilot; content off). Use the SAME value for the provisional and the renewal run of one release"
         required: false
-        default: "off"
+        default: "on"
         type: choice
-        options: ["off", "on"]
+        options: ["on", "off"]
+      telegram_live_approval:
+        description: "Full Activation, optional: the owner's SEPARATE written approval for LIVE Telegram (OWNER-APPROVAL-YYYYMMDD-<ref>). Empty = Telegram stays on the test sink. Never reuse the booking reference. Use the SAME value for the provisional and the renewal run"
+        required: false
+        default: ""
+      telegram_authorized_drivers:
+        description: "Full Activation, required with telegram_live_approval: the owner's list of authorized pilot driver ids for live Telegram, comma-separated (2-50 SetuHaul ids, DRV-...; never phones, names or chat ids)"
+        required: false
+        default: ""
+      llm_judge_budget_usd:
+        description: "Full Activation: the owner-approved DAILY budget for the advisory online LLM judge, USD 0-1. 0 (default) = configured but nothing is sent. Use the SAME value for the provisional and the renewal run"
+        required: false
+        default: "0"
 
 permissions:
   contents: read
@@ -99,6 +111,9 @@ jobs:
       MODE: ${{ github.event.inputs.mode }}
       RECOVERY_OF: ${{ github.event.inputs.recovery_of }}
       LANGSMITH: ${{ github.event.inputs.langsmith }}
+      TELEGRAM_LIVE_APPROVAL: ${{ github.event.inputs.telegram_live_approval }}
+      JUDGE_BUDGET: ${{ github.event.inputs.llm_judge_budget_usd }}
+      TELEGRAM_DRIVERS: ${{ github.event.inputs.telegram_authorized_drivers }}
     steps:
       - name: Refuse without the typed confirmation or a well-formed approval reference
         run: |
@@ -109,6 +124,14 @@ jobs:
             [ "$MODE" = "provisional" ] || { echo "REFUSED: recovery_of applies only to mode=provisional" >&2; exit 1; }
             echo "$RECOVERY_OF" | grep -Eq '^[1-9][0-9]{0,9}$' || { echo "REFUSED: recovery_of must be an authorization id" >&2; exit 1; }
           fi
+          if [ -n "$TELEGRAM_LIVE_APPROVAL" ]; then
+            echo "$TELEGRAM_LIVE_APPROVAL" | grep -Eq '^OWNER-APPROVAL-20[0-9]{6}-[A-Za-z0-9-]{3,40}$' || { echo "REFUSED: telegram approval reference" >&2; exit 1; }
+            [ "$TELEGRAM_LIVE_APPROVAL" != "$APPROVAL_REF" ] || { echo "REFUSED: live Telegram needs its own approval, not the booking reference" >&2; exit 1; }
+            echo "$TELEGRAM_DRIVERS" | grep -Eq '^[A-Za-z0-9_-]*DRV-[A-Za-z0-9_-]+(,[A-Za-z0-9_-]*DRV-[A-Za-z0-9_-]+)+$' || { echo "REFUSED: live Telegram needs telegram_authorized_drivers (2 or more driver ids)" >&2; exit 1; }
+          elif [ -n "$TELEGRAM_DRIVERS" ]; then
+            echo "REFUSED: telegram_authorized_drivers applies only with telegram_live_approval" >&2; exit 1
+          fi
+          echo "${JUDGE_BUDGET:-0}" | grep -Eq '^(0(\.[0-9]{1,2})?|1(\.0{1,2})?)$' || { echo "REFUSED: llm_judge_budget_usd must be 0 to 1" >&2; exit 1; }
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262        # v4.4.0
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065    # v5.6.0
         with:
@@ -126,8 +149,9 @@ jobs:
           rm first-build.zip
       - name: Synthesise once with the owner's approval in the context (booking ON for api and agent only)
         run: |
-          case "${LANGSMITH:-off}" in on|off) ;; *) echo "REFUSED: langsmith must be on or off" >&2; exit 1 ;; esac
-          CDK_CONTEXT_JSON="$(jq -cn --arg r "$APPROVAL_REF" --arg l "${LANGSMITH:-off}"             '{booking_approval: $r} + (if $l == "on" then {langsmith_tracing: "on"} else {} end)')" python infra/app.py
+          case "${LANGSMITH:-on}" in on|off) ;; *) echo "REFUSED: langsmith must be on or off" >&2; exit 1 ;; esac
+          CDK_CONTEXT_JSON="$(jq -cn --arg r "$APPROVAL_REF" --arg l "${LANGSMITH:-on}" --arg t "$TELEGRAM_LIVE_APPROVAL" --arg j "${JUDGE_BUDGET:-0}" --arg c "$GITHUB_SHA" --arg d "$TELEGRAM_DRIVERS" \
+            '{booking_approval: $r, langsmith_tracing: $l, llm_judge_budget_usd: $j, release_commit: $c} + (if $t != "" then {telegram_live_approval: $t, telegram_authorized_drivers: $d} else {} end)')" python infra/app.py
       - name: The template is the synthetic pilot with booking on only where it belongs, and no real sender
         run: |
           python - <<'PY'
@@ -144,13 +168,30 @@ jobs:
           import os
           ls = {n for n, e in fns.items() if "SETUHAUL_LANGSMITH_SECRET_ID" in e}
           secrets = [k for k, r in t["Resources"].items() if r["Type"] == "AWS::SecretsManager::Secret" and k.startswith("LangSmith")]
-          if os.environ.get("LANGSMITH", "off") == "on":    # G.2: the key reaches the agent only, pilot project, content off
-              assert ls == {"setuhaul-pilot-agent"} and len(secrets) == 1, (ls, secrets)
-              a = fns["setuhaul-pilot-agent"]
-              assert a["SETUHAUL_LANGSMITH_PROJECT"] == "setuhaul-synthetic-pilot" and a["SETUHAUL_TRACE_CONTENT"] == "off", a
+          tracers = {"setuhaul-pilot-agent", "setuhaul-pilot-api", "setuhaul-pilot-outbound"}
+          if os.environ.get("LANGSMITH", "on") == "on":     # the key reaches the three tracing functions, pilot project, content off
+              assert ls == tracers and len(secrets) == 1, (ls, secrets)
+              for n in tracers:
+                  assert fns[n]["SETUHAUL_LANGSMITH_PROJECT"] == "setuhaul-synthetic-pilot" and fns[n]["SETUHAUL_TRACE_CONTENT"] == "off", n
           else:
               assert not ls and not secrets, (ls, secrets)
-          print("booking ON for", sorted(on), "| sender: test sink, WhatsApp off | langsmith:", sorted(ls) or "off")
+          # Full Activation: live Telegram only with its own approval, only on the api and the sender, pilot only
+          tg = {n for n, e in fns.items() if e.get("SETUHAUL_TELEGRAM_DELIVERY") == "live"}
+          if os.environ.get("TELEGRAM_LIVE_APPROVAL"):
+              assert tg == {"setuhaul-pilot-api", "setuhaul-pilot-outbound"}, tg
+              assert all(fns[n]["SETUHAUL_TELEGRAM_LIVE_AUTHORIZED"] == "true" for n in tg)
+              assert "SETUHAUL_TELEGRAM_WEBHOOK_SECRET_ID" in fns["setuhaul-pilot-api"]
+              assert "SETUHAUL_TELEGRAM_WEBHOOK_SECRET_ID" not in fns["setuhaul-pilot-outbound"]
+              assert all(fns[n]["SETUHAUL_TELEGRAM_AUTHORIZED_DRIVERS"] == os.environ.get("TELEGRAM_DRIVERS") for n in tg)
+              assert t["Outputs"]["TelegramMode"]["Value"].startswith("LIVE (OWNER-APPROVAL-")
+          else:
+              assert not tg and not [n for n, e in fns.items() if any(k.startswith("SETUHAUL_TELEGRAM_") for k in e)], tg
+          # the online judge: configured on the agent only, within the owner's daily budget (0 = nothing sent)
+          j = {n for n, e in fns.items() if "SETUHAUL_LLM_JUDGE_RUN_CAP_USD" in e}
+          assert j == {"setuhaul-pilot-agent"}, j
+          assert float(fns["setuhaul-pilot-agent"]["SETUHAUL_LLM_JUDGE_DAILY_BUDGET_USD"]) == float(os.environ.get("JUDGE_BUDGET") or 0) <= 1
+          print("booking ON for", sorted(on), "| sender: test sink for WhatsApp, WhatsApp off | langsmith:", sorted(ls) or "off",
+                "| telegram:", "LIVE" if tg else "test sink", "| judge budget USD/day:", os.environ.get("JUDGE_BUDGET") or "0")
           PY
       - name: Check the assembly without AWS credentials
         run: python -m setuhaul.ops.assembly cdk.out --zip build/lambda.zip | tee build/assembly.json

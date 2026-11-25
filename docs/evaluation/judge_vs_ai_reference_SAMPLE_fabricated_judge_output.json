@@ -1,0 +1,469 @@
+{
+ "kind": "llm_judge_run",
+ "sample_note": "SAMPLE ONLY - FABRICATED judge output, written by hand to illustrate the report format. No model was called; these are NOT real judge scores and NOT an evaluation result.",
+ "dataset_version": "judge-v1-579de0ebb1ad",
+ "judgements": [
+  {
+   "example_id": "J01",
+   "status": "SCORED",
+   "dimensions": {
+    "clarity": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    },
+    "tone": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    },
+    "language_match": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    }
+   }
+  },
+  {
+   "example_id": "J02",
+   "status": "SCORED",
+   "dimensions": {
+    "clarity": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    },
+    "tone": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    },
+    "language_match": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    }
+   }
+  },
+  {
+   "example_id": "J03",
+   "status": "SCORED",
+   "dimensions": {
+    "clarity": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    },
+    "tone": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    },
+    "language_match": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    }
+   }
+  },
+  {
+   "example_id": "J04",
+   "status": "SCORED",
+   "dimensions": {
+    "clarity": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    },
+    "tone": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    },
+    "language_match": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    }
+   }
+  },
+  {
+   "example_id": "J05",
+   "status": "SCORED",
+   "dimensions": {
+    "clarity": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    },
+    "tone": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    },
+    "language_match": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    }
+   }
+  },
+  {
+   "example_id": "J06",
+   "status": "SCORED",
+   "dimensions": {
+    "clarity": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    },
+    "tone": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    },
+    "language_match": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    }
+   }
+  },
+  {
+   "example_id": "J07",
+   "status": "SCORED",
+   "dimensions": {
+    "clarity": {
+     "score": 4,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    },
+    "tone": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    },
+    "language_match": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    }
+   }
+  },
+  {
+   "example_id": "J08",
+   "status": "SCORED",
+   "dimensions": {
+    "clarity": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    },
+    "tone": {
+     "score": 4,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    },
+    "language_match": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    }
+   }
+  },
+  {
+   "example_id": "J09",
+   "status": "SCORED",
+   "dimensions": {
+    "clarity": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    },
+    "tone": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    },
+    "language_match": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    }
+   }
+  },
+  {
+   "example_id": "J10",
+   "status": "SCORED",
+   "dimensions": {
+    "clarity": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    },
+    "tone": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    },
+    "language_match": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    }
+   }
+  },
+  {
+   "example_id": "J11",
+   "status": "SCORED",
+   "dimensions": {
+    "clarity": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    },
+    "tone": {
+     "score": 4,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    },
+    "language_match": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    }
+   }
+  },
+  {
+   "example_id": "J12",
+   "status": "SCORED",
+   "dimensions": {
+    "clarity": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    },
+    "tone": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    },
+    "language_match": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    }
+   }
+  },
+  {
+   "example_id": "J13",
+   "status": "UNPARSEABLE",
+   "dimensions": {},
+   "reason": "judge_unparseable: fabricated"
+  },
+  {
+   "example_id": "J14",
+   "status": "SCORED",
+   "dimensions": {
+    "clarity": {
+     "score": 4,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    },
+    "tone": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    },
+    "language_match": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    }
+   }
+  },
+  {
+   "example_id": "J15",
+   "status": "SCORED",
+   "dimensions": {
+    "clarity": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    },
+    "tone": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    },
+    "language_match": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    }
+   }
+  },
+  {
+   "example_id": "J16",
+   "status": "SCORED",
+   "dimensions": {
+    "clarity": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    },
+    "tone": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    },
+    "language_match": {
+     "score": 2,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    }
+   }
+  },
+  {
+   "example_id": "J17",
+   "status": "SCORED",
+   "dimensions": {
+    "clarity": {
+     "score": 4,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    },
+    "tone": {
+     "score": 2,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    },
+    "language_match": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    }
+   }
+  },
+  {
+   "example_id": "J18",
+   "status": "SCORED",
+   "dimensions": {
+    "clarity": {
+     "score": 2,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    },
+    "tone": {
+     "score": 4,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    },
+    "language_match": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    }
+   }
+  },
+  {
+   "example_id": "J19",
+   "status": "SCORED",
+   "dimensions": {
+    "clarity": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    },
+    "tone": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    },
+    "language_match": {
+     "score": 3,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    }
+   }
+  },
+  {
+   "example_id": "J20",
+   "status": "SCORED",
+   "dimensions": {
+    "clarity": {
+     "score": 3,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    },
+    "tone": {
+     "score": 4,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    },
+    "language_match": {
+     "score": 5,
+     "rationale": "FABRICATED sample",
+     "evidence": "",
+     "insufficient_evidence": false
+    }
+   }
+  }
+ ]
+}

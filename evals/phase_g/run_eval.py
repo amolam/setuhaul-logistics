@@ -126,11 +126,23 @@ def options_of(env, client, d):
     return r["data"]["flow"]["options"] if r["status"] == "OK" else []       # a person owns the thread: none
 
 
+def confirmer_on_shift(env, sid: str) -> bool:
+    """Whether submit_booking_request can be confirmed right now for this shipment's facility: a labour shift is on
+    (facility_shift) and that shift has a warehouse confirmation TTL (the 0016 NO_CONFIRMER_AVAILABLE rule). The Phase G
+    facilities are staffed 06:00-22:00 IST (phase_g_assumptions.json), so this is false at night."""
+    return bool(env.q("""SELECT coalesce((c.warehouse_confirm_ttl_min ->> setuhaul.facility_shift(s.destination_facility_id,
+                                                                                clock_timestamp()))::int, 0) > 0
+                           FROM setuhaul.shipments s
+                           JOIN setuhaul.facility_config c ON c.facility_id = s.destination_facility_id AND c.active
+                          WHERE s.shipment_id = %s""", sid)[0][0])
+
+
 # ---------------------------------------------------------------- executors
 def run_conversation(env: Env, row: dict) -> dict:
     inp, exp = row["input"], row["expected"]
     client = env.client_off if inp.get("booking") is False else env.client
     drv, phone, sids = add_synthetic_driver(env.dsn, **inp.get("driver", {}))
+    staffed_before = confirmer_on_shift(env, sids[0])
     d = Driver(client, phone)
     model = None if inp.get("model") == "none" else FakeModel(extractions=[])
     orch = Orchestrator(client.app.state.service, client.app.state.sessions, model)
@@ -191,7 +203,22 @@ def run_conversation(env: Env, row: dict) -> dict:
     if b == "NONE":
         check("booking", not appts and holds == 0, f"appointments {appts}, holds {holds}")
     elif b == "PENDING_REQUEST":
-        check("booking", "PENDING_CONFIRMATION" in appts or "CONFIRMED" in appts, f"appointments {appts}")
+        # The request can only be filed while a confirmer is on shift (0016). Outside staffed hours the CORRECT outcome
+        # is the NO_CONFIRMER_AVAILABLE escalation with no appointment and only the short-lived hold. Checked as such, so the
+        # scenario tests the policy at any wall-clock time instead of failing every night (CI runs in UTC).
+        staffed_after = confirmer_on_shift(env, sid)
+        pending = "PENDING_CONFIRMATION" in appts or "CONFIRMED" in appts
+        # the driver's hold is not released at once: it lapses on its own short expiry (0003: at most 180 s)
+        lasting = env.q("""SELECT count(*) FROM setuhaul.dock_occupancy WHERE shipment_id=%s AND kind='HOLD' AND active
+                             AND (expires_at IS NULL OR expires_at > clock_timestamp() + interval '180 seconds')""", sid)[0][0]
+        off_hours_ok = (not appts and lasting == 0 and "escalated:NO_CONFIRMER_AVAILABLE" in paths)
+        if staffed_before and staffed_after:
+            check("booking", pending, f"appointments {appts}")
+        elif not staffed_before and not staffed_after:
+            check("booking", off_hours_ok, f"no confirmer on shift: expected the NO_CONFIRMER_AVAILABLE escalation "
+                                           f"and no booking; appointments {appts}, holds {holds}, path {paths}")
+        else:                                                    # the shift changed during the conversation
+            check("booking", pending or off_hours_ok, f"appointments {appts}, lasting holds {lasting}, path {paths}")
     o = exp.get("optimization")
     if o == "USED":
         check("optimizer_ran", runs, "no optimization_runs row for the agent")

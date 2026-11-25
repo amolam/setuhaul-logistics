@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from typing import Any
 
 from ..agent.errors import EMPTY_SECRET, MISSING_SECRET, SECRET_RETRIEVAL_ERROR, classify_secret_error, key_shape
@@ -174,6 +175,8 @@ def tracer_from_env(env: dict | None = None, *, secrets_client: Any = None, http
     cfg = TracerConfig(enabled=False, environment=environment,
                        agent_version=(env.get("SETUHAUL_AGENT_VERSION") or env.get("SETUHAUL_RELEASE") or "unknown")[:40],
                        ui_url=ui_url_from_env(env))
+    commit = (env.get("SETUHAUL_RELEASE_COMMIT") or "").strip().lower()
+    cfg.release_commit = commit if re.fullmatch(r"[0-9a-f]{7,40}", commit) else None
     if not _on(env.get("SETUHAUL_LANGSMITH_TRACING")):
         return Tracer(cfg)
     try:

@@ -34,6 +34,7 @@ from ..domain.optimizer import (FEASIBLE, OPTIMAL, OptimizationRequest, Optimiza
                                 SlotOptimizer)
 from ..domain.scheduling import ENGINE_VERSION, NOT_A_BOOKING, RULES, Proposal, propose, snapshot_from_data
 from ..observability import tracing
+from ..observability.identifiers import is_valid as id_is_valid, stored_id
 from ..ops import telemetry
 from .db import CORRELATION_ID, TURN_FENCE, Db
 from .security import Principal
@@ -406,6 +407,14 @@ class BookingService:
                               WHERE message_id=%s AND thread_id=%s AND sender_type='DRIVER'""", (message_id, p.thread_id)).fetchone()
         return r[0] if r else None
 
+    def driver_message_channel(self, p: Principal, message_id: int) -> str | None:
+        """Driver traceability: the channel code of a DRIVER message in the caller's own thread (TELEGRAM, WHATSAPP...)."""
+        with self.db.tx("agent", driver=p.driver_id, readonly=True) as c:
+            self._thread(c, p)
+            r = c.execute("""SELECT channel FROM chat_messages
+                              WHERE message_id=%s AND thread_id=%s AND sender_type='DRIVER'""", (message_id, p.thread_id)).fetchone()
+        return r[0] if r else None
+
     def note_turn_facts(self, p: Principal, message_id: int, facts: dict | None, asked: str | None = None) -> None:
         """Remember (or, with facts=None, forget) what the driver said in earlier turns. The database function checks
         ownership, the allowed keys and the size; the agent role cannot write the table itself (migration 0008)."""
@@ -557,12 +566,15 @@ class BookingService:
             TURN_FENCE.reset(token)
 
     def record_turn_metrics(self, res) -> None:
-        """Phase G3: one row per finished turn (tool names, statuses, latencies; no driver data). Best effort."""
+        """Phase G3: one row per finished turn (tool names, statuses, latencies). Best effort. Driver traceability
+        (0041): the turn's driver and shipment ids, format-gated, and only on a row that has a facility (RLS scopes it)."""
         tools = [{"tool": t["tool"], "status": t["status"], "ms": t["ms"]} for t in res.tool_calls][:20]
         model_ms = sum(getattr(t, "latency_ms", 0) or 0 for t in res.traces) or None
         turn_ref = getattr(res, "turn_ref", None) or res.correlation_id
         telemetry.emit("agent.turn", res.correlation_id, turn_ref=turn_ref,
                        ingest_correlation_id=getattr(res, "ingest_correlation_id", None), facility_id=res.facility_id,
+                       driver_id=getattr(res, "driver_id", None), shipment_id=getattr(res, "shipment_id", None),
+                       channel=getattr(res, "channel", None),
                        extractor=res.extractor, fallback_reason=res.fallback_reason,
                        fallback_detail=getattr(res, "fallback_detail", None), turn_ms=res.turn_ms, model_ms=model_ms,
                        tools=[f"{t['tool']}:{t['status']}" for t in tools], escalated=bool(res.escalation_id),
@@ -573,6 +585,9 @@ class BookingService:
         body = {"turn_ref": turn_ref, "facility_id": res.facility_id, "extractor": ext,
                 "fallback_reason": str(res.fallback_reason)[:60] if res.fallback_reason else None, "tools": tools,
                 "turn_ms": res.turn_ms, "model_ms": model_ms, "escalated": bool(res.escalation_id)}
+        if res.facility_id:
+            body["driver_id"] = stored_id("driver_id", getattr(res, "driver_id", None))
+            body["shipment_id"] = stored_id("shipment_id", getattr(res, "shipment_id", None))
         try:
             with self.db.tx("feasibility", self.facilities) as c:
                 c.execute("SELECT record_agent_turn(%s)", (Jsonb(body),))
@@ -863,10 +878,12 @@ class BookingService:
     DLQ_NOTE = ("Queue and dead-letter depth live in SQS/CloudWatch, not in the database; the console does not read "
                 "AWS metrics. Proxy shown: inbound redeliveries and unprocessed messages from inbound_receipts.")
 
-    def observability(self, p: Principal, facility: str | None = None, hours: int = 24) -> dict:
+    def observability(self, p: Principal, facility: str | None = None, hours: int = 24, driver: str | None = None) -> dict:
         """Console (planner, ops_lead): every number comes from a persisted row or a measured timing, in this person's
         facility scope (RLS). What cannot be measured here is reported as unavailable, with the reason."""
         self.require(p, "view_observability")
+        if driver is not None and not id_is_valid("driver_id", driver):
+            raise ServiceError(422, "BAD_DRIVER_ID", "driver must be an internal driver id such as DRV-JAI-0042")
         scope = self._scope(p, facility)
         now = self.now()
         since = now - timedelta(hours=max(1, min(hours, 24 * 31)))
@@ -948,9 +965,12 @@ class BookingService:
                                  FROM evaluation_runs ORDER BY finished_at DESC LIMIT 5""")
             glob = c.execute("SELECT observability_global(%s)", (since,)).fetchone()[0]
             # G.1: recent turns (facility scope by RLS) for per-interaction trace links; ids and codes only
-            recent = rows(c, """SELECT turn_ref::text AS turn_ref, created_at, facility_id, extractor, fallback_reason,
-                                       turn_ms, escalated
-                                  FROM agent_turn_metrics WHERE created_at >= %s ORDER BY created_at DESC LIMIT 20""", since)
+            # 0041: the turn's driver and shipment ids (stored only on facility rows, so RLS scopes them); `driver` filters
+            recent = rows(c, """SELECT turn_ref::text AS turn_ref, created_at, facility_id, driver_id, shipment_id,
+                                       extractor, fallback_reason, turn_ms, escalated
+                                  FROM agent_turn_metrics
+                                 WHERE created_at >= %s AND (%s::text IS NULL OR driver_id = %s::text)
+                                 ORDER BY created_at DESC LIMIT 20""", since, driver, driver)
             # G.1 (0028): cost source, refusals vs errors, reconciliation. Absent before 0028 is applied: say so.
             detail = None
             if c.execute("SELECT to_regprocedure('setuhaul.observability_model_detail(timestamptz)') IS NOT NULL"
@@ -972,7 +992,7 @@ class BookingService:
             agent["status_code"] = "OK"
         ls = self._langsmith_links(recent, evals, agent["model_outcomes"])
         agent["recent_turns"] = ls.pop("recent_turns")
-        return {"generated_at": now.isoformat(), "since": since.isoformat(), "facilities": list(scope),
+        return {"generated_at": now.isoformat(), "since": since.isoformat(), "facilities": list(scope), "driver_filter": driver,
                 "data_label": "SYNTHETIC DATA - pilot/local only, no real drivers or shipments",
                 "overview": overview, "agent": agent, "optimization": optim, "reliability": reliability,
                 "evaluation": evals or [{"status": "unavailable: no evaluation run recorded"}], "langsmith": ls}
@@ -1760,8 +1780,11 @@ class BookingService:
     def issue_link_code(self, p: Principal, driver_id: str, ttl_s: int | None = None) -> dict:
         """A one-time Telegram link code for a driver in this person's scope. The code is returned once (to be passed
         to the driver out of band) and only its hash is stored."""
-        from ..notify.telegram import new_link_code
+        from ..notify.telegram import driver_authorized, new_link_code
         self.require(p, "link_driver")
+        if not driver_authorized(driver_id):                        # live Telegram: the owner's pilot-driver list
+            raise ServiceError(403, "DRIVER_NOT_AUTHORIZED_FOR_TELEGRAM",
+                               "this driver is not on the authorized pilot-driver list for Telegram")
         ttl = ttl_s or int(os.environ.get("SETUHAUL_TELEGRAM_LINK_CODE_TTL_S", "900"))
         code, h = new_link_code()
         r = self._staff_fn(p, "SELECT issue_driver_link_code(%s,%s,%s,%s)", (driver_id, h, ttl, f"staff:{p.sub}"))
@@ -1879,6 +1902,8 @@ class BookingService:
             with self.db.tx("ingest") as c:
                 r = c.execute("SELECT redeem_driver_link_code(%s,%s,%s)",
                               (tg.hash_code(ev.code), ev.user_id, ev.chat_id)).fetchone()[0]
+            if r["linked"] and not tg.driver_authorized(r.get("driver_id")):
+                return {"reply": tg.TEXT_NOT_LINKED, "event": None, "linked": False}   # not on the pilot list
             if r["linked"]:
                 return {"reply": tg.TEXT_LINKED, "event": None, "linked": True}
             return {"reply": {"ACCOUNT_ALREADY_LINKED": tg.TEXT_ACCOUNT_TAKEN, "TOO_MANY_ATTEMPTS": tg.TEXT_TOO_MANY,
@@ -1886,7 +1911,9 @@ class BookingService:
                     "event": None, "linked": False}
         with self.db.tx("ingest", readonly=True) as c:
             drv = c.execute("SELECT driver_for_channel('TELEGRAM', %s)", (ev.user_id,)).fetchone()[0]
-        if drv is None:
+        from ..observability import tracing                       # the inbound trace's driver (id-gated at export)
+        tracing.safe(lambda: tracing.current().set(driver_id=drv, linked=drv is not None, update_kind=ev.kind))
+        if drv is None or not tg.driver_authorized(drv):          # unlinked, or not on the pilot-driver list
             return {"reply": tg.TEXT_NOT_LINKED, "event": None}
         if ev.kind == "start":
             return {"reply": tg.TEXT_LINKED, "event": None}

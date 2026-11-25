@@ -47,6 +47,8 @@ response, exceptions (run `error` = exception type only) and the fallback (`rule
 Safe metadata on the root: `environment`, `agent_version`, `correlation_id` (= `turn_ref`), `ingest_correlation_id`
 (the webhook request's id), `turn_ref`, `conversation_ref` (a
 16-hex SHA-256 of the thread id, never the id), `provider`, `model`, `facility_id`, `fallback_reason`/`error_category`.
+Driver traceability (migration 0041): also `driver_id`, `shipment_id` and `channel`, format-gated (see
+`docs/observability/DRIVER_TRACEABILITY.md`).
 Tokens and cost appear **only when the provider returned them**. A failed call has no usage block.
 
 ## 3. Correlation
@@ -89,6 +91,8 @@ Applied to inputs, outputs, metadata and error text when a turn ends, before it 
   `SETUHAUL_TRACE_CONTENT=on` (synthetic data only), and even then they are scrubbed;
 * scrubbed patterns: JWTs, Bearer tokens, `sk-or-…`/`sk-…`/`lsv2_…` keys, AWS access key ids and secret keys, Meta
   `EAA…` tokens, e-mails, phones (E.164, +999 synthetic, Indian mobiles), 12-digit account ids (also inside ARNs);
+* ids (`driver_id`, `shipment_id`, `facility_id`): exported only when well-formed, otherwise `[INVALID_ID]`
+  (`observability/identifiers.py`); Telegram chat/user ids, usernames and coordinates are dropped keys;
 * limits: strings ≤ 300 chars, ≤ 25 list items, depth ≤ 6;
 * **export guard**: after redaction the payload is scanned again, and a trace that still matches any pattern is dropped
   whole (`blocked_leaks` counter).

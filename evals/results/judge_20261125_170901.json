@@ -1,0 +1,1679 @@
+{
+ "kind": "llm_judge_run",
+ "started_at": "2026-11-25T17:09:01.488998+00:00",
+ "finished_at": "2026-11-25T17:10:30.900486+00:00",
+ "dataset_version": "judge-v1-579de0ebb1ad",
+ "records": 30,
+ "judged": 30,
+ "stopped_early": null,
+ "prompt_version": "judge-p1",
+ "model": "anthropic/claude-haiku-4.5",
+ "provider": "amazon-bedrock",
+ "served_models": [
+  "anthropic/claude-haiku-4.5"
+ ],
+ "estimate": {
+  "calls_expected": 30,
+  "calls_worst_case": 30,
+  "retries": "none",
+  "input_tokens_expected": 38082,
+  "output_tokens_expected": 7800,
+  "cost_usd_expected": "0.0771",
+  "cost_usd_upper_bound": "0.1728",
+  "price_basis": "anthropic/claude-haiku-4.5: USD 1.000000/M input, 5.000000/M output (setuhaul/agent/openrouter.py PRICE, OpenRouter list price 21 Nov 2026)"
+ },
+ "actual": {
+  "charged_usd_by_ledger": "0.106965",
+  "calls_reserved": 30,
+  "refused_by_run_cap": 0,
+  "refused_by_daily_cap": 0,
+  "input_tokens": 48980,
+  "output_tokens": 11597,
+  "requests": 30,
+  "latency_ms_total": 84446,
+  "unparseable": 18
+ },
+ "ledger_before": {
+  "available": true,
+  "spent_usd": "0",
+  "reserved_usd": "0",
+  "spent_by_purpose": {},
+  "judge_purpose_migrated": true
+ },
+ "ledger_after": {
+  "available": true,
+  "spent_usd": "0.106965",
+  "reserved_usd": "0.000000",
+  "spent_by_purpose": {
+   "judge": "0.106965"
+  },
+  "judge_purpose_migrated": true
+ },
+ "advisory_only": true,
+ "judgements": [
+  {
+   "example_id": "J01",
+   "status": "UNPARSEABLE",
+   "dimensions": {},
+   "attempts": 1,
+   "reason": "judge_unparseable: expected exactly ('clarity', 'tone', 'language_match')",
+   "input_tokens": 1664,
+   "output_tokens": 548,
+   "cost_usd": 0.004404,
+   "actual_provider": "Amazon Bedrock",
+   "served_model": null,
+   "latency_ms": 3361,
+   "language": "en",
+   "source": "template",
+   "calibration": true
+  },
+  {
+   "example_id": "J02",
+   "status": "UNPARSEABLE",
+   "dimensions": {},
+   "attempts": 1,
+   "reason": "judge_unparseable: clarity: rationale or evidence too long",
+   "input_tokens": 1729,
+   "output_tokens": 470,
+   "cost_usd": 0.004079,
+   "actual_provider": "Amazon Bedrock",
+   "served_model": null,
+   "latency_ms": 3562,
+   "language": "hi",
+   "source": "template",
+   "calibration": true
+  },
+  {
+   "example_id": "J03",
+   "status": "UNPARSEABLE",
+   "dimensions": {},
+   "attempts": 1,
+   "reason": "judge_unparseable: clarity: rationale or evidence too long",
+   "input_tokens": 1691,
+   "output_tokens": 443,
+   "cost_usd": 0.003906,
+   "actual_provider": "Amazon Bedrock",
+   "served_model": null,
+   "latency_ms": 3235,
+   "language": "hi-Latn",
+   "source": "template",
+   "calibration": true
+  },
+  {
+   "example_id": "J04",
+   "status": "SCORED",
+   "dimensions": {
+    "clarity": {
+     "score": 5,
+     "rationale": "The reply clearly states what action was taken (request sent), specifies the dock and time, and explicitly explains the current status and next step (warehouse will reply).",
+     "evidence": "Request sent for dock D2 at 1:30 PM on 19 Nov. It is NOT confirmed yet; the warehouse will reply and I will tell you.",
+     "insufficient_evidence": false
+    },
+    "tone": {
+     "score": 5,
+     "rationale": "The tone is calm, professional, and respectful. The assistant acknowledges the driver's situation and provides reassurance about the process without blame or alarm.",
+     "evidence": "Request sent for dock D2 at 1:30 PM on 19 Nov. It is NOT confirmed yet; the warehouse will reply and I will tell you.",
+     "insufficient_evidence": false
+    },
+    "language_match": {
+     "score": 5,
+     "rationale": "The reply is in English as expected, uses natural phrasing, and correctly includes dock code (D2), time (1:30 PM), date (19 Nov), and the keyword NOT in appropriate context.",
+     "evidence": "Request sent for dock D2 at 1:30 PM on 19 Nov. It is NOT confirmed yet",
+     "insufficient_evidence": false
+    }
+   },
+   "attempts": 1,
+   "reason": null,
+   "input_tokens": 1623,
+   "output_tokens": 367,
+   "cost_usd": 0.003458,
+   "actual_provider": "Amazon Bedrock",
+   "served_model": "anthropic/claude-haiku-4.5",
+   "latency_ms": 3198,
+   "language": "en",
+   "source": "template",
+   "calibration": true
+  },
+  {
+   "example_id": "J05",
+   "status": "SCORED",
+   "dimensions": {
+    "clarity": {
+     "score": 5,
+     "rationale": "The reply clearly states what action was taken (request sent), specifies the dock and time, and explains the current status (not yet confirmed). The driver knows to wait for warehouse response.",
+     "evidence": "डॉक D2, 1:30 PM on 19 Nov के लिए अनुरोध भेज दिया है। अभी पक्का नहीं है",
+     "insufficient_evidence": false
+    },
+    "tone": {
+     "score": 5,
+     "rationale": "The tone is calm, respectful, and reassuring. The assistant acknowledges the request, takes action, and commits to follow up without blame or alarm.",
+     "evidence": "अनुरोध भेज दिया है। अभी पक्का नहीं है; वेयरहाउस के जवाब पर मैं बताऊँगा।",
+     "insufficient_evidence": false
+    },
+    "language_match": {
+     "score": 5,
+     "rationale": "The reply is in Hindi (Devanagari script) as expected. Dock code (D2), time (1:30 PM), and date (19 Nov) are appropriately included in English as per conventions.",
+     "evidence": "डॉक D2, 1:30 PM on 19 Nov के लिए अनुरोध भेज दिया है।",
+     "insufficient_evidence": false
+    }
+   },
+   "attempts": 1,
+   "reason": null,
+   "input_tokens": 1685,
+   "output_tokens": 417,
+   "cost_usd": 0.00377,
+   "actual_provider": "Amazon Bedrock",
+   "served_model": "anthropic/claude-haiku-4.5",
+   "latency_ms": 2772,
+   "language": "hi",
+   "source": "template",
+   "calibration": true
+  },
+  {
+   "example_id": "J06",
+   "status": "UNPARSEABLE",
+   "dimensions": {},
+   "attempts": 1,
+   "reason": "judge_unparseable: language_match: rationale or evidence too long",
+   "input_tokens": 1611,
+   "output_tokens": 370,
+   "cost_usd": 0.003461,
+   "actual_provider": "Amazon Bedrock",
+   "served_model": null,
+   "latency_ms": 2667,
+   "language": "hi-Latn",
+   "source": "template",
+   "calibration": true
+  },
+  {
+   "example_id": "J07",
+   "status": "SCORED",
+   "dimensions": {
+    "clarity": {
+     "score": 5,
+     "rationale": "The question is direct and specific. The driver knows exactly what information is needed: their expected arrival time at the warehouse gate.",
+     "evidence": "What time do you expect to reach the warehouse gate?",
+     "insufficient_evidence": false
+    },
+    "tone": {
+     "score": 5,
+     "rationale": "The message is polite and respectful. It uses a courteous question format without blame or urgency, acknowledging the driver's situation calmly.",
+     "evidence": "What time do you expect to reach the warehouse gate?",
+     "insufficient_evidence": false
+    },
+    "language_match": {
+     "score": 5,
+     "rationale": "The reply is in clear, natural English as expected. Grammar and phrasing are correct and appropriate for the context.",
+     "evidence": "What time do you expect to reach the warehouse gate?",
+     "insufficient_evidence": false
+    }
+   },
+   "attempts": 1,
+   "reason": null,
+   "input_tokens": 1590,
+   "output_tokens": 276,
+   "cost_usd": 0.00297,
+   "actual_provider": "Amazon Bedrock",
+   "served_model": "anthropic/claude-haiku-4.5",
+   "latency_ms": 2752,
+   "language": "en",
+   "source": "template",
+   "calibration": true
+  },
+  {
+   "example_id": "J08",
+   "status": "UNPARSEABLE",
+   "dimensions": {},
+   "attempts": 1,
+   "reason": "judge_unparseable: expected exactly ('clarity', 'tone', 'language_match')",
+   "input_tokens": 1609,
+   "output_tokens": 415,
+   "cost_usd": 0.003684,
+   "actual_provider": "Amazon Bedrock",
+   "served_model": null,
+   "latency_ms": 2563,
+   "language": "hi-Latn",
+   "source": "template",
+   "calibration": true
+  },
+  {
+   "example_id": "J09",
+   "status": "SCORED",
+   "dimensions": {
+    "clarity": {
+     "score": 5,
+     "rationale": "The driver knows exactly what to expect: a coordinator has their information and will contact them within 15 minutes. The next step is clear—wait for the coordinator's reply.",
+     "evidence": "A coordinator has the details of your breakdown and will reply within 15 minutes.",
+     "insufficient_evidence": false
+    },
+    "tone": {
+     "score": 5,
+     "rationale": "The message is calm, reassuring, and respectful. It acknowledges the situation without blame and provides a concrete timeline, which is reassuring to a driver in a breakdown situation.",
+     "evidence": "A coordinator has the details of your breakdown and will reply within 15 minutes.",
+     "insufficient_evidence": false
+    },
+    "language_match": {
+     "score": 5,
+     "rationale": "The reply is in clear, natural English as expected. No mixing of languages or scripts. Appropriate for the expected language context.",
+     "evidence": "A coordinator has the details of your breakdown and will reply within 15 minutes.",
+     "insufficient_evidence": false
+    }
+   },
+   "attempts": 1,
+   "reason": null,
+   "input_tokens": 1609,
+   "output_tokens": 309,
+   "cost_usd": 0.003154,
+   "actual_provider": "Amazon Bedrock",
+   "served_model": "anthropic/claude-haiku-4.5",
+   "latency_ms": 2473,
+   "language": "en",
+   "source": "template",
+   "calibration": true
+  },
+  {
+   "example_id": "J10",
+   "status": "SCORED",
+   "dimensions": {
+    "clarity": {
+     "score": 5,
+     "rationale": "The assistant clearly asks a specific yes/no question about safety and explicitly instructs the driver to respond with YES or NO. The next step is unambiguous.",
+     "evidence": "क्या आप और ट्रक सुरक्षित जगह पर हैं? YES या NO भेजें।",
+     "insufficient_evidence": false
+    },
+    "tone": {
+     "score": 5,
+     "rationale": "The message is polite and respectful, using a courteous question format. It is calm and shows concern for the driver's safety without any blame or alarm.",
+     "evidence": "क्या आप और ट्रक सुरक्षित जगह पर हैं?",
+     "insufficient_evidence": false
+    },
+    "language_match": {
+     "score": 5,
+     "rationale": "The reply is in Hindi (Devanagari script) as expected. The use of YES/NO in English letters is appropriate per guidelines. The language is natural and idiomatic.",
+     "evidence": "क्या आप और ट्रक सुरक्षित जगह पर हैं? YES या NO भेजें।",
+     "insufficient_evidence": false
+    }
+   },
+   "attempts": 1,
+   "reason": null,
+   "input_tokens": 1635,
+   "output_tokens": 364,
+   "cost_usd": 0.003455,
+   "actual_provider": "Amazon Bedrock",
+   "served_model": "anthropic/claude-haiku-4.5",
+   "latency_ms": 2427,
+   "language": "hi",
+   "source": "template",
+   "calibration": true
+  },
+  {
+   "example_id": "J11",
+   "status": "UNPARSEABLE",
+   "dimensions": {},
+   "attempts": 1,
+   "reason": "judge_unparseable: clarity: rationale or evidence too long",
+   "input_tokens": 1656,
+   "output_tokens": 378,
+   "cost_usd": 0.003546,
+   "actual_provider": "Amazon Bedrock",
+   "served_model": null,
+   "latency_ms": 2692,
+   "language": "en",
+   "source": "template",
+   "calibration": true
+  },
+  {
+   "example_id": "J12",
+   "status": "SCORED",
+   "dimensions": {
+    "clarity": {
+     "score": 5,
+     "rationale": "The reply is immediately clear: the driver cannot inquire about ORD-JAI-777, and their own order is ORD-JAI-104. The next step (to ask about their own order if needed) is obvious.",
+     "evidence": "I can only help with your own shipments: ORD-JAI-104.",
+     "insufficient_evidence": false
+    },
+    "tone": {
+     "score": 5,
+     "rationale": "The tone is polite and respectful. The assistant explains the boundary clearly without blame or rudeness, using 'I can only help' which is calm and professional.",
+     "evidence": "I can only help with your own shipments: ORD-JAI-104.",
+     "insufficient_evidence": false
+    },
+    "language_match": {
+     "score": 5,
+     "rationale": "The reply is in English as expected. Order numbers (ORD-JAI-777, ORD-JAI-104) are correctly formatted and used naturally. No language or script mismatch.",
+     "evidence": "I can only help with your own shipments: ORD-JAI-104.",
+     "insufficient_evidence": false
+    }
+   },
+   "attempts": 1,
+   "reason": null,
+   "input_tokens": 1604,
+   "output_tokens": 346,
+   "cost_usd": 0.003334,
+   "actual_provider": "Amazon Bedrock",
+   "served_model": "anthropic/claude-haiku-4.5",
+   "latency_ms": 2637,
+   "language": "en",
+   "source": "template",
+   "calibration": true
+  },
+  {
+   "example_id": "J13",
+   "status": "SCORED",
+   "dimensions": {
+    "clarity": {
+     "score": 5,
+     "rationale": "The assistant clearly asks a specific, actionable question: when will the driver arrive at the warehouse? The driver knows exactly what information is being requested.",
+     "evidence": "Aap warehouse kab tak pahunchenge?",
+     "insufficient_evidence": false
+    },
+    "tone": {
+     "score": 5,
+     "rationale": "The message is polite and respectful. It opens with an apology ('Maaf kijiye') for not understanding, and uses formal 'Aap' form, showing courtesy and calm demeanor.",
+     "evidence": "Maaf kijiye, samajh nahi aaya. Aap warehouse kab tak pahunchenge?",
+     "insufficient_evidence": false
+    },
+    "language_match": {
+     "score": 5,
+     "rationale": "The reply is in natural Hinglish (Hindi in Latin script) as expected. Grammar, vocabulary, and phrasing are natural and appropriate for the context.",
+     "evidence": "Maaf kijiye, samajh nahi aaya. Aap warehouse kab tak pahunchenge?",
+     "insufficient_evidence": false
+    }
+   },
+   "attempts": 1,
+   "reason": null,
+   "input_tokens": 1621,
+   "output_tokens": 334,
+   "cost_usd": 0.003291,
+   "actual_provider": "Amazon Bedrock",
+   "served_model": "anthropic/claude-haiku-4.5",
+   "latency_ms": 2449,
+   "language": "hi-Latn",
+   "source": "template",
+   "calibration": true
+  },
+  {
+   "example_id": "J14",
+   "status": "UNPARSEABLE",
+   "dimensions": {},
+   "attempts": 1,
+   "reason": "judge_unparseable: clarity: rationale or evidence too long",
+   "input_tokens": 1595,
+   "output_tokens": 331,
+   "cost_usd": 0.00325,
+   "actual_provider": "Amazon Bedrock",
+   "served_model": null,
+   "latency_ms": 2557,
+   "language": "en",
+   "source": "template",
+   "calibration": true
+  },
+  {
+   "example_id": "J15",
+   "status": "UNPARSEABLE",
+   "dimensions": {},
+   "attempts": 1,
+   "reason": "judge_unparseable: clarity: rationale or evidence too long",
+   "input_tokens": 1624,
+   "output_tokens": 392,
+   "cost_usd": 0.003584,
+   "actual_provider": "Amazon Bedrock",
+   "served_model": null,
+   "latency_ms": 2643,
+   "language": "en",
+   "source": "template",
+   "calibration": true
+  },
+  {
+   "example_id": "J16",
+   "status": "UNPARSEABLE",
+   "dimensions": {},
+   "attempts": 1,
+   "reason": "judge_unparseable: clarity: rationale or evidence too long",
+   "input_tokens": 1680,
+   "output_tokens": 516,
+   "cost_usd": 0.00426,
+   "actual_provider": "Amazon Bedrock",
+   "served_model": null,
+   "latency_ms": 3310,
+   "language": "hi",
+   "source": "contrast",
+   "calibration": true
+  },
+  {
+   "example_id": "J17",
+   "status": "SCORED",
+   "dimensions": {
+    "clarity": {
+     "score": 1,
+     "rationale": "The instruction 'Send the slot number now' is contradictory and unclear. The driver asked for a slot; the assistant should offer one, not demand the driver send it. The next step is confusing.",
+     "evidence": "Send the slot number now. Late drivers hold up the whole warehouse, so don't waste more time.",
+     "insufficient_evidence": false
+    },
+    "tone": {
+     "score": 1,
+     "rationale": "The tone is blaming and alarming. The phrase 'Late drivers hold up the whole warehouse' assigns blame, and 'don't waste more time' is abrupt and disrespectful despite the driver's apology.",
+     "evidence": "Late drivers hold up the whole warehouse, so don't waste more time.",
+     "insufficient_evidence": false
+    },
+    "language_match": {
+     "score": 5,
+     "rationale": "The reply is in English, the expected language. Grammar and vocabulary are natural and appropriate for the context.",
+     "evidence": "Send the slot number now. Late drivers hold up the whole warehouse, so don't waste more time.",
+     "insufficient_evidence": false
+    }
+   },
+   "attempts": 1,
+   "reason": null,
+   "input_tokens": 1604,
+   "output_tokens": 329,
+   "cost_usd": 0.003249,
+   "actual_provider": "Amazon Bedrock",
+   "served_model": "anthropic/claude-haiku-4.5",
+   "latency_ms": 2226,
+   "language": "en",
+   "source": "contrast",
+   "calibration": true
+  },
+  {
+   "example_id": "J18",
+   "status": "UNPARSEABLE",
+   "dimensions": {},
+   "attempts": 1,
+   "reason": "judge_unparseable: clarity: rationale or evidence too long",
+   "input_tokens": 1600,
+   "output_tokens": 345,
+   "cost_usd": 0.003325,
+   "actual_provider": "Amazon Bedrock",
+   "served_model": null,
+   "latency_ms": 3067,
+   "language": "en",
+   "source": "contrast",
+   "calibration": true
+  },
+  {
+   "example_id": "J19",
+   "status": "UNPARSEABLE",
+   "dimensions": {},
+   "attempts": 1,
+   "reason": "judge_unparseable: expected exactly ('clarity', 'tone', 'language_match')",
+   "input_tokens": 1630,
+   "output_tokens": 440,
+   "cost_usd": 0.00383,
+   "actual_provider": "Amazon Bedrock",
+   "served_model": null,
+   "latency_ms": 2976,
+   "language": "en",
+   "source": "contrast",
+   "calibration": true
+  },
+  {
+   "example_id": "J20",
+   "status": "UNPARSEABLE",
+   "dimensions": {},
+   "attempts": 1,
+   "reason": "judge_unparseable: clarity: rationale or evidence too long",
+   "input_tokens": 1600,
+   "output_tokens": 271,
+   "cost_usd": 0.002955,
+   "actual_provider": "Amazon Bedrock",
+   "served_model": null,
+   "latency_ms": 2940,
+   "language": "en",
+   "source": "contrast",
+   "calibration": true
+  },
+  {
+   "example_id": "J21",
+   "status": "UNPARSEABLE",
+   "dimensions": {},
+   "attempts": 1,
+   "reason": "judge_unparseable: clarity: evidence is not a quote from the reply",
+   "input_tokens": 1670,
+   "output_tokens": 421,
+   "cost_usd": 0.003775,
+   "actual_provider": "Amazon Bedrock",
+   "served_model": null,
+   "latency_ms": 2703,
+   "language": "en",
+   "source": "template",
+   "calibration": false
+  },
+  {
+   "example_id": "J22",
+   "status": "SCORED",
+   "dimensions": {
+    "clarity": {
+     "score": 5,
+     "rationale": "The message clearly states that a coordinator has received the information and will respond within 15 minutes. The driver knows exactly what to expect and when.",
+     "evidence": "एक कोऑर्डिनेटर को आपकी जानकारी मिल गई है, 15 मिनट में जवाब आएगा।",
+     "insufficient_evidence": false
+    },
+    "tone": {
+     "score": 5,
+     "rationale": "The tone is polite, calm, and reassuring. It acknowledges the driver's concern and provides reassurance without blame or alarm.",
+     "evidence": "एक कोऑर्डिनेटर को आपकी जानकारी मिल गई है, 15 मिनट में जवाब आएगा।",
+     "insufficient_evidence": false
+    },
+    "language_match": {
+     "score": 5,
+     "rationale": "The reply is in Hindi written in Devanagari script, matching the expected language perfectly. The language is natural and appropriate.",
+     "evidence": "एक कोऑर्डिनेटर को आपकी जानकारी मिल गई है, 15 मिनट में जवाब आएगा।",
+     "insufficient_evidence": false
+    }
+   },
+   "attempts": 1,
+   "reason": null,
+   "input_tokens": 1643,
+   "output_tokens": 391,
+   "cost_usd": 0.003598,
+   "actual_provider": "Amazon Bedrock",
+   "served_model": "anthropic/claude-haiku-4.5",
+   "latency_ms": 2263,
+   "language": "hi",
+   "source": "template",
+   "calibration": false
+  },
+  {
+   "example_id": "J23",
+   "status": "SCORED",
+   "dimensions": {
+    "clarity": {
+     "score": 5,
+     "rationale": "The reply clearly states the order number, that the appointment is cancelled, and instructs the driver to contact their dispatcher before arriving. The action is unambiguous.",
+     "evidence": "ORD-JAI-104 aur uski appointment cancel ho gayi hai. Aane se pehle apne dispatcher se baat kar lijiye.",
+     "insufficient_evidence": false
+    },
+    "tone": {
+     "score": 5,
+     "rationale": "The message is calm, respectful, and factual. It delivers bad news (cancellation) without blame or alarm, and provides a constructive next step.",
+     "evidence": "ORD-JAI-104 aur uski appointment cancel ho gayi hai. Aane se pehle apne dispatcher se baat kar lijiye.",
+     "insufficient_evidence": false
+    },
+    "language_match": {
+     "score": 5,
+     "rationale": "The reply is in Hinglish (Hindi in Latin script) as expected. Natural phrasing with proper grammar and idiom. Order code in English letters is appropriate.",
+     "evidence": "ORD-JAI-104 aur uski appointment cancel ho gayi hai. Aane se pehle apne dispatcher se baat kar lijiye.",
+     "insufficient_evidence": false
+    }
+   },
+   "attempts": 1,
+   "reason": null,
+   "input_tokens": 1628,
+   "output_tokens": 372,
+   "cost_usd": 0.003488,
+   "actual_provider": "Amazon Bedrock",
+   "served_model": "anthropic/claude-haiku-4.5",
+   "latency_ms": 2634,
+   "language": "hi-Latn",
+   "source": "template",
+   "calibration": false
+  },
+  {
+   "example_id": "J24",
+   "status": "UNPARSEABLE",
+   "dimensions": {},
+   "attempts": 1,
+   "reason": "judge_unparseable: clarity: rationale or evidence too long",
+   "input_tokens": 1604,
+   "output_tokens": 392,
+   "cost_usd": 0.003564,
+   "actual_provider": "Amazon Bedrock",
+   "served_model": null,
+   "latency_ms": 2642,
+   "language": "en",
+   "source": "template",
+   "calibration": false
+  },
+  {
+   "example_id": "J25",
+   "status": "SCORED",
+   "dimensions": {
+    "clarity": {
+     "score": 5,
+     "rationale": "The reply clearly states there is no active booking for the order. The driver immediately understands the situation and knows their booking status.",
+     "evidence": "ORD-JAI-104 की कोई सक्रिय बुकिंग नहीं है।",
+     "insufficient_evidence": false
+    },
+    "tone": {
+     "score": 5,
+     "rationale": "The message is calm, neutral, and respectful. It states the fact without blame or alarm, maintaining a professional tone.",
+     "evidence": "ORD-JAI-104 की कोई सक्रिय बुकिंग नहीं है।",
+     "insufficient_evidence": false
+    },
+    "language_match": {
+     "score": 5,
+     "rationale": "The reply is in Hindi (Devanagari script) as expected, with natural phrasing. The order code ORD-JAI-104 is appropriately included in English as per conventions.",
+     "evidence": "ORD-JAI-104 की कोई सक्रिय बुकिंग नहीं है।",
+     "insufficient_evidence": false
+    }
+   },
+   "attempts": 1,
+   "reason": null,
+   "input_tokens": 1619,
+   "output_tokens": 350,
+   "cost_usd": 0.003369,
+   "actual_provider": "Amazon Bedrock",
+   "served_model": "anthropic/claude-haiku-4.5",
+   "latency_ms": 2319,
+   "language": "hi",
+   "source": "template",
+   "calibration": false
+  },
+  {
+   "example_id": "J26",
+   "status": "UNPARSEABLE",
+   "dimensions": {},
+   "attempts": 1,
+   "reason": "judge_unparseable: clarity: rationale or evidence too long",
+   "input_tokens": 1620,
+   "output_tokens": 340,
+   "cost_usd": 0.00332,
+   "actual_provider": "Amazon Bedrock",
+   "served_model": null,
+   "latency_ms": 2504,
+   "language": "hi-Latn",
+   "source": "template",
+   "calibration": false
+  },
+  {
+   "example_id": "J27",
+   "status": "UNPARSEABLE",
+   "dimensions": {},
+   "attempts": 1,
+   "reason": "judge_unparseable: clarity: rationale or evidence too long",
+   "input_tokens": 1599,
+   "output_tokens": 363,
+   "cost_usd": 0.003414,
+   "actual_provider": "Amazon Bedrock",
+   "served_model": null,
+   "latency_ms": 3403,
+   "language": "en",
+   "source": "template",
+   "calibration": false
+  },
+  {
+   "example_id": "J28",
+   "status": "UNPARSEABLE",
+   "dimensions": {},
+   "attempts": 1,
+   "reason": "judge_unparseable: clarity: rationale or evidence too long",
+   "input_tokens": 1651,
+   "output_tokens": 435,
+   "cost_usd": 0.003826,
+   "actual_provider": "Amazon Bedrock",
+   "served_model": null,
+   "latency_ms": 3272,
+   "language": "hi-Latn",
+   "source": "template",
+   "calibration": false
+  },
+  {
+   "example_id": "J29",
+   "status": "SCORED",
+   "dimensions": {
+    "clarity": {
+     "score": 4,
+     "rationale": "The message clearly states what happened (slot was taken). The driver understands the situation, though the next actionable step (e.g., pick another slot) is implied rather than explicit.",
+     "evidence": "That slot was just taken.",
+     "insufficient_evidence": false
+    },
+    "tone": {
+     "score": 5,
+     "rationale": "The message is calm, neutral, and respectful. It states a fact without blame or alarm, maintaining a professional tone appropriate for the situation.",
+     "evidence": "That slot was just taken.",
+     "insufficient_evidence": false
+    },
+    "language_match": {
+     "score": 5,
+     "rationale": "The reply is in English as expected, with natural phrasing and correct grammar. No mixing of languages or scripts.",
+     "evidence": "That slot was just taken.",
+     "insufficient_evidence": false
+    }
+   },
+   "attempts": 1,
+   "reason": null,
+   "input_tokens": 1573,
+   "output_tokens": 269,
+   "cost_usd": 0.002918,
+   "actual_provider": "Amazon Bedrock",
+   "served_model": "anthropic/claude-haiku-4.5",
+   "latency_ms": 2267,
+   "language": "en",
+   "source": "template",
+   "calibration": false
+  },
+  {
+   "example_id": "J30",
+   "status": "UNPARSEABLE",
+   "dimensions": {},
+   "attempts": 1,
+   "reason": "judge_unparseable: expected exactly ('clarity', 'tone', 'language_match')",
+   "input_tokens": 1713,
+   "output_tokens": 603,
+   "cost_usd": 0.004728,
+   "actual_provider": "Amazon Bedrock",
+   "served_model": null,
+   "latency_ms": 3932,
+   "language": "hi",
+   "source": "template",
+   "calibration": false
+  }
+ ],
+ "comparison": {
+  "kind": "judge_vs_ai_reference",
+  "label": "AI reference scores (model-generated, reviewed and accepted by the user). This is NOT independent human calibration: agreement here is model-to-model agreement.",
+  "independent_human_calibration": false,
+  "dataset_version": "judge-v1-579de0ebb1ad",
+  "reference_file_version": "ai-ref-v1",
+  "reference_scorer": "ChatGPT independent reference",
+  "agreement_rule": ">= 80% of comparable dimension-level ratings within ±1 (unchanged)",
+  "judge": {
+   "label": "ACTUAL_JUDGE",
+   "is_model_evaluation": true,
+   "overall": {
+    "comparable": 24,
+    "within_1": 0.958,
+    "exact": 0.875,
+    "mae": 0.208,
+    "mean_signed_error": -0.042,
+    "direction": "no systematic bias"
+   },
+   "by_dimension": {
+    "clarity": {
+     "comparable": 8,
+     "within_1": 0.875,
+     "exact": 0.875,
+     "mae": 0.375,
+     "mean_signed_error": -0.375,
+     "direction": "no systematic bias"
+    },
+    "tone": {
+     "comparable": 8,
+     "within_1": 1.0,
+     "exact": 0.75,
+     "mae": 0.25,
+     "mean_signed_error": 0.25,
+     "direction": "no systematic bias"
+    },
+    "language_match": {
+     "comparable": 8,
+     "within_1": 1.0,
+     "exact": 1.0,
+     "mae": 0.0,
+     "mean_signed_error": 0.0,
+     "direction": "no systematic bias"
+    }
+   },
+   "disagreements": [
+    {
+     "id": "J17",
+     "dimension": "clarity",
+     "judge": 1,
+     "reference": 4,
+     "diff": -3
+    }
+   ],
+   "manual_inspection": [
+    {
+     "id": "J16",
+     "reference": {
+      "clarity": 5,
+      "tone": 4,
+      "language_match": 1
+     },
+     "judge": null,
+     "max_abs_diff": null
+    },
+    {
+     "id": "J17",
+     "reference": {
+      "clarity": 4,
+      "tone": 1,
+      "language_match": 5
+     },
+     "judge": {
+      "clarity": 1,
+      "tone": 1,
+      "language_match": 5
+     },
+     "max_abs_diff": 3
+    },
+    {
+     "id": "J18",
+     "reference": {
+      "clarity": 1,
+      "tone": 3,
+      "language_match": 5
+     },
+     "judge": null,
+     "max_abs_diff": null
+    },
+    {
+     "id": "J19",
+     "reference": {
+      "clarity": 5,
+      "tone": 4,
+      "language_match": 1
+     },
+     "judge": null,
+     "max_abs_diff": null
+    },
+    {
+     "id": "J20",
+     "reference": {
+      "clarity": 1,
+      "tone": 3,
+      "language_match": 5
+     },
+     "judge": null,
+     "max_abs_diff": null
+    }
+   ],
+   "negative_cases": {
+    "cases": [
+     {
+      "id": "J16",
+      "defect": "language mismatch: English reply to a Hindi conversation",
+      "targets": [
+       "language_match"
+      ],
+      "dimensions": {
+       "clarity": {
+        "reference": 5,
+        "judge": null,
+        "target": false,
+        "abs_diff": null,
+        "signed_diff": null
+       },
+       "tone": {
+        "reference": 4,
+        "judge": null,
+        "target": false,
+        "abs_diff": null,
+        "signed_diff": null
+       },
+       "language_match": {
+        "reference": 1,
+        "judge": null,
+        "target": true,
+        "abs_diff": null,
+        "signed_diff": null
+       }
+      },
+      "target_identified": {
+       "language_match": null
+      },
+      "identified": null,
+      "target_is_lowest": null
+     },
+     {
+      "id": "J17",
+      "defect": "rude and blaming tone",
+      "targets": [
+       "tone"
+      ],
+      "dimensions": {
+       "clarity": {
+        "reference": 4,
+        "judge": 1,
+        "target": false,
+        "abs_diff": 3,
+        "signed_diff": -3
+       },
+       "tone": {
+        "reference": 1,
+        "judge": 1,
+        "target": true,
+        "abs_diff": 0,
+        "signed_diff": 0
+       },
+       "language_match": {
+        "reference": 5,
+        "judge": 5,
+        "target": false,
+        "abs_diff": 0,
+        "signed_diff": 0
+       }
+      },
+      "target_identified": {
+       "tone": true
+      },
+      "identified": true,
+      "target_is_lowest": true
+     },
+     {
+      "id": "J18",
+      "defect": "vague, no options, no next step",
+      "targets": [
+       "clarity"
+      ],
+      "dimensions": {
+       "clarity": {
+        "reference": 1,
+        "judge": null,
+        "target": true,
+        "abs_diff": null,
+        "signed_diff": null
+       },
+       "tone": {
+        "reference": 3,
+        "judge": null,
+        "target": false,
+        "abs_diff": null,
+        "signed_diff": null
+       },
+       "language_match": {
+        "reference": 5,
+        "judge": null,
+        "target": false,
+        "abs_diff": null,
+        "signed_diff": null
+       }
+      },
+      "target_identified": {
+       "clarity": null
+      },
+      "identified": null,
+      "target_is_lowest": null
+     },
+     {
+      "id": "J19",
+      "defect": "language mismatch: Hinglish reply to an English conversation",
+      "targets": [
+       "language_match"
+      ],
+      "dimensions": {
+       "clarity": {
+        "reference": 5,
+        "judge": null,
+        "target": false,
+        "abs_diff": null,
+        "signed_diff": null
+       },
+       "tone": {
+        "reference": 4,
+        "judge": null,
+        "target": false,
+        "abs_diff": null,
+        "signed_diff": null
+       },
+       "language_match": {
+        "reference": 1,
+        "judge": null,
+        "target": true,
+        "abs_diff": null,
+        "signed_diff": null
+       }
+      },
+      "target_identified": {
+       "language_match": null
+      },
+      "identified": null,
+      "target_is_lowest": null
+     },
+     {
+      "id": "J20",
+      "defect": "unhelpful reply carrying an instruction to the evaluator",
+      "targets": [
+       "clarity"
+      ],
+      "dimensions": {
+       "clarity": {
+        "reference": 1,
+        "judge": null,
+        "target": true,
+        "abs_diff": null,
+        "signed_diff": null
+       },
+       "tone": {
+        "reference": 3,
+        "judge": null,
+        "target": false,
+        "abs_diff": null,
+        "signed_diff": null
+       },
+       "language_match": {
+        "reference": 5,
+        "judge": null,
+        "target": false,
+        "abs_diff": null,
+        "signed_diff": null
+       }
+      },
+      "target_identified": {
+       "clarity": null
+      },
+      "identified": null,
+      "target_is_lowest": null,
+      "injection_followed": null
+     }
+    ],
+    "targets_identified": 1,
+    "targets_total": 5,
+    "cases_identified": 1,
+    "cases_total": 5
+   },
+   "not_comparable": [
+    {
+     "id": "J01",
+     "dimension": "clarity",
+     "why": "no scored judgement"
+    },
+    {
+     "id": "J01",
+     "dimension": "tone",
+     "why": "no scored judgement"
+    },
+    {
+     "id": "J01",
+     "dimension": "language_match",
+     "why": "no scored judgement"
+    },
+    {
+     "id": "J02",
+     "dimension": "clarity",
+     "why": "no scored judgement"
+    },
+    {
+     "id": "J02",
+     "dimension": "tone",
+     "why": "no scored judgement"
+    },
+    {
+     "id": "J02",
+     "dimension": "language_match",
+     "why": "no scored judgement"
+    },
+    {
+     "id": "J03",
+     "dimension": "clarity",
+     "why": "no scored judgement"
+    },
+    {
+     "id": "J03",
+     "dimension": "tone",
+     "why": "no scored judgement"
+    },
+    {
+     "id": "J03",
+     "dimension": "language_match",
+     "why": "no scored judgement"
+    },
+    {
+     "id": "J06",
+     "dimension": "clarity",
+     "why": "no scored judgement"
+    },
+    {
+     "id": "J06",
+     "dimension": "tone",
+     "why": "no scored judgement"
+    },
+    {
+     "id": "J06",
+     "dimension": "language_match",
+     "why": "no scored judgement"
+    },
+    {
+     "id": "J08",
+     "dimension": "clarity",
+     "why": "no scored judgement"
+    },
+    {
+     "id": "J08",
+     "dimension": "tone",
+     "why": "no scored judgement"
+    },
+    {
+     "id": "J08",
+     "dimension": "language_match",
+     "why": "no scored judgement"
+    },
+    {
+     "id": "J11",
+     "dimension": "clarity",
+     "why": "no scored judgement"
+    },
+    {
+     "id": "J11",
+     "dimension": "tone",
+     "why": "no scored judgement"
+    },
+    {
+     "id": "J11",
+     "dimension": "language_match",
+     "why": "no scored judgement"
+    },
+    {
+     "id": "J14",
+     "dimension": "clarity",
+     "why": "no scored judgement"
+    },
+    {
+     "id": "J14",
+     "dimension": "tone",
+     "why": "no scored judgement"
+    },
+    {
+     "id": "J14",
+     "dimension": "language_match",
+     "why": "no scored judgement"
+    },
+    {
+     "id": "J15",
+     "dimension": "clarity",
+     "why": "no scored judgement"
+    },
+    {
+     "id": "J15",
+     "dimension": "tone",
+     "why": "no scored judgement"
+    },
+    {
+     "id": "J15",
+     "dimension": "language_match",
+     "why": "no scored judgement"
+    },
+    {
+     "id": "J16",
+     "dimension": "clarity",
+     "why": "no scored judgement"
+    },
+    {
+     "id": "J16",
+     "dimension": "tone",
+     "why": "no scored judgement"
+    },
+    {
+     "id": "J16",
+     "dimension": "language_match",
+     "why": "no scored judgement"
+    },
+    {
+     "id": "J18",
+     "dimension": "clarity",
+     "why": "no scored judgement"
+    },
+    {
+     "id": "J18",
+     "dimension": "tone",
+     "why": "no scored judgement"
+    },
+    {
+     "id": "J18",
+     "dimension": "language_match",
+     "why": "no scored judgement"
+    },
+    {
+     "id": "J19",
+     "dimension": "clarity",
+     "why": "no scored judgement"
+    },
+    {
+     "id": "J19",
+     "dimension": "tone",
+     "why": "no scored judgement"
+    },
+    {
+     "id": "J19",
+     "dimension": "language_match",
+     "why": "no scored judgement"
+    },
+    {
+     "id": "J20",
+     "dimension": "clarity",
+     "why": "no scored judgement"
+    },
+    {
+     "id": "J20",
+     "dimension": "tone",
+     "why": "no scored judgement"
+    },
+    {
+     "id": "J20",
+     "dimension": "language_match",
+     "why": "no scored judgement"
+    }
+   ],
+   "agreement_threshold_met": true
+  },
+  "baseline": {
+   "label": "ALWAYS_5_BASELINE",
+   "is_model_evaluation": false,
+   "overall": {
+    "comparable": 60,
+    "within_1": 0.883,
+    "exact": 0.733,
+    "mae": 0.55,
+    "mean_signed_error": 0.55,
+    "direction": "over-scores"
+   },
+   "by_dimension": {
+    "clarity": {
+     "comparable": 20,
+     "within_1": 0.9,
+     "exact": 0.85,
+     "mae": 0.45,
+     "mean_signed_error": 0.45,
+     "direction": "no systematic bias"
+    },
+    "tone": {
+     "comparable": 20,
+     "within_1": 0.85,
+     "exact": 0.45,
+     "mae": 0.8,
+     "mean_signed_error": 0.8,
+     "direction": "over-scores"
+    },
+    "language_match": {
+     "comparable": 20,
+     "within_1": 0.9,
+     "exact": 0.9,
+     "mae": 0.4,
+     "mean_signed_error": 0.4,
+     "direction": "no systematic bias"
+    }
+   },
+   "disagreements": [
+    {
+     "id": "J16",
+     "dimension": "language_match",
+     "judge": 5,
+     "reference": 1,
+     "diff": 4
+    },
+    {
+     "id": "J17",
+     "dimension": "tone",
+     "judge": 5,
+     "reference": 1,
+     "diff": 4
+    },
+    {
+     "id": "J18",
+     "dimension": "clarity",
+     "judge": 5,
+     "reference": 1,
+     "diff": 4
+    },
+    {
+     "id": "J18",
+     "dimension": "tone",
+     "judge": 5,
+     "reference": 3,
+     "diff": 2
+    },
+    {
+     "id": "J19",
+     "dimension": "language_match",
+     "judge": 5,
+     "reference": 1,
+     "diff": 4
+    },
+    {
+     "id": "J20",
+     "dimension": "clarity",
+     "judge": 5,
+     "reference": 1,
+     "diff": 4
+    },
+    {
+     "id": "J20",
+     "dimension": "tone",
+     "judge": 5,
+     "reference": 3,
+     "diff": 2
+    }
+   ],
+   "manual_inspection": [
+    {
+     "id": "J16",
+     "reference": {
+      "clarity": 5,
+      "tone": 4,
+      "language_match": 1
+     },
+     "judge": {
+      "clarity": 5,
+      "tone": 5,
+      "language_match": 5
+     },
+     "max_abs_diff": 4
+    },
+    {
+     "id": "J17",
+     "reference": {
+      "clarity": 4,
+      "tone": 1,
+      "language_match": 5
+     },
+     "judge": {
+      "clarity": 5,
+      "tone": 5,
+      "language_match": 5
+     },
+     "max_abs_diff": 4
+    },
+    {
+     "id": "J18",
+     "reference": {
+      "clarity": 1,
+      "tone": 3,
+      "language_match": 5
+     },
+     "judge": {
+      "clarity": 5,
+      "tone": 5,
+      "language_match": 5
+     },
+     "max_abs_diff": 4
+    },
+    {
+     "id": "J19",
+     "reference": {
+      "clarity": 5,
+      "tone": 4,
+      "language_match": 1
+     },
+     "judge": {
+      "clarity": 5,
+      "tone": 5,
+      "language_match": 5
+     },
+     "max_abs_diff": 4
+    },
+    {
+     "id": "J20",
+     "reference": {
+      "clarity": 1,
+      "tone": 3,
+      "language_match": 5
+     },
+     "judge": {
+      "clarity": 5,
+      "tone": 5,
+      "language_match": 5
+     },
+     "max_abs_diff": 4
+    }
+   ],
+   "negative_cases": {
+    "cases": [
+     {
+      "id": "J16",
+      "defect": "language mismatch: English reply to a Hindi conversation",
+      "targets": [
+       "language_match"
+      ],
+      "dimensions": {
+       "clarity": {
+        "reference": 5,
+        "judge": 5,
+        "target": false,
+        "abs_diff": 0,
+        "signed_diff": 0
+       },
+       "tone": {
+        "reference": 4,
+        "judge": 5,
+        "target": false,
+        "abs_diff": 1,
+        "signed_diff": 1
+       },
+       "language_match": {
+        "reference": 1,
+        "judge": 5,
+        "target": true,
+        "abs_diff": 4,
+        "signed_diff": 4
+       }
+      },
+      "target_identified": {
+       "language_match": false
+      },
+      "identified": false,
+      "target_is_lowest": true
+     },
+     {
+      "id": "J17",
+      "defect": "rude and blaming tone",
+      "targets": [
+       "tone"
+      ],
+      "dimensions": {
+       "clarity": {
+        "reference": 4,
+        "judge": 5,
+        "target": false,
+        "abs_diff": 1,
+        "signed_diff": 1
+       },
+       "tone": {
+        "reference": 1,
+        "judge": 5,
+        "target": true,
+        "abs_diff": 4,
+        "signed_diff": 4
+       },
+       "language_match": {
+        "reference": 5,
+        "judge": 5,
+        "target": false,
+        "abs_diff": 0,
+        "signed_diff": 0
+       }
+      },
+      "target_identified": {
+       "tone": false
+      },
+      "identified": false,
+      "target_is_lowest": true
+     },
+     {
+      "id": "J18",
+      "defect": "vague, no options, no next step",
+      "targets": [
+       "clarity"
+      ],
+      "dimensions": {
+       "clarity": {
+        "reference": 1,
+        "judge": 5,
+        "target": true,
+        "abs_diff": 4,
+        "signed_diff": 4
+       },
+       "tone": {
+        "reference": 3,
+        "judge": 5,
+        "target": false,
+        "abs_diff": 2,
+        "signed_diff": 2
+       },
+       "language_match": {
+        "reference": 5,
+        "judge": 5,
+        "target": false,
+        "abs_diff": 0,
+        "signed_diff": 0
+       }
+      },
+      "target_identified": {
+       "clarity": false
+      },
+      "identified": false,
+      "target_is_lowest": true
+     },
+     {
+      "id": "J19",
+      "defect": "language mismatch: Hinglish reply to an English conversation",
+      "targets": [
+       "language_match"
+      ],
+      "dimensions": {
+       "clarity": {
+        "reference": 5,
+        "judge": 5,
+        "target": false,
+        "abs_diff": 0,
+        "signed_diff": 0
+       },
+       "tone": {
+        "reference": 4,
+        "judge": 5,
+        "target": false,
+        "abs_diff": 1,
+        "signed_diff": 1
+       },
+       "language_match": {
+        "reference": 1,
+        "judge": 5,
+        "target": true,
+        "abs_diff": 4,
+        "signed_diff": 4
+       }
+      },
+      "target_identified": {
+       "language_match": false
+      },
+      "identified": false,
+      "target_is_lowest": true
+     },
+     {
+      "id": "J20",
+      "defect": "unhelpful reply carrying an instruction to the evaluator",
+      "targets": [
+       "clarity"
+      ],
+      "dimensions": {
+       "clarity": {
+        "reference": 1,
+        "judge": 5,
+        "target": true,
+        "abs_diff": 4,
+        "signed_diff": 4
+       },
+       "tone": {
+        "reference": 3,
+        "judge": 5,
+        "target": false,
+        "abs_diff": 2,
+        "signed_diff": 2
+       },
+       "language_match": {
+        "reference": 5,
+        "judge": 5,
+        "target": false,
+        "abs_diff": 0,
+        "signed_diff": 0
+       }
+      },
+      "target_identified": {
+       "clarity": false
+      },
+      "identified": false,
+      "target_is_lowest": true,
+      "injection_followed": true
+     }
+    ],
+    "targets_identified": 0,
+    "targets_total": 5,
+    "cases_identified": 0,
+    "cases_total": 5
+   },
+   "not_comparable": [],
+   "agreement_threshold_met": true
+  },
+  "side_by_side": [
+   {
+    "metric": "Agreement within ±1",
+    "always_5_baseline": 0.883,
+    "actual_judge": 0.958,
+    "judge_better": true
+   },
+   {
+    "metric": "Mean absolute error",
+    "always_5_baseline": 0.55,
+    "actual_judge": 0.208,
+    "judge_better": true
+   },
+   {
+    "metric": "Mean signed error",
+    "always_5_baseline": 0.55,
+    "actual_judge": -0.042,
+    "judge_better": true
+   },
+   {
+    "metric": "Clarity agreement",
+    "always_5_baseline": 0.9,
+    "actual_judge": 0.875,
+    "judge_better": false
+   },
+   {
+    "metric": "Tone agreement",
+    "always_5_baseline": 0.85,
+    "actual_judge": 1.0,
+    "judge_better": true
+   },
+   {
+    "metric": "Language agreement",
+    "always_5_baseline": 0.9,
+    "actual_judge": 1.0,
+    "judge_better": true
+   },
+   {
+    "metric": "Negative-case discrimination (target dimensions identified)",
+    "always_5_baseline": "0/5",
+    "actual_judge": "1/5",
+    "judge_better": true
+   }
+  ],
+  "j20_prompt_injection": {
+   "injection_followed": null,
+   "clarity_identified": null
+  },
+  "statuses": {
+   "agreement_threshold": "MET: 0.958 within ±1 vs required 0.8 (unchanged rule)",
+   "outperforms_always_5_baseline": "YES (rule approved by the owner, 25 Nov 2026: lower overall MAE and more negative-case target dimensions identified)",
+   "negative_case_discrimination": "NOT DEMONSTRATED (rule approved by the owner, 25 Nov 2026: all 5 contrasts identified; 1/5 were)",
+   "independent_human_calibration": "OUTSTANDING: human_scores_v1.json has no human scores"
+  },
+  "final_assessment": [
+   "80% agreement threshold: passed (0.958); the always-5 baseline scores 0.883 on the same rule.",
+   "Outperforms the always-5 baseline: yes (rule approved by the owner, 25 Nov 2026).",
+   "Negative-case discrimination: not demonstrated (1/5 contrasts; rule approved by the owner, 25 Nov 2026).",
+   "Independent human calibration: still outstanding. Agreement with AI reference scores is not human calibration.",
+   "Exceeding the baseline does not by itself prove the judge reliable."
+  ]
+ },
+ "acceptance": {
+  "rule1_bad_replies_caught": "1/5",
+  "rule1_passed": false,
+  "rule2_beats_always_5": true,
+  "judge_mae": 0.208,
+  "always_5_mae": 0.55,
+  "accepted": false,
+  "agreement_within_1": 0.958,
+  "human_calibration": "OUTSTANDING: human_scores_v1.json has no human scores"
+ },
+ "path": "G:\\FDE-Projects\\setUhaul_Logistics\\evals\\results\\judge_20261125_170901.json",
+ "langsmith": {
+  "dataset": {
+   "dataset_name": "setuhaul-llm-judge-judge-v1-579de0ebb1ad",
+   "dataset_id": "e49dceb2-cc32-44ce-8ca0-e70a1e47b771",
+   "created": false,
+   "examples_added": [],
+   "content_drift": [],
+   "missing": []
+  },
+  "experiment": {
+   "experiment_name": "llm-judge-judge-v1-579de0ebb1ad-20261125T171030Z",
+   "experiment_id": "f863f7dc-2491-4ca7-8338-da7e5ad6a196",
+   "tenant_id": "32dc9bd8-f235-45fe-9b1d-98ee8433d7cd",
+   "runs": 30,
+   "feedback": 36
+  },
+  "experiment_url": "https://smith.langchain.com/o/32dc9bd8-f235-45fe-9b1d-98ee8433d7cd/datasets/e49dceb2-cc32-44ce-8ca0-e70a1e47b771/compare?selectedSessions=f863f7dc-2491-4ca7-8338-da7e5ad6a196"
+ }
+}

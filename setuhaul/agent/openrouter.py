@@ -131,6 +131,9 @@ class OpenRouterModel:
         self.extract_model, self.phrase_model, self.provider = extract_model, phrase_model, provider
         self.provider_name = VERIFIED_ZDR_ROUTES[provider]
         self.meter, self.sleep, self.max_retry_wait_s = meter, sleep, max_retry_wait_s
+        # attempts per call (1 or 2). The agent keeps 2 (one bounded retry, see the module doc); the offline judge's
+        # owner-approved paid run sets 1, so nothing is ever sent twice.
+        self.max_attempts = 2
         self.client = client or httpx.Client(timeout=httpx.Timeout(read_timeout_s, connect=connect_timeout_s,
                                                                    write=5.0, pool=connect_timeout_s))
         self._set_key(api_key)
@@ -174,7 +177,7 @@ class OpenRouterModel:
                    schema_version=SCHEMA_VERSION if purpose == "extract" else None)
         tr.call_id, tr.requested_provider = str(call_id), self.provider
         self._maybe_refresh_key()                                 # G.1: before anything is reserved or sent
-        for attempt in (1, 2):
+        for attempt in range(1, max(1, min(2, self.max_attempts)) + 1):
             tr.attempts = attempt
             res = None
             if self.meter is not None:
@@ -259,7 +262,7 @@ class OpenRouterModel:
                 self._auth_failed_at = self.clock()               # G.1: re-read the key before the next call
                 log.error("ALERT model_call %s (%s): OpenRouter refused the key or its credit (status %s)",
                           category, detail, status)
-            if retry and attempt == 1:
+            if retry and attempt < self.max_attempts:
                 if wait:
                     self.sleep(wait)
                 continue
@@ -289,6 +292,44 @@ class OpenRouterModel:
                                                          "cache_control": {"type": "ephemeral"}}]},
                          {"role": "user", "content": text}],
             "max_tokens": 300}, _parse_phrase)                      # Sonnet 5 rejects a non-default temperature
+
+
+    def judge(self, system: str, user: str, tool: dict, max_tokens: int = 700) -> tuple[dict, Trace]:
+        """EVALUATION ONLY (offline LLM judge, evals/langsmith/llm_judge.py): one metered call on the same pinned,
+        zero-retention route and the same ledger (purpose 'judge', migration 0042), temperature 0, answered by a
+        forced tool call. Returns {"args": the tool arguments, "served_model": the model OpenRouter reports}.
+        Nothing in the agent or the API calls this; staging and pilot never build a judge client."""
+        def parse(data: dict, tr: Trace) -> dict:
+            args = _tool_args(data, tr, tool["name"])
+            served = data.get("model") if isinstance(data.get("model"), str) else None
+            return {"args": args, "served_model": served[:80] if served else None}
+        return self._call("judge", self.extract_model, {
+            "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            "tools": [{"type": "function", "function": {"name": tool["name"], "description": tool["description"],
+                                                        "parameters": tool["input_schema"]}}],
+            "tool_choice": {"type": "function", "function": {"name": tool["name"]}},
+            "temperature": 0, "max_tokens": max_tokens}, parse)
+
+
+def _tool_args(data: dict, tr: Trace, name: str) -> dict:
+    """The arguments of the forced tool call `name`, after checking the answer's structure; ModelError otherwise."""
+    msg = _first_message(data, tr)
+    calls = msg.get("tool_calls")
+    if not isinstance(calls, list):
+        raise _malformed(tr, "no tool_calls list")
+    for call in calls:
+        fn = call.get("function") if isinstance(call, dict) else None
+        if isinstance(fn, dict) and fn.get("name") == name:
+            args = fn.get("arguments")
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args)
+                except json.JSONDecodeError:
+                    raise _malformed(tr, "tool arguments are not JSON") from None
+            if not isinstance(args, dict):
+                raise _malformed(tr, "tool arguments are not a JSON object")
+            return args
+    raise _malformed(tr, f"no {name} tool call")
 
 
 def _parse_extract(data: dict, tr: Trace) -> dict:
