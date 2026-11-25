@@ -1,0 +1,447 @@
+{
+ "smoke_id": "SMOKE-20261125T210115Z-9d4d8bc0",
+ "environment": "pilot-ap-southeast-2",
+ "release_sha": "66e22c2231b15ca791b685cd67ea0fdfa93d9277",
+ "deployed_code_sha256": "9e8a66d6db6ccb1972ee98304e54a53c76c97ed4fe3875803fcefae393b56a61",
+ "deployed_code_by_function": {
+  "setuhaul-pilot-api": "9e8a66d6db6ccb1972ee98304e54a53c76c97ed4fe3875803fcefae393b56a61",
+  "setuhaul-pilot-agent": "9e8a66d6db6ccb1972ee98304e54a53c76c97ed4fe3875803fcefae393b56a61"
+ },
+ "facility_id": "FAC-JAI-01",
+ "executions": [
+  {
+   "approval_id": "bb952e8f-2ce2-4748-8a3b-87e2b5967127",
+   "execution_arn": "arn:aws:states:ap-southeast-2:************:execution:setuhaul-pilot-approval:bb952e8f-2ce2-4748-8a3b-87e2b5967127",
+   "shipment_id": "SYN-SHP-446452C7",
+   "appointment_id": "APT-4fccf7e5809a456f9ea778722f65c48f",
+   "facility_id": "FAC-JAI-01"
+  }
+ ],
+ "collected_utc": "2026-11-25T21:07:26+00:00",
+ "evidence": {
+  "health": {
+   "status": "ok",
+   "database": "ok",
+   "booking_enabled": true,
+   "booking_state": "authorized",
+   "environment": "pilot-ap-southeast-2",
+   "version": "0.2.0",
+   "telegram": "live",
+   "features": {
+    "booking_switch": true,
+    "telegram_delivery_mode": "live",
+    "telegram_live_authorized": true,
+    "telegram_outbound_enabled": true,
+    "telegram_webhook_enabled": true,
+    "telegram_driver_allowlist": true,
+    "llm_judge_enabled": true,
+    "llm_judge_advisory_only": true,
+    "langsmith_tracing_enabled": true,
+    "production": false
+   },
+   "booking_switch": "on",
+   "gate_exceptions": [
+    "AURORA",
+    "OUTBOUND_DELIVERY",
+    "WORKLOAD_IDENTITY"
+   ],
+   "booking_kill_switch": "disengaged",
+   "booking_provisional_until": "2026-11-26T03:30:15.092821+05:30"
+  },
+  "booking": {
+   "driver": {
+    "driver_id": "SYN-DRV-446452C7",
+    "vehicle_id": "SYN-VEH-446452C7",
+    "shipment_id": "SYN-SHP-446452C7",
+    "phone": "+99901977111683"
+   },
+   "conversation": {
+    "t1": {
+     "message_id": "wamid.SYN.f9da7b8fe5224f61b8988d505abb0aec",
+     "api_request_id": "a470022e-7585-48a2-aa71-45c1db4aa8ce",
+     "agent_reply": "Available slots:\n1. Dock D1, 3:00 PM on 26 Nov\n2. Dock D2, 3:00 PM on 26 Nov\n3. Dock D3, 3:00 PM on 26 Nov\nReply with the number you want.",
+     "agent_reply_id": 398
+    },
+    "t2": {
+     "message_id": "wamid.SYN.5c79f58f6e6b4571885eecf1d3b7cd97",
+     "api_request_id": "49ff79a0-8593-4167-8a44-bf5fd75bd099",
+     "agent_reply": "You selected dock D1 at 3:00 PM on 26 Nov. Shall I request it? Reply YES to confirm.",
+     "agent_reply_id": 401
+    },
+    "t3": {
+     "message_id": "wamid.SYN.a78d4e707ae24cf4882f4d28c487683b",
+     "api_request_id": "d0ee4f81-1ee0-4bb0-8273-49089fdae7ef",
+     "agent_reply": "Request sent for dock D1 at 3:00 PM on 26 Nov. It is NOT confirmed yet; the warehouse will reply and I will tell you.",
+     "agent_reply_id": 403
+    },
+    "yes": {
+     "message_id": "wamid.SYN.a78d4e707ae24cf4882f4d28c487683b",
+     "api_request_id": "d0ee4f81-1ee0-4bb0-8273-49089fdae7ef",
+     "agent_reply": "Request sent for dock D1 at 3:00 PM on 26 Nov. It is NOT confirmed yet; the warehouse will reply and I will tell you.",
+     "agent_reply_id": 403
+    }
+   },
+   "request": [
+    [
+     "APT-4fccf7e5809a456f9ea778722f65c48f",
+     "PENDING_CONFIRMATION",
+     "bb952e8f-2ce2-4748-8a3b-87e2b5967127",
+     "OPEN",
+     null
+    ]
+   ]
+  },
+  "workflow": {
+   "relay": {
+    "status": 200,
+    "error": null,
+    "result": {
+     "consumed": 0,
+     "reconciled": 0
+    }
+   },
+   "task_token_recorded": true,
+   "executions_for_request": 1,
+   "execution_arn": "arn:aws:states:ap-southeast-2:************:execution:setuhaul-pilot-approval:bb952e8f-2ce2-4748-8a3b-87e2b5967127"
+  },
+  "authorization": {
+   "agent decides": {
+    "refused": true,
+    "sqlstate": "42501",
+    "message": "permission denied for function decide_booking_request"
+   },
+   "planner of another facility": {
+    "refused": true,
+    "sqlstate": "P0001",
+    "message": "APPOINTMENT_UNKNOWN"
+   },
+   "no staff identity": {
+    "refused": true,
+    "sqlstate": "P0001",
+    "message": "UNTRUSTED_CONTEXT: no staff identity for this transaction"
+   }
+  },
+  "decision": {
+   "first": {
+    "status": "CONFIRMED",
+    "outcome": "APPROVED",
+    "replaced": null,
+    "decided_at": "2026-11-26T02:33:11.560373+05:30",
+    "decided_by": "staff:option-d-smoke-planner",
+    "approval_id": "bb952e8f-2ce2-4748-8a3b-87e2b5967127",
+    "shipment_id": "SYN-SHP-446452C7",
+    "appointment_id": "APT-4fccf7e5809a456f9ea778722f65c48f",
+    "decided_by_role": "planner",
+    "decided_by_type": "HUMAN"
+   },
+   "same_key_again": {
+    "status": "CONFIRMED",
+    "outcome": "APPROVED",
+    "replaced": null,
+    "decided_at": "2026-11-26T02:33:11.560373+05:30",
+    "decided_by": "staff:option-d-smoke-planner",
+    "approval_id": "bb952e8f-2ce2-4748-8a3b-87e2b5967127",
+    "shipment_id": "SYN-SHP-446452C7",
+    "appointment_id": "APT-4fccf7e5809a456f9ea778722f65c48f",
+    "decided_by_role": "planner",
+    "decided_by_type": "HUMAN"
+   },
+   "second_decision": {
+    "refused": true,
+    "sqlstate": "P0001",
+    "message": "ALREADY_DECIDED: APPROVED"
+   }
+  },
+  "confirmed": {
+   "rows": [
+    [
+     "CONFIRMED",
+     "APPROVED",
+     "staff:option-d-smoke-planner",
+     "HUMAN"
+    ]
+   ],
+   "execution_status": "SUCCEEDED",
+   "relay_after_decision": {
+    "status": 200,
+    "error": null,
+    "result": {
+     "consumed": 1,
+     "reconciled": 0
+    }
+   },
+   "audit": [
+    [
+     "HOLD_OPTION",
+     "driver:SYN-DRV-446452C7",
+     "agent",
+     "2026-11-25 21:02:39.654525+00"
+    ],
+    [
+     "SUBMIT_BOOKING_REQUEST",
+     "driver:SYN-DRV-446452C7",
+     "agent",
+     "2026-11-25 21:02:40.922342+00"
+    ],
+    [
+     "APPROVAL_APPROVED",
+     "staff:option-d-smoke-planner",
+     "planner",
+     "2026-11-25 21:03:09.672493+00"
+    ]
+   ],
+   "booking_approved_notice": [
+    [
+     "booking_approved",
+     "SENT",
+     "testsink.17aaf5476e0b4d52b061cfccaee9755b"
+    ]
+   ]
+  },
+  "idempotency": {
+   "duplicate_webhook": {
+    "message_id": "wamid.SYN.a78d4e707ae24cf4882f4d28c487683b",
+    "status": 200,
+    "body": "{\"status\":\"received\"}",
+    "api_request_id": "1715b45d-ef25-4df3-a55b-ebc8364c887f"
+   },
+   "approval_requests": 1,
+   "active_appointments": 1
+  },
+  "double_booking": {
+   "slot": [
+    "DOCK-JAI-D1",
+    "2026-11-26 09:30:00+00",
+    "2026-11-26 10:25:00+00"
+   ],
+   "attempt": {
+    "refused": true,
+    "sqlstate": "23P01",
+    "message": "conflicting key value violates exclusion constraint \"ex_one_truck_per_dock\""
+   }
+  },
+  "kill_switch": {
+   "engaged": {
+    "engaged": true,
+    "changed_at": "2026-11-25 21:04:28.605095+00",
+    "changed_by": "owner:kill-switch-cli",
+    "reason": "Option D smoke test: kill switch drill"
+   },
+   "health_while_engaged": {
+    "status": "ok",
+    "database": "ok",
+    "booking_enabled": false,
+    "booking_state": "refused",
+    "environment": "pilot-ap-southeast-2",
+    "version": "0.2.0",
+    "telegram": "live",
+    "features": {
+     "booking_switch": true,
+     "telegram_delivery_mode": "live",
+     "telegram_live_authorized": true,
+     "telegram_outbound_enabled": true,
+     "telegram_webhook_enabled": true,
+     "telegram_driver_allowlist": true,
+     "llm_judge_enabled": true,
+     "llm_judge_advisory_only": true,
+     "langsmith_tracing_enabled": true,
+     "production": false
+    },
+    "booking_switch": "on",
+    "gate_exceptions": [
+     "AURORA",
+     "OUTBOUND_DELIVERY",
+     "WORKLOAD_IDENTITY"
+    ],
+    "booking_kill_switch": "ENGAGED",
+    "booking_refusal": "the booking kill switch is engaged",
+    "booking_provisional_until": "2026-11-26T03:30:15.092821+05:30"
+   },
+   "second_driver": {
+    "driver": {
+     "driver_id": "SYN-DRV-10C03730",
+     "vehicle_id": "SYN-VEH-10C03730",
+     "shipment_id": "SYN-SHP-10C03730",
+     "phone": "+99902795631576"
+    },
+    "replies": {
+     "t1": "Available slots:\n1. Dock D2, 3:00 PM on 26 Nov\n2. Dock D3, 3:00 PM on 26 Nov\n3. Dock D1, 4:00 PM on 26 Nov\nReply with the number you want.",
+     "t2": "You selected dock D2 at 3:00 PM on 26 Nov. Shall I request it? Reply YES to confirm.",
+     "t3": "A coordinator has your details and will reply within 10 minutes.",
+     "yes": "A coordinator has your details and will reply within 10 minutes."
+    },
+    "appointments": 0,
+    "approval_requests": 0
+   },
+   "agent_refusal_while_engaged": {
+    "agent_log": [
+     "[INFO]\t2026-11-25T21:05:26.374Z\tf05a75ac-ca9d-5fff-b0a2-162d85555519\t{\"channel\": \"whatsapp\", \"correlation_id\": \"80db2ee6-1aeb-5d3d-a257-4a04b590c056\", \"driver_id\": \"SYN-DRV-10C03730\", \"escalated\": true, \"event\": \"agent.turn\", \"extractor\": \"model\", \"facility_id\": \"FAC-JAI-01\", \"fallback_detail\": null, \"fallback_reason\": null, \"ingest_correlation_id\": \"bb8e1bac-336d-4ec9-a190-ed360911fdfd\", \"model_m",
+     "[INFO]\t2026-11-25T21:05:26.582Z\tf05a75ac-ca9d-5fff-b0a2-162d85555519\tagent turn message=0cce3e2e-8f87-41ab-9932-03bcd52102bf path=confirmation->book->escalated:BOOKING_KILLED extractor=model fallback=None correlation_id=80db2ee6-1aeb-5d3d-a257-4a04b590c056 turn_ref=80db2ee6-1aeb-5d3d-a257-4a04b590c056 ingest_correlation_id=bb8e1bac-336d-4ec9-a190-ed360911fdfd"
+    ],
+    "refused": true,
+    "message": "BOOKING_KILLED"
+   },
+   "disengaged": {
+    "engaged": false,
+    "changed_at": "2026-11-25 21:05:46.480465+00",
+    "changed_by": "owner:kill-switch-cli",
+    "reason": "Option D smoke test: kill switch drill over"
+   },
+   "audit": [
+    [
+     "BOOKING_KILL_DISENGAGED",
+     "owner:kill-switch-cli",
+     "2026-11-25 21:05:46.480465+00"
+    ],
+    [
+     "BOOKING_KILL_ENGAGED",
+     "owner:kill-switch-cli",
+     "2026-11-25 21:04:28.605095+00"
+    ]
+   ]
+  },
+  "isolation": {
+   "non_synthetic_rows": 0,
+   "non_test_sink_deliveries": 0
+  },
+  "final_kill_switch": {
+   "engaged": false,
+   "changed_at": "2026-11-25 21:05:46.480465+00",
+   "changed_by": "owner:kill-switch-cli",
+   "reason": "Option D smoke test: kill switch drill over"
+  }
+ },
+ "checks": {
+  "1 booking ON, kill switch disengaged, exceptions listed": true,
+  "2a the agent held the slot and submitted a request; no automatic approval": true,
+  "2b the relay started one execution, waiting for a person": true,
+  "5 authorization: agent, other facility and no-identity decisions refused": true,
+  "2c a planner approved: CONFIRMED, decided by the planner, execution SUCCEEDED": true,
+  "2d audit trail written (hold, request, decision)": true,
+  "2e the driver's notice went to the internal test sink": true,
+  "3 a duplicate YES and a repeated decision change nothing; a second decision is refused": true,
+  "4 the same dock time cannot be claimed twice (exclusion constraint)": true,
+  "6 kill switch: engaged -> the deployed agent's booking refused BOOKING_KILLED and escalated, nothing booked; disengaged; audited": true,
+  "7 isolation: only synthetic identities; no delivery outside the test sink": true
+ },
+ "all_pass": true,
+ "log": [
+  {
+   "t": "2026-11-25T21:01:43+00:00",
+   "event": "wake",
+   "mode": "AWAKE"
+  },
+  {
+   "t": "2026-11-25T21:01:45+00:00",
+   "event": "health",
+   "status": "ok",
+   "database": "ok",
+   "booking_enabled": true,
+   "booking_state": "authorized",
+   "environment": "pilot-ap-southeast-2",
+   "version": "0.2.0",
+   "telegram": "live",
+   "features": {
+    "booking_switch": true,
+    "telegram_delivery_mode": "live",
+    "telegram_live_authorized": true,
+    "telegram_outbound_enabled": true,
+    "telegram_webhook_enabled": true,
+    "telegram_driver_allowlist": true,
+    "llm_judge_enabled": true,
+    "llm_judge_advisory_only": true,
+    "langsmith_tracing_enabled": true,
+    "production": false
+   },
+   "booking_switch": "on",
+   "gate_exceptions": [
+    "AURORA",
+    "OUTBOUND_DELIVERY",
+    "WORKLOAD_IDENTITY"
+   ],
+   "booking_kill_switch": "disengaged",
+   "booking_provisional_until": "2026-11-26T03:30:15.092821+05:30"
+  },
+  {
+   "t": "2026-11-25T21:02:13+00:00",
+   "event": "driver: 'Traffic on the highway. Reaching around 1:45 PM, any slot?'",
+   "reply": "Available slots:\n1. Dock D1, 3:00 PM on 26 Nov\n2. Dock D2, 3:00 PM on 26 Nov\n3. Dock D3, 3:00 PM on 26 Nov\nReply with the number you want."
+  },
+  {
+   "t": "2026-11-25T21:02:29+00:00",
+   "event": "driver: '1'",
+   "reply": "You selected dock D1 at 3:00 PM on 26 Nov. Shall I request it? Reply YES to confirm."
+  },
+  {
+   "t": "2026-11-25T21:02:44+00:00",
+   "event": "driver: 'YES'",
+   "reply": "Request sent for dock D1 at 3:00 PM on 26 Nov. It is NOT confirmed yet; the warehouse will reply and I will tell you."
+  },
+  {
+   "t": "2026-11-25T21:02:46+00:00",
+   "event": "request",
+   "rows": [
+    [
+     "APT-4fccf7e5809a456f9ea778722f65c48f",
+     "PENDING_CONFIRMATION",
+     "bb952e8f-2ce2-4748-8a3b-87e2b5967127",
+     "OPEN",
+     null
+    ]
+   ]
+  },
+  {
+   "t": "2026-11-25T21:03:53+00:00",
+   "event": "confirmed",
+   "appointment": "APT-4fccf7e5809a456f9ea778722f65c48f",
+   "execution": "SUCCEEDED",
+   "audit": 3,
+   "notice": [
+    [
+     "booking_approved",
+     "SENT",
+     "testsink.17aaf5476e0b4d52b061cfccaee9755b"
+    ]
+   ]
+  },
+  {
+   "t": "2026-11-25T21:04:57+00:00",
+   "event": "driver: 'Traffic on the highway. Reaching around 1:45 PM, any slot?'",
+   "reply": "Available slots:\n1. Dock D2, 3:00 PM on 26 Nov\n2. Dock D3, 3:00 PM on 26 Nov\n3. Dock D1, 4:00 PM on 26 Nov\nReply with the number you want."
+  },
+  {
+   "t": "2026-11-25T21:05:14+00:00",
+   "event": "driver: '1'",
+   "reply": "You selected dock D2 at 3:00 PM on 26 Nov. Shall I request it? Reply YES to confirm."
+  },
+  {
+   "t": "2026-11-25T21:05:30+00:00",
+   "event": "driver: 'YES'",
+   "reply": "A coordinator has your details and will reply within 10 minutes."
+  },
+  {
+   "t": "2026-11-25T21:05:54+00:00",
+   "event": "kill switch",
+   "appointments": 0,
+   "hold": {
+    "agent_log": [
+     "[INFO]\t2026-11-25T21:05:26.374Z\tf05a75ac-ca9d-5fff-b0a2-162d85555519\t{\"channel\": \"whatsapp\", \"correlation_id\": \"80db2ee6-1aeb-5d3d-a257-4a04b590c056\", \"driver_id\": \"SYN-DRV-10C03730\", \"escalated\": true, \"event\": \"agent.turn\", \"extractor\": \"model\", \"facility_id\": \"FAC-JAI-01\", \"fallback_detail\": null, \"fallback_reason\": null, \"ingest_correlation_id\": \"bb8e1bac-336d-4ec9-a190-ed360911fdfd\", \"model_m",
+     "[INFO]\t2026-11-25T21:05:26.582Z\tf05a75ac-ca9d-5fff-b0a2-162d85555519\tagent turn message=0cce3e2e-8f87-41ab-9932-03bcd52102bf path=confirmation->book->escalated:BOOKING_KILLED extractor=model fallback=None correlation_id=80db2ee6-1aeb-5d3d-a257-4a04b590c056 turn_ref=80db2ee6-1aeb-5d3d-a257-4a04b590c056 ingest_correlation_id=bb8e1bac-336d-4ec9-a190-ed360911fdfd"
+    ],
+    "refused": true,
+    "message": "BOOKING_KILLED"
+   },
+   "after": {
+    "engaged": false,
+    "changed_at": "2026-11-25 21:05:46.480465+00",
+    "changed_by": "owner:kill-switch-cli",
+    "reason": "Option D smoke test: kill switch drill over"
+   }
+  },
+  {
+   "t": "2026-11-25T21:07:26+00:00",
+   "event": "sleep",
+   "mode": "ASLEEP"
+  }
+ ]
+}
