@@ -248,12 +248,16 @@ def print_report(rep: dict) -> None:
 
 
 # ---------------------------------------------------------------- the paid run (owner-started only)
-def paid_run(recs, version, env, approve, *, client=None, db=None) -> dict:
-    """Refuses (SystemExit) unless every condition holds. `client`/`db` are injected by tests (fakes only)."""
+def paid_run(recs, version, env, approve, *, client=None, db=None, preflight=None) -> dict:
+    """Refuses (SystemExit) unless every condition holds. `client`/`db` are injected by tests (fakes only).
+    `preflight` (e.g. the LangSmith dataset sync) runs after every gate and BEFORE any paid call; if it raises, no
+    paid call is made."""
     rep = dry_run_report(recs, version, env, approve)
     if rep["paid_run_would_be_refused_because"]:
         print_report(rep)
         raise SystemExit("REFUSED: the paid run does not start (see the reasons above)")
+    if preflight is not None:
+        preflight()
     cfg = config_from_env(env)
     assert_local(cfg["ledger_dsn"])
     from setuhaul.agent.metering import ModelBudget
@@ -291,10 +295,80 @@ def paid_run(recs, version, env, approve, *, client=None, db=None) -> dict:
                       "latency_ms_total": sum(x["latency_ms"] or 0 for x in out),
                       "unparseable": sum(x["status"] == "UNPARSEABLE" for x in out)},
            "ledger_before": before, "ledger_after": after, "advisory_only": True, "judgements": out}
+    res["comparison"] = compare_with_reference(out)
+    res["acceptance"] = acceptance(res["comparison"])
     RESULTS.mkdir(parents=True, exist_ok=True)
     path = RESULTS / f"judge_{started.strftime('%Y%m%d_%H%M%S')}.json"
-    path.write_text(json.dumps(res, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
     res["path"] = str(path)
+    path.write_bytes(json.dumps(res, ensure_ascii=False, indent=1, default=str).encode("utf-8"))
+    return res
+
+
+def compare_with_reference(judgements: list[dict]) -> dict | None:
+    """The accepted AI reference comparison (ALWAYS_5 baseline, negative cases, separate statuses). Never raises."""
+    try:
+        from evals.langsmith.judge_reference_compare import full_report, load_reference
+        return full_report(judgements, load_reference())
+    except Exception as e:                                               # noqa: BLE001
+        return {"error": f"{type(e).__name__}: {str(e)[:160]}"}
+
+
+def acceptance(comparison: dict | None) -> dict:
+    """The two owner-approved rules (25 Nov 2026), reported apart from agreement and human calibration."""
+    if not comparison or "judge" not in comparison:
+        return {"accepted": False, "why": "no comparison"}
+    j, b = comparison["judge"], comparison["baseline"]
+    jn, bn = j["negative_cases"], b["negative_cases"]
+    rule1 = jn["cases_identified"] == jn["cases_total"] == 5
+    rule2 = (j["overall"]["mae"] is not None and j["overall"]["mae"] < b["overall"]["mae"]
+             and jn["targets_identified"] > bn["targets_identified"])
+    return {"rule1_bad_replies_caught": f"{jn['cases_identified']}/{jn['cases_total']}", "rule1_passed": rule1,
+            "rule2_beats_always_5": rule2, "judge_mae": j["overall"]["mae"], "always_5_mae": b["overall"]["mae"],
+            "accepted": rule1 and rule2, "agreement_within_1": j["overall"]["within_1"],
+            "human_calibration": comparison["statuses"]["independent_human_calibration"]}
+
+
+def _langsmith(env):
+    """(cfg, client) from the owner's shell, or SystemExit naming what is missing. Never prints the key."""
+    from evals.langsmith.judge_langsmith import ls_config
+    from setuhaul.observability.langsmith import LangSmithClient
+    cfg = ls_config(env)
+    if not cfg["ready"]:
+        raise SystemExit("REFUSED (LangSmith): " + "; ".join(cfg["problems"]))
+    return cfg, LangSmithClient(env["LANGSMITH_API_KEY"].strip(), cfg["endpoint"], timeout_s=10.0,
+                                workspace_id=cfg["workspace_id"])
+
+
+def upload(res: dict, recs: list[dict], version: str, cfg, client, ds=None) -> dict:
+    from evals.langsmith import judge_langsmith as JL
+    from evals.langsmith.judge_reference_compare import load_reference
+    if ds is None:
+        ds = JL.sync_dataset(client, JL.examples(recs, version, load_reference()), version)
+    exp = JL.upload_experiment(client, ds, res, res.get("comparison"))
+    return {"dataset": {k: ds[k] for k in ("dataset_name", "dataset_id", "created", "examples_added",
+                                            "content_drift", "missing")},
+            "experiment": exp, "experiment_url": JL.experiment_url(cfg, ds, exp)}
+
+
+def run_with_langsmith(recs, version, env, approve, *, client=None, db=None, ls=None) -> dict:
+    """The paid run recorded as a LangSmith experiment. `ls` = (cfg, LangSmith client) in tests."""
+    from evals.langsmith import judge_langsmith as JL
+    from evals.langsmith.judge_reference_compare import load_reference
+    cfg, lsc = ls or _langsmith(env)
+    state: dict = {}
+
+    def preflight():                                     # before any paid call: a LangSmith problem costs nothing
+        ds = JL.sync_dataset(lsc, JL.examples(recs, version, load_reference()), version)
+        if ds["content_drift"] or ds["missing"]:
+            raise SystemExit(f"REFUSED (LangSmith dataset): drift {ds['content_drift']}, missing {ds['missing']}")
+        state["ds"] = ds
+    res = paid_run(recs, version, env, approve, client=client, db=db, preflight=preflight)
+    try:
+        res["langsmith"] = upload(res, recs, version, cfg, lsc, state["ds"])
+    except Exception as e:                                               # noqa: BLE001 — never re-run the model
+        res["langsmith"] = {"error": f"upload failed ({type(e).__name__}); retry with --langsmith-upload "
+                                     f"{res['path']} (no model call)"}
+    Path(res["path"]).write_bytes(json.dumps(res, ensure_ascii=False, indent=1, default=str).encode("utf-8"))
     return res
 
 
@@ -305,21 +379,37 @@ def main(argv=None) -> int:
     ap.add_argument("--init-ledger", action="store_true", help="create and migrate the local ledger database")
     ap.add_argument("--paid", action="store_true", help="the paid run (owner only; see the module doc)")
     ap.add_argument("--approve", help="the dataset version the owner approved from the dry run")
+    ap.add_argument("--langsmith", action="store_true", help="record the paid run as a LangSmith experiment")
+    ap.add_argument("--langsmith-upload", type=Path, help="upload an existing results file (no model call)")
     a = ap.parse_args(argv)
     env = dict(os.environ)
     if a.init_ledger:
         init_ledger(env.get("SETUHAUL_JUDGE_LEDGER_DSN") or LEDGER_DSN_DEFAULT)
         return 0
     recs, version = load_dataset(a.dataset)
+    if a.langsmith_upload:                              # upload only: never a model call
+        res = json.loads(a.langsmith_upload.read_text(encoding="utf-8"))
+        if res.get("dataset_version") != version:
+            raise SystemExit("REFUSED: the results file is for another dataset version")
+        cfg, client = _langsmith(env)
+        res["langsmith"] = upload(res, recs, version, cfg, client)
+        a.langsmith_upload.write_bytes(json.dumps(res, ensure_ascii=False, indent=1, default=str).encode("utf-8"))
+        print(json.dumps(res["langsmith"], indent=1))
+        return 0
     if not a.paid:
         rep = dry_run_report(recs, version, env, a.approve)
         print_report(rep)
         if a.json:
             a.json.write_text(json.dumps(rep, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
         return 0
-    res = paid_run(recs, version, env, a.approve)
-    print(f"judged {res['judged']}/{res['records']}, charged USD {res['actual']['charged_usd_by_ledger']}, "
-          f"stopped: {res['stopped_early']}; results {res['path']}")
+    res = run_with_langsmith(recs, version, env, a.approve) if a.langsmith else paid_run(recs, version, env, a.approve)
+    act = res["actual"]
+    print(f"judged {res['judged']}/{res['records']}, requests {act['calls_reserved']}, charged USD "
+          f"{act['charged_usd_by_ledger']}, tokens in/out {act['input_tokens']}/{act['output_tokens']}, "
+          f"latency ms {act['latency_ms_total']}, stopped: {res['stopped_early']}")
+    print("acceptance: " + json.dumps(res["acceptance"]))
+    print("langsmith: " + json.dumps(res.get("langsmith", "not requested"))[:600])
+    print(f"results: {res['path']}")
     return 0
 
 

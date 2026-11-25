@@ -165,13 +165,23 @@ The report from 25 Nov 2026 is in `docs/evaluation/llm_judge_dry_run_v1.txt` and
 $env:SETUHAUL_LLM_JUDGE = "on"; $env:SETUHAUL_ENV = "eval"; $env:SETUHAUL_DATA_CLASS = "synthetic"
 ```
 ```powershell
-$env:SETUHAUL_LLM_JUDGE_BUDGET_USD = "1.00"; $env:SETUHAUL_LLM_DAILY_BUDGET_USD = "3.00"
+$env:SETUHAUL_LLM_JUDGE_BUDGET_USD = "0.35"; $env:SETUHAUL_LLM_DAILY_BUDGET_USD = "3.00"
 ```
 ```powershell
-python -m evals.langsmith.judge_run --paid --approve judge-v1-579de0ebb1ad
+python -m evals.langsmith.judge_run --paid --langsmith --approve judge-v1-579de0ebb1ad
 ```
 
-**Before you start it:** set `OPENROUTER_API_KEY` in the same shell yourself. The key is never printed; only its shape is logged.
+**Before you start it:** set `OPENROUTER_API_KEY` and `LANGSMITH_API_KEY` in the same shell yourself, plus `LANGSMITH_WORKSPACE_ID` and `LANGSMITH_ENDPOINT` if your workspace needs them (the same settings as the G.2 smoke). No key is ever printed; only its shape is logged.
+
+**Recorded in LangSmith (`--langsmith`), using the existing G.1/G.2 REST client. Nothing runs in AWS.**
+- **Before any paid call:** the dataset `setuhaul-llm-judge-judge-v1-579de0ebb1ad` is created or matched. It has 30 synthetic examples, and the accepted AI reference scores are attached as labelled outputs. If LangSmith is unreachable, misconfigured, or holds different content, the run is refused and **nothing is paid for**.
+- **After the run:**
+  - one experiment session is created on that dataset, carrying model, provider, served model, prompt and dataset versions, cost, tokens and the acceptance statuses;
+  - one run per judged example is posted, linked to its dataset example, with the scores, rationales, exact quotes, tokens, cost and latency;
+  - `quality:*` feedback is added to each run.
+- **If the upload fails,** the local results file stands. `--langsmith-upload <results file>` retries the upload only, never the model calls.
+- **What it never does:** attach an online evaluator, or read pilot traces.
+- **Built into the results:** the ALWAYS_5 comparison and both approved acceptance rules are computed automatically and stored in the results file (`comparison`, `acceptance`).
 
 **What makes it refuse to start:** any failed gate, an upper-bound estimate above the run cap, a ledger that isn't local or isn't migrated, or an `--approve` that names a different dataset version.
 
