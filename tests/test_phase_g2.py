@@ -81,8 +81,9 @@ READY = {"LANGSMITH_TRACING": "true", "LANGSMITH_API_KEY": LS_KEY, "SETUHAUL_ENV
 @pytest.fixture
 def ready_env(monkeypatch, tmp_path):
     for k in ("LANGSMITH_TRACING", "LANGSMITH_API_KEY", "LANGSMITH_PROJECT", "LANGSMITH_ENDPOINT", "SETUHAUL_ENV",
-              "SETUHAUL_DSN", "SETUHAUL_TEST_DSN"):
+              "SETUHAUL_DSN"):
         monkeypatch.delenv(k, raising=False)
+    # keep SETUHAUL_TEST_DSN: it names the local test cluster (CI: port 5432); the executors read it lazily
     for k, v in READY.items():
         monkeypatch.setenv(k, v)
     monkeypatch.setattr(g2, "RESULTS", tmp_path)
