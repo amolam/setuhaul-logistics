@@ -110,6 +110,9 @@ def test_config_with_a_key_shows_only_its_shape_and_refuses_pilot_and_unknown_en
     assert eu["ready"] and eu["endpoint"] == "https://eu.api.smith.langchain.com" and eu["ui"] == "https://eu.smith.langchain.com"
     ap = g2.config(dict(READY, LANGSMITH_ENDPOINT="https://apac.api.smith.langchain.com"))
     assert ap["ready"] and ap["ui"] == "https://apac.smith.langchain.com"
+    ws = g2.config(dict(READY, LANGSMITH_WORKSPACE_ID="0F0E0D0C-0000-4000-8000-000000000001"))
+    assert ws["ready"] and ws["workspace_id"] == "0f0e0d0c-0000-4000-8000-000000000001" and "personal" in ws["key"]
+    assert not g2.config(dict(READY, LANGSMITH_WORKSPACE_ID="not-a-uuid"))["ready"]
     assert not g2.config(dict(READY, SETUHAUL_ENV="pilot"))["ready"]
     assert not g2.config(dict(READY, LANGSMITH_ENDPOINT="https://evil.example.com"))["ready"]
     assert not g2.config(dict(READY, SETUHAUL_DSN="rds-data://cluster"))["ready"]
@@ -139,6 +142,16 @@ def test_the_dataset_is_the_ten_existing_scenarios_with_the_minimal_fields():
     assert {e["scenario_id"]: e["outputs"]["expected_policy_decision"] for e in a if
             e["outputs"]["expected_policy_decision"] == "DENIED"}.keys() == {"C06", "T04", "A10", "T06"}
     assert not find_leaks([{k: e[k] for k in ("inputs", "outputs", "metadata")} for e in a])
+
+
+def test_an_organisation_key_sends_its_workspace_and_nothing_else_changes():
+    seen = []
+    c = LangSmithClient(LS_KEY, http=httpx.Client(transport=httpx.MockTransport(
+        lambda r: seen.append(dict(r.headers)) or httpx.Response(200, json=[]))), workspace_id="ws-1")
+    c.find_dataset("x")
+    LangSmithClient(LS_KEY, http=httpx.Client(transport=httpx.MockTransport(
+        lambda r: seen.append(dict(r.headers)) or httpx.Response(200, json=[])))).find_dataset("x")
+    assert seen[0]["x-tenant-id"] == "ws-1" and "x-tenant-id" not in seen[1]
 
 
 def test_dataset_sync_is_idempotent():

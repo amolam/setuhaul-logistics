@@ -82,6 +82,20 @@ refuse or retry a booking. There is no LLM judge.
    $env:LANGSMITH_ENDPOINT = "https://apac.api.smith.langchain.com"
    ```
 
+   If the key is organisation-scoped (a service key, or an organisation with several workspaces), name the workspace.
+   Copy the workspace ID from **Settings → Workspaces**:
+
+   ```powershell
+   $env:LANGSMITH_WORKSPACE_ID = "<workspace-id>"
+   ```
+
+   If LangSmith answers HTTP 401 or 403, run the read-only probe. It prints LangSmith's own error text and never
+   prints the key:
+
+   ```powershell
+   python -m evals.langsmith.g2_probe
+   ```
+
 3. Make sure the local test PostgreSQL is running on port 55432. The runner refuses any other host and the RDS Data
    API.
 4. Verify the configuration. This makes no network call. Exit code 0 means ready; the key is shown only by its shape.

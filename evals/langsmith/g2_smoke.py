@@ -11,6 +11,7 @@ Configuration (standard LangSmith names; nothing is read at application start-up
     LANGSMITH_API_KEY   the key         set by the owner in the shell, never logged or printed (only its shape)
     LANGSMITH_PROJECT   default setuhaul-synthetic-pilot (where the agent traces go)
     LANGSMITH_ENDPOINT  only if the workspace needs it: https://api.smith.langchain.com (default), the EU or the APAC endpoint
+    LANGSMITH_WORKSPACE_ID  only for an organisation-scoped key: the workspace id (sent as X-Tenant-Id)
 
 What it reuses (nothing new on the agent path): the Phase G executors and isolated LOCAL database
 (evals/phase_g/run_eval.py, local_env.py), the scripted model (FakeModel, $0), the G.1 tracer, redaction and export
@@ -69,6 +70,11 @@ def _on(v: str | None) -> bool:
     return (v or "").strip().lower() in ("on", "true", "1", "yes")
 
 
+def _key_kind(key: str) -> str:
+    """Only the documented prefix: lsv2_pt (personal token) or lsv2_sk (service key). Never more of the key."""
+    return {"lsv2_pt_": "personal", "lsv2_sk_": "service"}.get(key[:8], "unknown kind")
+
+
 def config(env: dict) -> dict:
     """What the full run would use. Never contains the key (only whether it is present and its shape)."""
     from setuhaul.agent.errors import key_shape
@@ -88,12 +94,19 @@ def config(env: dict) -> dict:
         problems.append(f"SETUHAUL_ENV={environment}: the smoke runs from dev/eval/ci only, never pilot/staging")
     if endpoint not in ALLOWED_ENDPOINTS:
         problems.append(f"LANGSMITH_ENDPOINT {endpoint!r} is not one of {ALLOWED_ENDPOINTS}")
+    workspace = (env.get("LANGSMITH_WORKSPACE_ID") or "").strip() or None
+    if workspace:
+        try:
+            workspace = str(uuid.UUID(workspace))
+        except ValueError:
+            problems.append("LANGSMITH_WORKSPACE_ID is not a workspace id (UUID)")
     if (env.get("SETUHAUL_DSN") or "").startswith("rds-data") or (env.get("SETUHAUL_TEST_DSN") or "").startswith("rds-data"):
         problems.append("SETUHAUL_DSN points at the RDS Data API (the pilot): local database only")
     return {"ready": not problems, "tracing": tracing_on, "environment": environment,
             "project": (env.get("LANGSMITH_PROJECT") or DEFAULT_PROJECT).strip(), "endpoint": endpoint,
             "ui": endpoint.replace("api.smith.langchain.com", "smith.langchain.com"),
-            "key": f"present ({key_shape(key)})" if key else "missing", "problems": problems,
+            "key": f"present ({key_shape(key)}, {_key_kind(key)})" if key else "missing", "problems": problems,
+            "workspace_id": workspace,
             "model": "scripted FakeModel (no paid call)", "max_model_cost_usd": MAX_MODEL_COST_USD}
 
 
@@ -318,7 +331,7 @@ def main(argv=None, http=None) -> int:
     from setuhaul.observability import tracing
     from setuhaul.observability.langsmith import LangSmithClient, LangSmithExporter
     key = env["LANGSMITH_API_KEY"].strip()
-    client = LangSmithClient(key, cfg["endpoint"], http=http, timeout_s=10.0)
+    client = LangSmithClient(key, cfg["endpoint"], http=http, timeout_s=10.0, workspace_id=cfg["workspace_id"])
     ls: dict = {}
     try:
         ls["dataset"] = sync_dataset(client, examples)
@@ -326,7 +339,8 @@ def main(argv=None, http=None) -> int:
         ls["dataset_url"] = f"{cfg['ui']}/o/{tid}/datasets/{ls['dataset']['dataset_id']}" if tid else None
     except Exception as x:                                            # noqa: BLE001 — LangSmith down: run locally
         ls["error"] = f"dataset sync failed ({type(x).__name__}: {str(x)[:120]}); evaluated locally, nothing uploaded"
-    exporter = RecordingExporter(LangSmithExporter(LangSmithClient(key, cfg["endpoint"], http=http, timeout_s=5.0)))
+    exporter = RecordingExporter(LangSmithExporter(LangSmithClient(key, cfg["endpoint"], http=http, timeout_s=5.0,
+                                                                        workspace_id=cfg["workspace_id"])))
     tracer = tracing.Tracer(tracing.TracerConfig(enabled=True, project=cfg["project"], environment=cfg["environment"],
                                                  agent_version="g2-smoke"), exporter)
     report = evaluate(examples, run_examples(examples, tracer=tracer))

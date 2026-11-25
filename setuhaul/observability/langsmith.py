@@ -103,13 +103,16 @@ def load_langsmith_key(env: dict, environment: str, secrets_client: Any = None) 
 class LangSmithClient:
     """Bounded REST calls (2 s timeout, no retries here: callers decide). The key is only ever in a header."""
 
-    def __init__(self, api_key: str, endpoint: str = ALLOWED_ENDPOINTS[0], http: Any = None, timeout_s: float = TIMEOUT_S):
+    def __init__(self, api_key: str, endpoint: str = ALLOWED_ENDPOINTS[0], http: Any = None, timeout_s: float = TIMEOUT_S,
+                 workspace_id: str | None = None):
         if endpoint.rstrip("/") not in ALLOWED_ENDPOINTS:
             raise LangSmithConfigError(f"LangSmith endpoint {endpoint!r} is not allowed", "INVALID_REQUEST")
         import httpx
         self.endpoint = endpoint.rstrip("/")
         self.http = http or httpx.Client(timeout=httpx.Timeout(timeout_s, connect=min(timeout_s, 1.5)))
         self._headers = {"x-api-key": api_key, "Content-Type": "application/json"}
+        if workspace_id:                 # G.2: an organisation-scoped key names its workspace (LangSmith X-Tenant-Id)
+            self._headers["X-Tenant-Id"] = str(workspace_id)
 
     def _req(self, method: str, path: str, body: Any = None, params: dict | None = None) -> Any:
         r = self.http.request(method, f"{self.endpoint}{path}", headers=self._headers,
