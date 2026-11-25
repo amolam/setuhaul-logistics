@@ -765,7 +765,7 @@ def test_health_reports_the_database_and_the_booking_switch_and_nothing_secret(d
     r = off.get("/health")
     assert r.status_code == 200
     assert r.json() == {"status": "ok", "database": "ok", "booking_enabled": False, "booking_state": "off",
-                        "environment": "pilot-ap-southeast-2", "version": "0.2.0"}
+                        "environment": "pilot-ap-southeast-2", "version": "0.2.0", "telegram": "test_sink"}
     assert "password" not in r.text and "host=" not in r.text and "postgres" not in r.text
 
 

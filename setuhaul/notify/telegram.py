@@ -222,8 +222,8 @@ class TelegramTestSink:
         _sink_log("send", to, text, idempotency_key)
         if step == "timeout":
             raise ProviderTimeout("read timeout")
-        # the same format as a real send (per-chat tag + message id); the id is random, never reused
-        return SendResult(ACCEPTED, provider_ref(to, 10**9 + secrets.randbelow(10**9)))
+        # per-chat tag like a real send, but its own prefix: the console tells the sink apart from the real Bot API
+        return SendResult(ACCEPTED, f"tgsink.{chat_tag(to)}.{10**9 + secrets.randbelow(10**9)}")
 
 
 class TelegramGateway:

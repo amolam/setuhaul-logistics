@@ -118,6 +118,7 @@ def make_app(dsn: str, transport, allow, secret: str):
                               session_secret=secrets.token_bytes(40), meta_app_secret=secrets.token_bytes(40),
                               facilities=("FAC-JAI-01", "FAC-GGN-01"), jwks={"keys": [jwk]}, booking_enabled=True,
                               local_test_harness=True, cognito_domain="tgbot.invalid", console_client_id="tgbot",
+                              environment="local test-bot runner", telegram_mode="test_bot", local_runner=True,
                               telegram_webhook_secret=secret, telegram_replies=transport, telegram_allowlist=allow))
 
     @app.get("/runner/token/{role}")

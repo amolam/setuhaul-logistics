@@ -69,6 +69,8 @@ class Settings:
     # ignore every account outside it (setuhaul.notify.telegram.telegram_from_env; fail closed).
     telegram_replies: object | None = None
     telegram_allowlist: frozenset | None = None
+    telegram_mode: str | None = None                  # SETUHAUL_TELEGRAM_DELIVERY as configured (shown by /health)
+    local_runner: bool = False                        # the local test-bot runner only (see /health); never from env
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -95,11 +97,12 @@ class Settings:
 
 def _telegram_replies_from_env() -> dict:
     """Only test_bot / live put a real transport behind webhook replies; anything else keeps the test sink."""
-    if os.environ.get("SETUHAUL_TELEGRAM_DELIVERY", "test_sink") not in ("test_bot", "live"):
-        return {}
+    mode = os.environ.get("SETUHAUL_TELEGRAM_DELIVERY", "test_sink")
+    if mode not in ("test_bot", "live"):
+        return {"telegram_mode": mode}
     from ..notify.telegram import telegram_from_env
     transport, allow = telegram_from_env(dict(os.environ))       # raises on any missing piece: the app does not start
-    return {"telegram_replies": transport, "telegram_allowlist": allow}
+    return {"telegram_replies": transport, "telegram_allowlist": allow, "telegram_mode": mode}
 
 
 class ToolCall(BaseModel):
@@ -322,7 +325,11 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
             database = "unreachable"
         gate = getattr(app.state, "booking_gate", None) or {"switch": False, "ok": False, "reason": None}
         body = {"status": "ok" if database == "ok" else "degraded", "database": database, "booking_enabled": False,
-                "booking_state": "off", "environment": settings.environment, "version": app.version}
+                "booking_state": "off", "environment": settings.environment, "version": app.version,
+                # Telegram delivery mode only (test_sink | test_bot | live | off): no token, chat or allowlist
+                "telegram": settings.telegram_mode or ("test_bot" if settings.telegram_allowlist is not None
+                                                       else "live" if settings.telegram_replies is not None
+                                                       else "test_sink")}
         if not gate["switch"]:
             return JSONResponse(body, status_code=200 if database == "ok" else 503)
         body["booking_switch"] = "on"
@@ -341,6 +348,12 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
             body.update(booking_state="unknown", booking_kill_switch="unknown")
             return JSONResponse(body, status_code=200)
         body["booking_kill_switch"] = "ENGAGED" if st.get("kill_switch") else "disengaged"
+        if settings.local_runner:
+            # the owner-run local test-bot runner (scripts/telegram_test_bot.py): bookings run on a local synthetic
+            # database WITHOUT the release gates (no deployment exists to authorize). booking_enabled stays false;
+            # the console labels it a local harness. Never set by Settings.from_env (no deployment can turn it on).
+            body["booking_state"] = "local_test_harness"
+            return JSONResponse(body, status_code=200)
         if gate["ok"]:
             if st.get("authorized") is True:
                 body.update(booking_enabled=True, booking_state="authorized")

@@ -1134,10 +1134,22 @@ class BookingService:
 
     @staticmethod
     def _delivery(provider_message_id: str | None) -> str | None:
-        """Which kind of sender accepted it, never the id itself beyond its kind (test sink vs a real provider)."""
+        """Which kind of sender accepted it, never the id itself beyond its kind: the WhatsApp test sink, the Telegram
+        test sink, Telegram (the Bot API, a test bot in this release) or another real provider."""
         if not provider_message_id:
             return None
-        return "test_sink" if provider_message_id.startswith("testsink.") else "provider"
+        for prefix, label in (("testsink.", "test_sink"), ("tgsink.", "telegram_test_sink"), ("tg.", "telegram")):
+            if provider_message_id.startswith(prefix):
+                return label
+        return "provider"
+
+    @staticmethod
+    def _shown_flow(state: str | None, appointment_status: str | None) -> str | None:
+        """The conversation state as it stands: a SUBMITTED flow whose request the warehouse already decided reads as
+        BOOKED / CLOSED (the same rule the next turn, 0039 and the agent apply; this read writes nothing)."""
+        if state == "SUBMITTED" and appointment_status and appointment_status != "PENDING_CONFIRMATION":
+            return "BOOKED" if appointment_status == "CONFIRMED" else "CLOSED"
+        return state
 
     def whoami(self, p: Principal) -> dict:
         """Read only (Step 6 WORKLOAD_IDENTITY check 5): who the server says this person is, derived ONLY from the
@@ -1157,11 +1169,12 @@ class BookingService:
             rows = c.execute("""
                 SELECT t.thread_id, t.driver_id, d.phone_e164, s.destination_facility_id, t.shipment_id, t.status,
                        t.human_active, f.state, m.created_at, m.sender_type, left(m.body_masked, 120),
-                       tf.facts, n.status, n.template_id, n.provider_message_id
+                       tf.facts, n.status, n.template_id, n.provider_message_id, fa.status
                   FROM chat_threads t
                   LEFT JOIN drivers d ON d.driver_id = t.driver_id
                   LEFT JOIN shipments s ON s.shipment_id = t.shipment_id
                   LEFT JOIN thread_flow f ON f.thread_id = t.thread_id
+                  LEFT JOIN appointments fa ON fa.appointment_id = f.appointment_id
                   LEFT JOIN thread_facts tf ON tf.thread_id = t.thread_id
                   LEFT JOIN LATERAL (SELECT created_at, sender_type, body_masked FROM chat_messages x
                                       WHERE x.thread_id = t.thread_id ORDER BY created_at DESC, message_id DESC LIMIT 1) m ON true
@@ -1173,7 +1186,7 @@ class BookingService:
         more = len(rows) > limit
         rows = rows[:limit]
         out = [{"thread_id": r[0], "driver_id": r[1], "driver_phone": self._mask_phone(r[2]), "facility_id": r[3],
-                "shipment_id": r[4], "status": r[5], "human_active": r[6], "flow_state": r[7],
+                "shipment_id": r[4], "status": r[5], "human_active": r[6], "flow_state": self._shown_flow(r[7], r[15]),
                 "last_message_at": r[8], "last_sender": r[9], "last_message_preview": r[10],
                 "intent": (r[11] or {}).get("intent"), "notification_status": r[12], "notification_template": r[13],
                 "notification_delivery": self._delivery(r[14])} for r in rows]

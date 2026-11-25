@@ -132,7 +132,7 @@ def test_the_app_refuses_to_start_on_a_broken_test_bot_configuration(monkeypatch
     with pytest.raises(RuntimeError, match="AUTHORIZED"):
         app_mod._telegram_replies_from_env()
     monkeypatch.setenv("SETUHAUL_TELEGRAM_DELIVERY", "test_sink")
-    assert app_mod._telegram_replies_from_env() == {}
+    assert app_mod._telegram_replies_from_env() == {"telegram_mode": "test_sink"}
 
 
 def test_runner_refuses_a_database_that_is_not_the_dedicated_test_bot_database(monkeypatch):
@@ -410,3 +410,31 @@ def test_a_reference_from_another_chat_is_never_edited():
     assert message_id_for_chat(ref, "5550001002") is None
     assert message_id_for_chat("tg.42", "5550001001") is None and message_id_for_chat(None, "1") is None
     assert "5550001001" not in ref
+
+
+# ================================================================ console labels: Telegram shown as Telegram
+def test_delivery_labels_and_the_shown_conversation_state():
+    from setuhaul.api.service import BookingService as S
+    from setuhaul.notify.telegram import TelegramTestSink, provider_ref
+    assert S._delivery(provider_ref("5550001001", 7)) == "telegram"
+    assert S._delivery(TelegramTestSink().send("5550001001", "t", "k").provider_message_id) == "telegram_test_sink"
+    assert S._delivery("testsink.0b7f") == "test_sink" and S._delivery("wamid.HBg") == "provider"
+    assert S._shown_flow("SUBMITTED", "REJECTED") == "CLOSED" and S._shown_flow("SUBMITTED", "CONFIRMED") == "BOOKED"
+    assert S._shown_flow("SUBMITTED", "PENDING_CONFIRMATION") == "SUBMITTED" and S._shown_flow("HELD", None) == "HELD"
+
+
+def test_health_reports_the_telegram_mode_and_never_its_secrets(client, transport):
+    h = client.get("/health").json()
+    assert h["telegram"] == "test_bot" and h["booking_enabled"] is False
+    assert TOKEN not in json.dumps(h) and not any(str(x) in json.dumps(h) for x in TEST_ACCOUNTS)
+
+
+def test_only_the_local_runner_is_labelled_a_local_harness(dsn, keys):
+    base = dict(dsn=dsn, cognito_issuer=ISSUER, cognito_client_ids={CLIENT}, session_secret=SESSION_SECRET,
+                meta_app_secret=META_SECRET, facilities=(JAI, GGN), jwks=keys["jwks"], booking_enabled=True,
+                local_test_harness=True)
+    runner = TestClient(create_app(Settings(**base, local_runner=True))).get("/health").json()
+    assert runner["booking_state"] == "local_test_harness" and runner["booking_enabled"] is False
+    assert runner["booking_kill_switch"] in ("ENGAGED", "disengaged")
+    other = TestClient(create_app(Settings(**base))).get("/health").json()
+    assert other["booking_state"] != "local_test_harness"       # deployment verdicts are never masked

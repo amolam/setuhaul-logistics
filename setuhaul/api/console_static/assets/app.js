@@ -70,6 +70,12 @@ async function api(method, path, body){
 // /health is public and read-only (no token): database, booking switch, kill switch, environment. The booking switch and
 // the kill switch are shown as two separate pills; nothing says "production"; a failed read says "status unavailable".
 function pill(id, text, cls){ const e = $(id); if(!e) return; e.textContent = text; e.className = "pill " + (cls || "") }
+// How a reply left (from its provider reference kind; never the reference itself)
+const DELIVERY_LABEL = {test_sink: "WhatsApp test sink", telegram_test_sink: "Telegram test sink",
+                        telegram: "Telegram", provider: "WhatsApp"};
+const TELEGRAM_PILL = {test_bot: ["Telegram: test bot · allowlisted test chats only", "warn"],
+                       test_sink: ["Telegram: internal test sink only", ""], off: ["Telegram: off", "unk"],
+                       live: ["Telegram: LIVE", "off"]};
 async function loadStatus(){
   try {
     const r = await fetch(new URL(CFG.apiBase + "health", location.href), {cache:"no-store"});
@@ -80,12 +86,17 @@ async function loadStatus(){
     pill("#bookingpill", h.booking_enabled ? "booking execution ON · synthetic data only" : "booking execution OFF",
          h.booking_enabled ? "on" : "off");
     const ks = h.booking_kill_switch;
-    if(!h.booking_enabled) pill("#killpill", "kill switch: not applicable (booking off)", "unk");
+    if(!h.booking_enabled && h.booking_state !== "local_test_harness") pill("#killpill", "kill switch: not applicable (booking off)", "unk");
     else if(ks === "ENGAGED") pill("#killpill", "kill switch: ENGAGED (bookings refused)", "warn");
     else if(ks === "disengaged") pill("#killpill", "kill switch: disengaged", "on");
     else pill("#killpill", "kill switch: status unavailable", "unk");
+    if(h.booking_state === "local_test_harness")      // a local run without a deployment: not the release-gated switch
+      pill("#bookingpill", "booking: local test harness · synthetic data (no deployment gates)", "warn");
     if(h.database !== "ok") pill("#bookingpill", "booking execution: status unavailable (database " + (h.database || "?") + ")", "unk");
+    const tg = TELEGRAM_PILL[h.telegram] || ["Telegram: status unavailable", "unk"];
+    pill("#tgpill", tg[0], tg[1]);
   } catch {
+    pill("#tgpill", "Telegram: status unavailable", "unk");
     pill("#envpill", "environment: status unavailable", "unk");
     pill("#bookingpill", "booking execution: status unavailable", "unk");
     pill("#killpill", "kill switch: status unavailable", "unk");
@@ -317,10 +328,10 @@ async function loadThreads(more){
   const r = await api("GET", "/console/threads?" + q);
   threads = more ? threads.concat(r.threads) : r.threads; nextBefore = r.next_before;
   $("#list").innerHTML = threads.length ? threads.map(t => `<div class="item ${t.thread_id === selected ? "sel" : ""}" data-open="${esc(t.thread_id)}">
-    <div class="top"><b class="mono">${esc(t.driver_phone || t.driver_id)}</b><span class="muted">${when(t.last_message_at)}</span></div>
+    <div class="top"><b class="mono">${esc(t.driver_id || t.driver_phone)}</b><span class="muted">${when(t.last_message_at)}</span></div>
     <div class="muted">${esc(t.facility_id)} · ${esc(t.flow_state || t.status)}${t.human_active ? " · <b>a person has it</b>" : ""}${t.intent ? " · " + esc(t.intent) : ""}</div>
     <div>${t.last_sender === "AGENT" ? "↩ " : ""}${esc(t.last_message_preview)}</div>
-    ${t.notification_status ? `<div class="muted">reply ${esc(t.notification_status)}${t.notification_delivery ? " · " + esc(t.notification_delivery) : ""}</div>` : ""}</div>`).join("")
+    ${t.notification_status ? `<div class="muted">reply ${esc(t.notification_status)}${t.notification_delivery ? " · " + esc(DELIVERY_LABEL[t.notification_delivery] || t.notification_delivery) : ""}</div>` : ""}</div>`).join("")
     : `<div class="empty">No conversations in your facilities yet. Send a synthetic driver message (docs/release/11_STAFF_CONSOLE.md).</div>`;
   $("#more").hidden = !nextBefore;
 }
