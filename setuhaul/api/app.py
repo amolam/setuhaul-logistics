@@ -59,6 +59,11 @@ class Settings:
     console_client_id: str | None = None
     # Phase G1: rank driver options with the slot optimizer (booking policy: the owner switches it on per environment)
     optimizer_ranking: bool = False
+    # Roadmap Phase 2: how long a shown option / dispatcher offer stays acceptable (SETUHAUL_OPTION_TTL_S, default 300)
+    option_ttl_s: int | None = None
+    # Roadmap Phase 5: Telegram webhook secret (setWebhook secret_token). Unset: the /webhooks/telegram route does not
+    # exist. In AWS it would come from Secrets Manager like the other secrets; NOT provisioned yet (owner approval).
+    telegram_webhook_secret: str | None = None
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -73,6 +78,8 @@ class Settings:
                    cognito_domain=os.environ.get("COGNITO_DOMAIN") or None,
                    console_client_id=os.environ.get("COGNITO_CONSOLE_CLIENT_ID") or None,
                    optimizer_ranking=os.environ.get("SETUHAUL_OPTIMIZER_RANKING", "off").lower() in ("on", "true", "1"),
+                   option_ttl_s=int(os.environ["SETUHAUL_OPTION_TTL_S"]) if os.environ.get("SETUHAUL_OPTION_TTL_S") else None,
+                   telegram_webhook_secret=os.environ.get("SETUHAUL_TELEGRAM_WEBHOOK_SECRET") or None,
                    deployment_id=os.environ.get("SETUHAUL_DEPLOYMENT_ID") or None,
                    deployment_manifest=os.environ.get("SETUHAUL_DEPLOYMENT_MANIFEST") or None,
                    manifest_source=os.environ.get("SETUHAUL_DEPLOYMENT_MANIFEST_SOURCE", "file"),
@@ -163,6 +170,16 @@ class ScheduleStore(BaseModel):
     ttl_s: int = Field(default=600, ge=60, le=1800)
 
 
+class OfferIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    shipment_id: str = Field(min_length=3, max_length=80)
+    driver_id: str = Field(min_length=3, max_length=80)      # the assigned driver, or another one (reassignment)
+    vehicle_id: str = Field(min_length=3, max_length=80)     # confirmed; a vehicle change is refused in this scope
+    dock_code: str = Field(min_length=1, max_length=20)
+    start: AwareDatetime
+    idempotency_key: str = Field(min_length=16, max_length=128)
+
+
 class Move(BaseModel):
     model_config = {"extra": "forbid"}
     proposal_id: uuid.UUID
@@ -203,7 +220,8 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
     from ..aws.data_api import make_db                     # SETUHAUL_DSN=rds-data: the Data API backend (E3)
     db = make_db(settings.dsn)
     svc = BookingService(db, clock or (lambda: datetime.now(timezone.utc)), settings.facilities,
-                         booking_enabled=settings.booking_enabled, optimizer_ranking=settings.optimizer_ranking)
+                         booking_enabled=settings.booking_enabled, optimizer_ranking=settings.optimizer_ranking,
+                         option_ttl_s=settings.option_ttl_s)
     verifier = CognitoVerifier(settings.cognito_issuer, settings.cognito_client_ids, settings.jwks)
     sessions = SessionTokens(settings.session_secret)
     # Inbound events for the agent orchestrator (B-WF-1). In AWS this is SQS FIFO (inbound.SqsFifoQueue: message group
@@ -358,6 +376,41 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
         # Constant answer: reveals neither tokens nor whether a number is known.
         return {"status": "received"}
 
+    # ---------------------------------------------------------------- inbound Telegram (roadmap Phase 5, 0035)
+    if settings.telegram_webhook_secret:
+        from ..notify.telegram import TelegramGateway, secret_ok
+        app.state.telegram = TelegramGateway()          # test sink: replies are logged and kept, never sent
+        if len(settings.telegram_webhook_secret) < 32:
+            raise ValueError("SETUHAUL_TELEGRAM_WEBHOOK_SECRET must be at least 32 characters")
+
+        @app.post("/webhooks/telegram")
+        async def telegram(request: Request,
+                           x_telegram_bot_api_secret_token: str | None = Header(default=None)):
+            if not secret_ok(x_telegram_bot_api_secret_token, settings.telegram_webhook_secret):
+                raise HTTPException(401, "bad secret")
+            raw = await request.body()
+            if len(raw) > 64 * 1024:
+                raise HTTPException(413, "too large")
+            try:
+                update = json.loads(raw)
+            except ValueError:
+                return {"ok": True}
+            try:
+                out = await run_in_threadpool(svc.handle_telegram_update, update, sessions)
+            except Exception:
+                # not stored: answer 5xx so Telegram redelivers; the stored part is deduplicated on the retry
+                log.exception("could not handle a Telegram update; Telegram will retry")
+                return JSONResponse({"ok": False}, status_code=503)
+            if out.get("event"):
+                try:
+                    await run_in_threadpool(relay.publish, out["event"])
+                except Exception:
+                    log.exception("stored but not published; the recovery sweep will publish it")
+            chat = (update.get("message") or (update.get("callback_query") or {}).get("message") or {}).get("chat", {})
+            if out.get("reply") and isinstance(chat.get("id"), int):
+                app.state.telegram.reply(str(chat["id"]), out["reply"])
+            return {"ok": True}                          # constant: reveals nothing about links or drivers
+
     # ---------------------------------------------------------------- agent tools
     if settings.tools_route:
         @app.post("/tools/{tool}")
@@ -450,6 +503,30 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
     @app.get("/console/escalations")
     def escalations(p: Principal = Depends(staff)):
         return {"escalations": svc.list_escalations(p)}
+
+    # ---------------------------------------------------------------- dispatcher (roadmap Phase 1/2, 0035)
+    @app.get("/console/dispatch/shipments")
+    def dispatch_shipments(facility_id: str | None = Query(None, max_length=40), p: Principal = Depends(staff)):
+        return {"shipments": svc.list_dispatch_shipments(p, facility_id)}
+
+    @app.get("/console/dispatch/shipments/{shipment_id}/options")
+    def dispatch_options(shipment_id: str = Path(min_length=3, max_length=80, pattern=SHIPMENT_ID_PATTERN),
+                         p: Principal = Depends(staff)):
+        return svc.dispatch_options(p, shipment_id)
+
+    @app.post("/console/dispatch/offers")
+    def dispatch_offer(body: OfferIn, p: Principal = Depends(staff)):
+        return svc.create_offer(p, body.shipment_id, body.driver_id, body.vehicle_id, body.dock_code, body.start,
+                                body.idempotency_key)
+
+    @app.get("/console/dispatch/offers")
+    def dispatch_offers(facility_id: str | None = Query(None, max_length=40), limit: int = Query(50, ge=1, le=200),
+                        p: Principal = Depends(staff)):
+        return {"offers": svc.list_offers(p, facility_id, limit)}
+
+    @app.post("/console/drivers/{driver_id}/telegram-link-code")
+    def telegram_link_code(driver_id: str = Path(min_length=3, max_length=80), p: Principal = Depends(staff)):
+        return svc.issue_link_code(p, driver_id)
 
     @app.get("/console/me")
     def me(p: Principal = Depends(staff)):

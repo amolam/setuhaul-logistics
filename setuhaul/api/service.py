@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import re
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -39,7 +40,19 @@ from .security import Principal
 
 log = logging.getLogger("setuhaul.service")
 IST = timezone(timedelta(hours=5, minutes=30))
-OPTION_TTL = timedelta(minutes=5)
+
+
+def option_ttl_s(env: dict | None = None) -> int:
+    """How long a shown option or dispatcher offer stays acceptable (SETUHAUL_OPTION_TTL_S, default 300 s, 30..3600).
+    Distinct from the dock-hold TTL (180 s) and the warehouse confirmation window (pending_expires_at)."""
+    raw = (os.environ if env is None else env).get("SETUHAUL_OPTION_TTL_S", "300")
+    v = int(raw)
+    if not 30 <= v <= 3600:
+        raise ValueError("SETUHAUL_OPTION_TTL_S must be between 30 and 3600 seconds")
+    return v
+
+
+OPTION_TTL = timedelta(seconds=option_ttl_s())
 CLASSIFIER_VERSION = "lexicon-v1"
 CENTRAL = "CENTRAL"
 
@@ -74,6 +87,15 @@ KILL_SWITCH_PERMISSIONS: dict[str, frozenset] = {
 PHASE_G_PERMISSIONS: dict[str, frozenset] = {
     "view_recommendations": frozenset({"planner", "ops_lead"}),
     "view_observability":   frozenset({"planner", "ops_lead"}),
+}
+# Roadmap Phase 1/5 (migration 0035): dispatcher actions. TEMPORARY ROLE MAPPING (owner, 25 Nov 2026): there is no
+# dispatcher group yet, so `operations` (and ops_lead) act as dispatcher. Offers they send are decided as PLANNER_REVIEW
+# in the database, so the role that sends an offer can never approve the booking it leads to. Review when a dispatcher
+# Cognito group exists. Planners may read the dispatch board but not send offers.
+DISPATCH_PERMISSIONS: dict[str, frozenset] = {
+    "view_dispatch":     frozenset({"operations", "planner", "ops_lead"}),
+    "send_offer":        frozenset({"operations", "ops_lead"}),
+    "link_driver":       frozenset({"operations", "ops_lead"}),
 }
 
 
@@ -171,8 +193,10 @@ TOOLS = {"propose_facility_schedule": ScheduleArgs,
 class BookingService:
     def __init__(self, db: Db, clock: Callable[[], datetime], facilities: tuple[str, ...], hold_ttl_s: int = 180,
                  booking_enabled: bool = False, optimizer_ranking: bool = False,
-                 optimizer_config: OptimizerConfig | None = None):
+                 optimizer_config: OptimizerConfig | None = None, option_ttl_s: int | None = None):
         self.db, self.clock, self.facilities, self.hold_ttl = db, clock, tuple(facilities), hold_ttl_s
+        # shown options and dispatcher offers (SETUHAUL_OPTION_TTL_S); the dock hold keeps its own hold_ttl_s
+        self.option_ttl = timedelta(seconds=option_ttl_s) if option_ttl_s is not None else OPTION_TTL
         # Phase G1: rank the driver's options with the slot optimizer (labour, capacity and the soft objectives).
         # OFF by default: which slots a driver is offered first is booking policy, switched on by the owner per
         # environment (SETUHAUL_OPTIMIZER_RANKING=on). The options stay the feasibility engine's either way.
@@ -544,7 +568,7 @@ class BookingService:
             for rank, o in enumerate(res.options, 1):
                 oid = uuid.uuid4()
                 c.execute("INSERT INTO shown_options VALUES (%s,%s,%s,%s,%s,%s,%s,%s,now()+%s,now())",
-                          (oid, p.thread_id, sid, docks[o.dock], Range(o.start, o.end, "[)"), o.needs_approval, rank, sv, OPTION_TTL))
+                          (oid, p.thread_id, sid, docks[o.dock], Range(o.start, o.end, "[)"), o.needs_approval, rank, sv, self.option_ttl))
                 out.append({"option_id": str(oid), "dock_code": o.dock, "start": human_time(o.start),
                             "end": human_time(o.end), "needs_approval": o.needs_approval})
                 shown[str(oid)] = {"dock_code": o.dock, "start": o.start, "end": o.end, "needs_approval": o.needs_approval}
@@ -1025,7 +1049,7 @@ class BookingService:
     @staticmethod
     def require(p: Principal, action: str):
         allowed = (PERMISSIONS.get(action) or SCHEDULE_PERMISSIONS.get(action) or PHASE_G_PERMISSIONS.get(action)
-                   or KILL_SWITCH_PERMISSIONS[action])
+                   or DISPATCH_PERMISSIONS.get(action) or KILL_SWITCH_PERMISSIONS[action])
         if not (p.roles & allowed):
             raise ServiceError(403, "FORBIDDEN", f"{action} needs one of: {', '.join(sorted(allowed))}")
 
@@ -1100,7 +1124,8 @@ class BookingService:
         """Read only (Step 6 WORKLOAD_IDENTITY check 5): who the server says this person is, derived ONLY from the
         verified Cognito token (groups -> roles, facility_scope claim), and which console actions that allows. Nothing
         the browser sends can change it; the database receives the same roles in begin_staff_context."""
-        allowed = {**PERMISSIONS, **SCHEDULE_PERMISSIONS, **KILL_SWITCH_PERMISSIONS, **PHASE_G_PERMISSIONS}
+        allowed = {**PERMISSIONS, **SCHEDULE_PERMISSIONS, **KILL_SWITCH_PERMISSIONS, **PHASE_G_PERMISSIONS,
+                   **DISPATCH_PERMISSIONS}
         return {"principal": f"staff:{p.sub}", "roles": sorted(p.roles), "facilities": list(p.facilities),
                 "permissions": {a: bool(p.roles & r) for a, r in sorted(allowed.items())}}
 
@@ -1291,7 +1316,13 @@ class BookingService:
             r = c.execute("SELECT driver_id FROM drivers WHERE phone_e164=%s AND status <> 'INACTIVE'", (phone,)).fetchone()
         if not r:
             return {"unknown_sender": True}
-        drv = r[0]
+        return self.ingest_driver(r[0], external_id, text, sessions)
+
+    def ingest_driver(self, drv: str, external_id: str, text: str, sessions, channel: str = "WHATSAPP",
+                      agent_turn: bool = True) -> dict:
+        """The inbound path once the CHANNEL has identified the driver (WhatsApp: the verified number; Telegram: the
+        linked account, migration 0035). `agent_turn=False` stores and attests the message but gives it no agent
+        turn (a button press the service itself completes): the receipt is marked processed in the same claim."""
         with self.db.tx("ingest", driver=drv) as c:
             th = c.execute("""SELECT thread_id, shipment_id FROM chat_threads WHERE driver_id=%s
                                 AND status NOT IN ('CLOSED','RESOLVED') ORDER BY opened_at DESC LIMIT 1""", (drv,)).fetchone()
@@ -1313,21 +1344,21 @@ class BookingService:
             # same driver in the same conversation within 2 minutes is the same message: no second reply. Short replies
             # ("yes", "2", "haan ji") are exempt: drivers repeat them on purpose (a yes to the ETA question, then a yes
             # to the read-back), and confirmations are protected by the attestation rules, not by this check.
-            if len(norm.split()) > 3 and c.execute(
+            if agent_turn and len(norm.split()) > 3 and c.execute(
                     """SELECT 1 FROM chat_messages WHERE thread_id=%s AND sender_type='DRIVER' AND content_hash=%s
                          AND external_message_id IS DISTINCT FROM %s AND created_at > now() - interval '2 minutes'""",
                     (th[0], digest, external_id)).fetchone():
                 log.info("same text redelivered under a new id within 2 minutes: treated as a duplicate")
                 return {"duplicate": True, "content_duplicate": True, "thread_id": th[0], "external_message_id": external_id}
             m = c.execute("""INSERT INTO chat_messages (thread_id,sender_type,channel,external_message_id,content_hash,body_masked)
-                             VALUES (%s,'DRIVER','WHATSAPP',%s,%s,%s) ON CONFLICT (channel, external_message_id) DO NOTHING
+                             VALUES (%s,'DRIVER',%s,%s,%s,%s) ON CONFLICT (channel, external_message_id) DO NOTHING
                              RETURNING message_id""",
-                          (th[0], external_id, digest, masked)).fetchone()
+                          (th[0], channel, external_id, digest, masked)).fetchone()
             duplicate = m is None
             if duplicate:                                   # provider retry: find what was stored the first time
                 row = c.execute("""SELECT m.message_id, m.thread_id, m.body_masked, t.shipment_id
                                      FROM chat_messages m JOIN chat_threads t USING (thread_id)
-                                    WHERE m.channel='WHATSAPP' AND m.external_message_id=%s""", (external_id,)).fetchone()
+                                    WHERE m.channel=%s AND m.external_message_id=%s""", (channel, external_id)).fetchone()
                 if not row:
                     return {"duplicate": True, "external_message_id": external_id}
                 mid, th, masked = row[0], (row[1], row[3]), row[2]
@@ -1337,7 +1368,10 @@ class BookingService:
             rec = c.execute("SELECT attestation_status, enqueued FROM inbound_receipts WHERE message_id=%s", (mid,)).fetchone()
             fac = None
             if th[1]:
-                fac = c.execute("SELECT destination_facility_id FROM shipments WHERE shipment_id=%s", (th[1],)).fetchone()[0]
+                # 0035: during a reassignment offer the new driver's conversation is bound to a shipment that is not
+                # theirs until they say yes; their session then carries no facility (RLS hides the shipment)
+                row = c.execute("SELECT destination_facility_id FROM shipments WHERE shipment_id=%s", (th[1],)).fetchone()
+                fac = row[0] if row else None
         status, enqueued = rec if rec else ("PENDING", False)
         recovered = False
         if not duplicate:
@@ -1357,11 +1391,19 @@ class BookingService:
                                               published_at=NULL, processed_at=NULL, processing_owner=NULL,
                                               processing_until=NULL, updated_at=now()
                                         WHERE message_id=%s RETURNING generation""", (mid,)).fetchone()
+            elif not agent_turn:                             # handled by the service itself: no agent turn
+                claimed = c.execute("""UPDATE inbound_receipts SET enqueued=true, enqueued_at=now(), published_at=now(),
+                                              processed_at=now(), updated_at=now()
+                                        WHERE message_id=%s AND NOT enqueued RETURNING generation""", (mid,)).fetchone()
             else:
                 claimed = c.execute("""UPDATE inbound_receipts SET enqueued=true, enqueued_at=now(), updated_at=now()
                                         WHERE message_id=%s AND NOT enqueued RETURNING generation""", (mid,)).fetchone()
         if not claimed:
-            return {"duplicate": True, "thread_id": th[0], "external_message_id": external_id}
+            return {"duplicate": True, "thread_id": th[0], "external_message_id": external_id, "message_id": mid,
+                    "driver_id": drv}
+        if not agent_turn:
+            return {"thread_id": th[0], "message_id": mid, "external_message_id": external_id, "driver_id": drv,
+                    "attestation_status": status, "agent_turn": False, "facility_id": fac}
         # The caller (InboundRelay) publishes this event and then marks the receipt published. If it crashes in
         # between, recover_inbound() finds the receipt and publishes it again (B2-14).
         return {"thread_id": th[0], "message_id": mid, "external_message_id": external_id, "driver_id": drv,
@@ -1538,3 +1580,265 @@ class BookingService:
             st = self._attest(drv, tid, mid, body)
             out[st] = out.get(st, 0) + 1
         return out
+
+    # ---------------------------------------------------------------- roadmap Phase 1/2: dispatcher offers (0035)
+    OFFER_TEXT = ("Booking offer from your dispatcher for order {ref}: dock {dock} at {start}. Reply YES to accept, "
+                  "NO to decline, or tell us another time that suits you.")
+    REASSIGN_TEXT = ("New trip offered to you by your dispatcher: order {ref}, dock {dock} at {start}. Reply YES to "
+                     "accept the trip and this slot, or NO to decline.")
+    DISPATCH_CONFLICTS = {"SHIPMENT_NOT_BOOKABLE", "SHIPMENT_ALREADY_BOOKED", "BOOKING_IN_PROGRESS", "DRIVER_BUSY",
+                          "DRIVER_NOT_AVAILABLE", "HUMAN_ACTIVE", "VEHICLE_CHANGE_NOT_SUPPORTED", "STALE_SHIPMENT",
+                          "IDEMPOTENCY_KEY_REUSED", "OPTION_NOT_FEASIBLE"}
+
+    def _staff_fn(self, p: Principal, sql: str, args: tuple):
+        try:
+            with self.db.tx("console", p.facilities, staff=self._staff(p)) as c:
+                return c.execute(sql, args).fetchone()[0]
+        except psycopg.Error as e:
+            msg = e.diag.message_primary or ""
+            code = msg.split(":")[0]
+            if code in ("ROLE_NOT_ALLOWED", "FORBIDDEN", "PRINCIPAL_MISMATCH", "UNTRUSTED_CONTEXT"):
+                raise ServiceError(403, code, msg) from e
+            if code in ("SHIPMENT_UNKNOWN", "DRIVER_NOT_IN_SCOPE"):
+                raise ServiceError(404, code) from e
+            raise ServiceError(409 if code in self.DISPATCH_CONFLICTS else 400, code or "ERROR", msg) from e
+
+    @staticmethod
+    def _offer_status(status: str, expires_at: datetime) -> str:
+        """An OFFERED row past its expiry IS expired (the database applies the same rule; no worker needed)."""
+        return "EXPIRED" if status == "OFFERED" and expires_at <= datetime.now(timezone.utc) else status
+
+    def list_dispatch_shipments(self, p: Principal, facility: str | None = None) -> list[dict]:
+        """Dispatcher board: live shipments in scope with their assignment, current appointment and latest offer."""
+        self.require(p, "view_dispatch")
+        with self.db.tx("console", self._scope(p, facility), readonly=True) as c:
+            rows = c.execute("""
+                SELECT s.shipment_id, s.order_reference, s.destination_facility_id, s.current_status, s.priority_code,
+                       s.original_eta_ts, s.driver_id, d.driver_name, s.vehicle_id, v.vehicle_type_code,
+                       a.appointment_id, a.status, lower(a.during), k.dock_code,
+                       o.offer_id, o.kind, o.status, o.expires_at, o.driver_id
+                  FROM shipments s JOIN drivers d ON d.driver_id = s.driver_id JOIN vehicles v ON v.vehicle_id = s.vehicle_id
+                  LEFT JOIN LATERAL (SELECT * FROM appointments x WHERE x.shipment_id = s.shipment_id
+                                       AND (x.is_current OR x.status = 'PENDING_CONFIRMATION') AND x.status IN ('PENDING_CONFIRMATION','CONFIRMED','IN_PROGRESS')
+                                     ORDER BY x.created_at DESC LIMIT 1) a ON true
+                  LEFT JOIN docks k ON k.dock_id = a.dock_id
+                  LEFT JOIN LATERAL (SELECT * FROM dispatch_offers y WHERE y.shipment_id = s.shipment_id
+                                     ORDER BY y.created_at DESC LIMIT 1) o ON true
+                 WHERE s.current_status IN ('PLANNED','ASSIGNED','IN_TRANSIT')
+                 ORDER BY s.original_eta_ts, s.shipment_id LIMIT 200""").fetchall()
+        out = []
+        for r in rows:
+            out.append({"shipment_id": r[0], "order_reference": r[1], "facility_id": r[2], "status": r[3],
+                        "priority": r[4], "planned_eta": r[5].isoformat(), "driver_id": r[6], "driver_name": r[7],
+                        "vehicle_id": r[8], "vehicle_type": r[9],
+                        "appointment": {"appointment_id": r[10], "status": r[11], "start": r[12].isoformat(),
+                                        "dock_code": r[13]} if r[10] else None,
+                        "latest_offer": {"offer_id": str(r[14]), "kind": r[15], "status": self._offer_status(r[16], r[17]),
+                                         "expires_at": r[17].isoformat(), "driver_id": r[18]} if r[14] else None,
+                        "bookable": r[10] is None})
+        return out
+
+    def _dispatch_engine(self, p: Principal, shipment_id: str):
+        now = self.now()
+        with self.db.tx("console", p.facilities, readonly=True) as c:
+            row = c.execute("""SELECT destination_facility_id, order_reference, driver_id, vehicle_id FROM shipments
+                                WHERE shipment_id=%s""", (shipment_id,)).fetchone()
+            if not row or row[0] not in p.facilities:
+                raise ServiceError(404, "NOT_FOUND", "no such shipment")
+            data = load_view(c, now)
+            sv = c.execute("SELECT schedule_version FROM facilities WHERE facility_id=%s", (row[0],)).fetchone()[0]
+            docks = dict(c.execute("SELECT dock_code, dock_id FROM docks WHERE facility_id=%s", (row[0],)).fetchall())
+        res = FeasibilityEngine(data).find_options(shipment_id, now, max_options=3)
+        return row, res, sv, docks
+
+    def dispatch_options(self, p: Principal, shipment_id: str) -> dict:
+        """Feasible slots for a dispatcher offer: the SAME feasibility engine the driver conversation uses (dock type,
+        weight, reefer, opening hours, capacity, the driver's and truck's other bookings). A recommendation only."""
+        self.require(p, "view_dispatch")
+        (fac, ref, drv, veh), res, sv, _ = self._dispatch_engine(p, shipment_id)
+        return {"shipment_id": shipment_id, "facility_id": fac, "order_reference": ref, "driver_id": drv,
+                "vehicle_id": veh, "outcome": res.outcome, "outcome_code": res.outcome_code, "schedule_version": sv,
+                "options": [{"dock_code": o.dock, "start": o.start.isoformat(), "end": o.end.isoformat(),
+                             "start_label": human_time(o.start), "needs_approval": o.needs_approval}
+                            for o in res.options],
+                "note": "Options are rechecked when you send the offer and again when the driver accepts."}
+
+    def create_offer(self, p: Principal, shipment_id: str, driver_id: str, vehicle_id: str, dock_code: str,
+                     start: datetime, key: str) -> dict:
+        """Send a booking offer to a driver (the assigned one: initial booking; another one: pre-confirmation
+        reassignment). The slot must be one the engine finds feasible NOW; the database re-checks the shipment, the
+        assignment, the driver's conversation and the idempotency key, supersedes any older offer, and delivers the
+        offer as a read-back in the driver's conversation. Nothing is held or booked until the driver says yes."""
+        self.require(p, "send_offer")
+        (fac, ref, cur_drv, cur_veh), res, sv, docks = self._dispatch_engine(p, shipment_id)
+        if res.outcome_code == "CONTRADICTORY_DATA":
+            raise ServiceError(409, "CONTRADICTORY_DATA", "driver or truck is assigned to an overlapping shipment")
+        hit = next((o for o in res.options if o.dock == dock_code and o.start == start), None)
+        if hit is None:
+            raise ServiceError(409, "OPTION_NOT_FEASIBLE", "that dock and time is not feasible now; reload the options")
+        text = (self.OFFER_TEXT if driver_id == cur_drv else self.REASSIGN_TEXT).format(
+            ref=ref, dock=hit.dock, start=human_time(hit.start))
+        r = self._staff_fn(p, "SELECT create_dispatch_offer(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                           (shipment_id, driver_id, vehicle_id, docks[hit.dock], hit.start, hit.end, hit.needs_approval,
+                            sv, int(self.option_ttl.total_seconds()), text, key, f"staff:{p.sub}"))
+        telemetry.emit("dispatch.offer", CORRELATION_ID.get() or str(r["offer_id"]), offer_id=r["offer_id"],
+                       kind=r["kind"], facility_id=fac, replayed=r.get("replayed"))
+        return r
+
+    def list_offers(self, p: Principal, facility: str | None = None, limit: int = 50) -> list[dict]:
+        self.require(p, "view_dispatch")
+        with self.db.tx("console", self._scope(p, facility), readonly=True) as c:
+            rows = c.execute("""
+                SELECT o.offer_id, o.kind, o.shipment_id, o.facility_id, o.driver_id, o.previous_driver_id, o.status,
+                       o.status_reason, o.expires_at, o.responded_at, o.appointment_id, o.created_at, o.offered_by,
+                       k.dock_code, lower(so.during), a.status, f.state
+                  FROM dispatch_offers o JOIN shown_options so ON so.option_id = o.option_id
+                  JOIN docks k ON k.dock_id = so.dock_id
+                  LEFT JOIN appointments a ON a.appointment_id = o.appointment_id
+                  LEFT JOIN thread_flow f ON f.thread_id = o.thread_id
+                 ORDER BY o.created_at DESC LIMIT %s""", (max(1, min(limit, 200)),)).fetchall()
+        return [{"offer_id": str(r[0]), "kind": r[1], "shipment_id": r[2], "facility_id": r[3], "driver_id": r[4],
+                 "previous_driver_id": r[5], "status": self._offer_status(r[6], r[8]), "status_reason": r[7],
+                 "expires_at": r[8].isoformat(), "responded_at": r[9].isoformat() if r[9] else None,
+                 "appointment_id": r[10], "created_at": r[11].isoformat(), "offered_by": r[12], "dock_code": r[13],
+                 "start": r[14].isoformat(), "appointment_status": r[15], "conversation_state": r[16]} for r in rows]
+
+    def issue_link_code(self, p: Principal, driver_id: str, ttl_s: int | None = None) -> dict:
+        """A one-time Telegram link code for a driver in this person's scope. The code is returned once (to be passed
+        to the driver out of band) and only its hash is stored."""
+        from ..notify.telegram import new_link_code
+        self.require(p, "link_driver")
+        ttl = ttl_s or int(os.environ.get("SETUHAUL_TELEGRAM_LINK_CODE_TTL_S", "900"))
+        code, h = new_link_code()
+        r = self._staff_fn(p, "SELECT issue_driver_link_code(%s,%s,%s,%s)", (driver_id, h, ttl, f"staff:{p.sub}"))
+        return {"driver_id": driver_id, "code": code, "expires_at": r["expires_at"],
+                "instructions": "Give this code to the driver; they send /start CODE to the SetuHaul bot. Single use."}
+
+    # ---------------------------------------------------------------- the driver answers an offer (verified channel)
+    def _driver_principal(self, drv: str, thread_id: str, facility: str | None) -> Principal:
+        return Principal("driver", drv, frozenset({"driver"}), (facility,) if facility else (), driver_id=drv,
+                         thread_id=thread_id)
+
+    def _offer_for_driver(self, offer_id: str, drv: str) -> dict:
+        try:
+            oid = str(uuid.UUID(str(offer_id)))
+        except ValueError:
+            return {"status": "NOT_FOUND"}
+        with self.db.tx("ingest", driver=drv) as c:
+            return c.execute("SELECT dispatch_offer_for_driver(%s,%s)", (oid, drv)).fetchone()[0]
+
+    def respond_to_offer(self, drv: str, offer_id: str, action: str, external_id: str, sessions=None,
+                         channel: str = "TELEGRAM") -> dict:
+        """A driver's button press on an offer, from a channel that has ALREADY verified the driver (never from the
+        offer id alone). Accept/decline are stored as the driver's message and attested exactly like a typed YES/NO;
+        the database moves the offer. An accepted offer then continues through the existing hold and booking request,
+        with every agent-tool guard (booking switch, takeover, kill switch) and planner approval. Idempotent per
+        external id: a repeated press reports the current state and does nothing new."""
+        if action not in ("ACCEPT", "DECLINE", "ALTERNATIVE"):
+            raise ServiceError(400, "BAD_ACTION")
+        o = self._offer_for_driver(offer_id, drv)
+        if o["status"] == "NOT_FOUND":
+            return {"result": "NOT_FOUND"}
+        if o["status"] == "OFFERED" and not o.get("is_latest_selection"):
+            return {"result": "SUPERSEDED", "offer_id": o["offer_id"]}
+        if o["status"] != "OFFERED":
+            return {"result": o["status"], "offer_id": o["offer_id"]}
+        text = {"ACCEPT": "YES", "DECLINE": "NO", "ALTERNATIVE": "Please offer another time"}[action]
+        ev = self.ingest_driver(drv, external_id, text, sessions, channel=channel, agent_turn=False)
+        if ev.get("thread_id") != o["thread_id"]:
+            return {"result": "SUPERSEDED", "offer_id": o["offer_id"]}
+        if ev.get("duplicate"):
+            now = self._offer_for_driver(offer_id, drv)
+            return {"result": now["status"], "offer_id": o["offer_id"], "duplicate": True}
+        if action == "ALTERNATIVE":
+            try:
+                with self.db.tx("ingest", driver=drv) as c:
+                    r = c.execute("SELECT request_offer_alternative(%s,%s,%s)",
+                                  (o["offer_id"], drv, ev["message_id"])).fetchone()[0]
+                return {"result": r["status"], "offer_id": o["offer_id"]}
+            except psycopg.Error:
+                now = self._offer_for_driver(offer_id, drv)
+                return {"result": now["status"], "offer_id": o["offer_id"]}
+        after = self._offer_for_driver(offer_id, drv)
+        if action == "DECLINE" or after["status"] != "ACCEPTED":
+            return {"result": after["status"], "offer_id": o["offer_id"]}
+        # accepted: the existing booking path, as the driver, in their own conversation
+        with self.db.tx("ingest", driver=drv, readonly=True) as c:
+            fac = c.execute("SELECT destination_facility_id FROM shipments WHERE shipment_id=%s",
+                            (after["shipment_id"],)).fetchone()
+        p = self._driver_principal(drv, o["thread_id"], fac[0] if fac else None)
+        mid, steps = ev["message_id"], {}
+        steps["confirm"] = self.call_tool(p, "confirm_selection", mid, {"message_id": mid})
+        if steps["confirm"]["status"] != "OK":
+            return {"result": "ACCEPTED", "offer_id": o["offer_id"], "booking": steps}
+        steps["hold"] = self.call_tool(p, "hold_option", mid, {"option_id": o["option_id"]})
+        if steps["hold"]["status"] != "OK":
+            log.warning("accepted offer %s could not be held: %s %s", o["offer_id"], steps["hold"]["status"],
+                        (steps["hold"].get("data") or {}).get("code"))
+            res = "SLOT_TAKEN" if steps["hold"]["status"] in ("LOST", "OPTION_EXPIRED") else "ACCEPTED"
+            return {"result": res, "offer_id": o["offer_id"], "booking": steps}
+        steps["submit"] = self.call_tool(p, "submit_booking_request", mid, {"option_id": o["option_id"]})
+        ok = steps["submit"]["status"] == "OK"
+        return {"result": "SUBMITTED" if ok else "ACCEPTED", "offer_id": o["offer_id"], "booking": steps,
+                "appointment_id": steps["submit"]["data"].get("appointment_id") if ok else None}
+
+    # ---------------------------------------------------------------- roadmap Phase 4: driver location (0035)
+    def record_location(self, drv: str, report, dedupe_key: str, source: str = "TELEGRAM", config=None) -> dict:
+        """An explicitly shared, one-off location from a verified channel. Assessed deterministically
+        (domain/location.py), stored coarsely with its reasons, linked to the driver's open delay report. It changes
+        no ETA, booking or approval; a driver who declines still has their delay report."""
+        from ..domain.location import JourneyContext, LocationConfig, assess
+        with self.db.tx("ingest", driver=drv, readonly=True) as c:
+            th = c.execute("""SELECT thread_id FROM chat_threads WHERE driver_id=%s AND status NOT IN ('CLOSED','RESOLVED')
+                               ORDER BY opened_at DESC LIMIT 1""", (drv,)).fetchone()
+        if not th:
+            return {"assessment": "UNAVAILABLE", "reasons": ["NO_CONVERSATION"], "stored": False}
+        with self.db.tx("ingest", driver=drv) as c:
+            ctx = c.execute("SELECT driver_location_context(%s,%s)", (drv, th[0])).fetchone()[0]
+
+        def ts(v):
+            return datetime.fromisoformat(v) if isinstance(v, str) else v
+        fpos = ((ctx["facility_latitude"], ctx["facility_longitude"])
+                if ctx.get("facility_latitude") is not None else None)
+        jc = JourneyContext(has_shipment=ctx.get("shipment_id") is not None, facility_position=fpos,
+                            declared_eta=ts(ctx.get("declared_eta")), previous_geohash=ctx.get("previous_geohash"),
+                            previous_observed_at=ts(ctx.get("previous_observed_at")))
+        a = assess(report, jc, datetime.now(timezone.utc), config or LocationConfig.from_env())
+        with self.db.tx("ingest", driver=drv) as c:
+            r = c.execute("SELECT record_driver_location(%s,%s,%s,%s)",
+                          (drv, th[0], dedupe_key, Jsonb(a.as_record(source)))).fetchone()[0]
+        return {**r, "stored": True}
+
+    # ---------------------------------------------------------------- roadmap Phase 5: Telegram inbound (0035)
+    def handle_telegram_update(self, update: dict, sessions) -> dict:
+        """One verified Telegram update -> at most one backend action. Returns {"reply": text | None, "event": queue
+        event | None}. An unlinked account learns nothing and changes nothing (beyond redeeming a valid code)."""
+        from ..domain.location import LocationReport
+        from ..notify import telegram as tg
+        ev = tg.parse_update(update)
+        if ev.kind == "ignored" or ev.user_id is None:
+            return {"reply": None, "event": None}
+        if ev.kind == "start" and ev.code:
+            with self.db.tx("ingest") as c:
+                r = c.execute("SELECT redeem_driver_link_code(%s,%s,%s)",
+                              (tg.hash_code(ev.code), ev.user_id, ev.chat_id)).fetchone()[0]
+            if r["linked"]:
+                return {"reply": tg.TEXT_LINKED, "event": None, "linked": True}
+            return {"reply": {"ACCOUNT_ALREADY_LINKED": tg.TEXT_ACCOUNT_TAKEN,
+                              "DRIVER_ALREADY_LINKED": tg.TEXT_DRIVER_TAKEN}.get(r["reason"], tg.TEXT_LINK_FAILED),
+                    "event": None, "linked": False}
+        with self.db.tx("ingest", readonly=True) as c:
+            drv = c.execute("SELECT driver_for_channel('TELEGRAM', %s)", (ev.user_id,)).fetchone()[0]
+        if drv is None:
+            return {"reply": tg.TEXT_NOT_LINKED, "event": None}
+        if ev.kind == "start":
+            return {"reply": tg.TEXT_LINKED, "event": None}
+        if ev.kind == "callback":
+            r = self.respond_to_offer(drv, ev.offer_id, ev.action, ev.external_id, sessions)
+            return {"reply": tg.OFFER_REPLIES.get(r["result"], tg.OFFER_REPLIES["ACCEPTED"]), "event": None, "result": r}
+        if ev.kind == "location":
+            r = self.record_location(drv, LocationReport(True, ev.latitude, ev.longitude, ev.observed_at, ev.accuracy_m),
+                                     ev.external_id)
+            return {"reply": tg.TEXT_LOCATION.get(r["assessment"]), "event": None, "result": r}
+        e = self.ingest_driver(drv, ev.external_id, ev.text, sessions, channel="TELEGRAM")
+        return {"reply": None, "event": e if "session_token" in e else None}
