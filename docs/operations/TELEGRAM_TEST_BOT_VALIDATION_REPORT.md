@@ -1,12 +1,16 @@
 # Telegram test bot, dispatcher role, journey validation: report
 
-Branch `feature/dispatcher-booking-telegram-dashboards`, on top of `d37c938`. This cycle did no push, merge, deployment or AWS provisioning, and sent no real Telegram message.
+Branch `feature/dispatcher-booking-telegram-dashboards`, on top of `d37c938`. No push, deployment or AWS provisioning was done. Real Telegram messages went only to the owner's dedicated test bot and the owner's own test account, through the local runner.
 
-**Headline:**
+**Headline (updated 25 Nov 2026, after the real test-bot run):**
 - The dedicated `dispatcher` role is implemented and tested.
 - The test-bot mode is implemented and fails closed.
-- Every journey (A to G) passes against the in-process test sink and against a fake Bot API.
-- Real Telegram Bot API validation is **BLOCKED**. No test-bot token or test chat id was available in this environment, and credentials must not be requested in chat. The owner-run runner `scripts/telegram_test_bot.py` is ready, and §D.3 gives the exact steps.
+- **The real Telegram Bot API was exercised end to end** with the owner's dedicated test bot, one test account, synthetic drivers and the dedicated `setuhaul_tgbot` database. See §D.0. The owner then judged the bot testing sufficient.
+- **The real run found three defects that every automated test (test sink and fake Bot API) had missed. All three are fixed, tested and committed** (§D.0.2):
+  1. message ids collided across chats;
+  2. a decided request blocked the next offer;
+  3. a declined offer could be revived by a later "yes" (booking integrity).
+- Still not tested over real Telegram (§D.0.3): sharing a location (Telegram Desktop cannot share one), "Not now", and the Ops view during a real failure. All three remain covered by the fake-API and test-sink tests.
 
 ---
 
@@ -16,10 +20,11 @@ Branch `feature/dispatcher-booking-telegram-dashboards`, on top of `d37c938`. Th
 |---|---|
 | Branch | `feature/dispatcher-booking-telegram-dashboards` |
 | Baseline | `d37c938`; all six earlier commits present and unchanged |
-| Commits this cycle | `ba02d9c` dispatcher role (0037); `8ef0148` Telegram test-bot mode and runner; then the commit that adds this report |
+| Commits this cycle | `ba02d9c` dispatcher role (0037); `8ef0148` test-bot mode and runner; `8704376` first report; `1202917` a typed yes/no clears the buttons, per-chat message ids (0038); `d9f1d30` a decided request no longer blocks the next offer (0039); `5fb3d38` console labels (Telegram status, driver ids, decided state, local-runner label); `a181fec` a closed offer can never be booked through the conversation (0040); then the commit that updates this report |
 | Working tree | clean after the final commit |
-| Push / merge / deploy / AWS provisioning | none |
-| `main`, `release/fde-sydney-pilot`, migration 0034 | untouched |
+| Push / deploy / AWS provisioning | none |
+| Merge | the owner asked to merge into `release/fde-sydney-pilot` and `main` after the full regression. Both are fast-forwards (§J). |
+| Migration 0034 | untouched |
 
 Correction to the earlier summary: `27f44e0` is "Location assessor and Telegram transport helpers (pure modules)". The Phase 0 gap report lives in the shared notes folder, not in a commit.
 
@@ -106,31 +111,85 @@ Either one also needs `setWebhook` with `secret_token`, and long polling must th
 
 ## D. Telegram validation results
 
-### D.1 Real Telegram Bot API: BLOCKED (credentials not available here)
+### D.0 REAL Telegram Bot API results (owner's test bot, 25 Nov 2026)
 
-| # | Capability | Real Bot API | Covered by (fake Bot API / sink) |
+**Setup:**
+- The runner: `scripts/telegram_test_bot.py`, long polling, no public endpoint.
+- The owner's dedicated test bot, and one allowlisted test account (Telegram app and Desktop).
+- The `setuhaul_tgbot` database (synthetic drivers `DRV-TEST-1..4`, orders `ORD-TEST-1..4`).
+- The console at `127.0.0.1:8781/app-runner/<role>`.
+- No model call was made; driver turns used the rules extractor.
+
+**Evidence:**
+- The owner's phone (the bot's replies, quoted back in this session);
+- the runner log (`webhook 200` per update, `relay ... SENT` per delivery);
+- the test database: offers, appointments, claims, approvals, attestations, link rows and notifications. Every delivery reference has the Telegram form `tg.<chat-tag>.<id>`, which proves the Bot API accepted it.
+
+No token, chat id or link code appears in this report or the logs.
+
+#### D.0.1 What passed over real Telegram
+
+| # | Capability / journey | Real result | Evidence |
 |---|---|---|---|
-| 1 | Send an offer | BLOCKED | PASS (fake API: `sendMessage` with text) |
-| 2 | Inline Accept / Decline / Other time buttons | BLOCKED | PASS (fake API: `inline_keyboard` callback data `o:<offer>:A/D/R`) |
-| 3 | Receive button callbacks | BLOCKED | PASS (webhook route, journeys A, B, C, E) |
-| 4 | Clear buttons after an answer | BLOCKED | PASS (`answerCallbackQuery`, then `editMessageReplyMarkup`, then the reply; another driver's tap clears nothing) |
-| 5 | Stale, duplicate and expired callbacks | BLOCKED | PASS (superseded, declined and expired offers refused; a redelivered callback creates no second booking action) |
-| 6 | Alternative-time clarification | BLOCKED | PASS (sink: `R` gives ALTERNATIVE_REQUESTED and the reply asks for a time) |
-| 7 | Typed YES / NO | BLOCKED | PASS (sink: "haan ji" accepts through the same path as the button) |
-| 8 | Ambiguous typed reply | BLOCKED | PASS (sink: "haan lekin D3" is never guessed; the driver is asked again) |
-| 9 | One-time `request_location` keyboard | BLOCKED | PASS (fake API: `keyboard[0][0].request_location`, `one_time_keyboard`, sent once per open delay) |
-| 10 | Shared location | BLOCKED | PASS (assessed; 7-character geohash; raw coordinates not stored; live location ignored; reply removes the keyboard) |
-| 11 | "Not now" | BLOCKED | PASS (recorded as UNAVAILABLE; the delay report stands; the keyboard is removed) |
-| 12 | Booking approval / rejection outcome | BLOCKED | PASS (fake API: after the planner confirms, the relay sends the confirmation) |
-| 13 | Reassignment and cancellation outcomes | BLOCKED | PASS (sink: the new driver gets "now assigned", the old driver gets a notice, the cancellation decision is notified) |
-| 14 | API errors, rate limits, timeouts | BLOCKED | PASS (fake API: 429 gives RETRY; 5xx gives AMBIGUOUS (UNKNOWN); 400/403 give FAILED; a connect error gives RETRY; a timeout gives UNKNOWN, never FAILED; a button-clear failure never raises or reverses the answer) |
+| 1 | Link with a one-time code (code shown only in the dispatcher console) | PASS | "linked to SetuHaul" on the phone; `driver_channel_links` active; attempt LINKED |
+| 2 | Revoke; the revoked account learns nothing | PASS | generic "not linked" reply; nothing stored for the old driver after the revoke |
+| 3 | Re-link the same account to another driver (twice: DRV-TEST-2, then DRV-TEST-3) | PASS | old links revoked, new ones active; 3 LINKED attempts |
+| 4 | Offer sent with inline Accept / Decline / Another time buttons | PASS | notification SENT via the Bot API; buttons seen on the phone; offer stays OFFERED |
+| 5 | **Journey A**: tap Accept, then planner approval | PASS | ACCEPTED; 1 attestation; PENDING_CONFIRMATION with an active claim; PLANNER_REVIEW OPEN; planner approves, CONFIRMED (current); "Your dock booking is confirmed by the warehouse." received; buttons disappeared after the tap |
+| 6 | Planner **rejection** outcome | PASS | REJECTED; claim released (0 active); `booking_rejected` notice delivered via Telegram |
+| 7 | **Journey E**: reassignment of a confirmed appointment | PASS | "Accept trip and time" tapped. Only `shipments.driver_id` changed; same appointment, CONFIRMED; one active claim; `SHIPMENT_REASSIGNED` audited; old driver notified on its (non-Telegram) route |
+| 8 | **Journey F**: cancellation of a confirmed appointment | PASS | dispatcher requests; the requesting dispatcher gets **403** on the decision; planner rejects (appointment stays CONFIRMED, phone told "stays confirmed"); second request approved (CANCELLED, not current, 0 active claims, phone told "has been cancelled") |
+| 9 | **Journey C**: tap Accept on an expired offer | PASS | "This offer has expired. Your dispatcher can send a new one."; no appointment |
+| 10 | Ambiguous typed reply ("haan lekin D3") | PASS | clarification sent, offer unchanged, never guessed |
+| 11 | Typed "no" declines **and clears the offer's buttons** (0038) | PASS | DECLINED; the owner confirmed the buttons were gone; no appointment |
+| 12 | The feasibility engine refuses an overlapping second shipment for one driver | PASS (pre-existing safeguard) | 409 `CONTRADICTORY_DATA` |
+
+#### D.0.2 Defects the real run found (all fixed, tested, committed)
+
+| Defect | Why the automated tests missed it | Fix |
+|---|---|---|
+| Telegram message ids count **per chat**, but `notifications` had `UNIQUE (channel, provider_message_id)` with `tg.<id>`. A second driver's message 5 would have failed to record. | The fake Bot API numbered messages globally. | `1202917`: `tg.<chat-tag>.<id>` (truncated sha256, no raw id). The fake API now numbers messages per chat. |
+| After a planner **rejected** or let a request expire, a new dispatcher offer for that shipment got 409 `BOOKING_IN_PROGRESS`. The conversation stayed `SUBMITTED`, which only the driver's next message reconciles. | No test re-offered after a decision. | `d9f1d30` (0039): the database reconciles a decided `SUBMITTED` flow before the dispatcher's check. Tested for reject and expiry; a pending request still blocks. |
+| **Booking integrity:** after the driver declined an offer by typing "no", the conversation still had the declined option selected. The next message got "Please reply YES to confirm", and "yes" **held the declined slot and filed a booking request** as STANDARD, not PLANNER_REVIEW. Nothing was confirmed; the stray request was rejected by the planner. | No test sent a "yes" through the agent after a decline. | `a181fec` (0040): when an offer closes other than by acceptance, its option expires and the conversation's selection is cleared. Tests: typed no, the Decline button and "Another time", each followed by the agent's hold and submit tools. All three fail without 0040 (verified). |
+
+The owner also reported console problems, fixed in `5fb3d38`:
+- the header showed only WhatsApp, with no Telegram status;
+- the local runner showed "booking execution OFF" and "environment unknown";
+- conversations were listed by masked phone, with deliveries labelled "provider";
+- a stale "SUBMITTED" state was shown.
+
+The runner console now shows "local test-bot runner", "booking: local test harness" and "Telegram: test bot · allowlisted test chats only". Conversations show driver ids, deliveries are labelled Telegram, WhatsApp, or the matching test sink, and the decided state is shown.
+
+#### D.0.3 Not exercised over real Telegram (owner decided the testing was sufficient)
+
+- **Sharing a location.** The owner used Telegram Desktop, which cannot share a location. The one-time keyboard was offered as designed. The assessment and geohash storage are covered by the fake-API and test-sink tests.
+- **"Not now"**, the alternative-time reply, and a real delivery failure (429 / timeout) shown in the Ops view. These are covered by the fake-API and test-sink tests (§D.1, journey G).
+
+### D.1 Fake Bot API and test-sink coverage (no real Telegram)
+
+| # | Capability | Real Bot API (25 Nov) | Covered by (fake Bot API / sink) |
+|---|---|---|---|
+| 1 | Send an offer | see D.0 | PASS (fake API: `sendMessage` with text) |
+| 2 | Inline Accept / Decline / Other time buttons | see D.0 | PASS (fake API: `inline_keyboard` callback data `o:<offer>:A/D/R`) |
+| 3 | Receive button callbacks | see D.0 | PASS (webhook route, journeys A, B, C, E) |
+| 4 | Clear buttons after an answer | see D.0 | PASS (`answerCallbackQuery`, then `editMessageReplyMarkup`, then the reply; another driver's tap clears nothing) |
+| 5 | Stale, duplicate and expired callbacks | see D.0 | PASS (superseded, declined and expired offers refused; a redelivered callback creates no second booking action) |
+| 6 | Alternative-time clarification | see D.0 | PASS (sink: `R` gives ALTERNATIVE_REQUESTED and the reply asks for a time) |
+| 7 | Typed YES / NO | see D.0 | PASS (sink: "haan ji" accepts through the same path as the button) |
+| 8 | Ambiguous typed reply | see D.0 | PASS (sink: "haan lekin D3" is never guessed; the driver is asked again) |
+| 9 | One-time `request_location` keyboard | see D.0 | PASS (fake API: `keyboard[0][0].request_location`, `one_time_keyboard`, sent once per open delay) |
+| 10 | Shared location | see D.0 | PASS (assessed; 7-character geohash; raw coordinates not stored; live location ignored; reply removes the keyboard) |
+| 11 | "Not now" | see D.0 | PASS (recorded as UNAVAILABLE; the delay report stands; the keyboard is removed) |
+| 12 | Booking approval / rejection outcome | see D.0 | PASS (fake API: after the planner confirms, the relay sends the confirmation) |
+| 13 | Reassignment and cancellation outcomes | see D.0 | PASS (sink: the new driver gets "now assigned", the old driver gets a notice, the cancellation decision is notified) |
+| 14 | API errors, rate limits, timeouts | see D.0 | PASS (fake API: 429 gives RETRY; 5xx gives AMBIGUOUS (UNKNOWN); 400/403 give FAILED; a connect error gives RETRY; a timeout gives UNKNOWN, never FAILED; a button-clear failure never raises or reverses the answer) |
 
 The "fake Bot API" is `httpx.MockTransport` in `tests/test_telegram_test_bot.py`. It runs the real `TelegramBotProvider` code and request shapes, but **it is not Telegram**. Message rendering, client keyboard behaviour, Telegram's retry timing and real rate limits remain unverified until §D.3 is run.
 
 ### D.2 Not tested anywhere
 
-- How Telegram clients render the keyboards: needs a real device.
-- Clearing an offer's buttons after a *typed* YES or NO. The backend refuses later taps, but the buttons stay visible. Clearing them needs the offer message's Telegram message id, which the relay records as `provider_message_id`, `tg.<id>`. This is a small follow-up if wanted.
+- Rendering of the location keyboard on a phone. Telegram Desktop cannot share a location (§D.0.3).
+- Clearing buttons after a typed yes or no is no longer open: it was fixed in 0038 and confirmed over real Telegram (§D.0.1 #11).
 
 ### D.3 How the owner runs the real test-bot exercise
 
@@ -156,7 +215,7 @@ The runner was smoke-tested locally against a scripted fake Bot API:
 - the setup step and the database-name refusal worked;
 - `/app-runner/dispatcher` signed in as a dispatcher showing only Dispatch, with four synthetic shipments.
 
-## E. Business journeys (test sink and fake Bot API; real Telegram BLOCKED)
+## E. Business journeys (test sink and fake Bot API; for real Telegram see §D.0.1)
 
 | Journey | Result | Authoritative evidence |
 |---|---|---|
@@ -244,8 +303,27 @@ C1 ran on the role changes. The later Telegram changes, to `app.py`, `service.py
 
 ## I. Outstanding risks and next decisions
 
-1. **Blocker: run the real test-bot exercise (§D.3).** It needs the owner's bot token and test phones, about 30–45 minutes. It is the only way to close D.1.
-2. **Approve the dispatcher CDK change and assign dispatchers** (§B). Then decide separately when `operations` stops being a dispatcher.
-3. Decide on the Telegram AWS items in §H only when a non-local test environment or the pilot is actually wanted.
-4. **Small follow-up:** clear buttons after a typed YES/NO (§D.2).
-5. Merge, release and activation remain separate decisions, each needing fresh evidence and a full regression and CI run.
+1. **Approve the dispatcher CDK change and assign dispatchers** (§B). Then decide separately when `operations` stops being a dispatcher.
+2. **Deployment:** migrations 0037–0040 are forward-only and additive (new definer functions, one trigger, replaced function bodies; no table rewrite, no data change). They run through the existing `migrate_data_api` step. Deploying is the existing manual, typed-confirmation job; Telegram stays on `test_sink` in the pilot.
+3. Decide on the Telegram AWS items in §H only when a non-local test environment or Telegram in the pilot is actually wanted. `test_bot` mode is refused in `pilot`.
+4. **Residual risk:** sharing a location and "Not now" were not exercised over real Telegram (§D.0.3). Run them with the Telegram app on a phone before any real-driver use.
+5. **Residual risk:** the real run showed that the driver-agent path and the dispatcher path share conversation state. 0039 and 0040 close the two gaps found. Any future dispatcher feature should be tested through both paths: a button and a typed reply, then the agent's next turn.
+6. Activation (booking or Telegram in the pilot) remains a separate decision needing fresh evidence.
+
+## J. Merge readiness (owner asked to merge into the deployment branch and main)
+
+**Full regression on `a181fec`** (clean tree, after the real Telegram run and all three fixes): `python -m pytest tests -q` gave **1729 passed, 2 skipped, 0 failed** in 27:24, on local PostgreSQL 18.6. That is 49 more tests than the 1680 on `d37c938`.
+
+**Merge route (owner decision, option B):**
+1. A PR from this branch into `main`, merged with minimal checks on `main` (the evidence above stands).
+2. A PR from `main` into `release/fde-sydney-pilot` with the same evidence. The release PR also carries the 13 commits merged into `main` since the last release (PRs #12–#14).
+
+| Check | State |
+|---|---|
+| Real Telegram exercise | done (§D.0); the owner judged it sufficient; 3 defects found and fixed |
+| Focused tests per change | all passing (§G and the commit messages) |
+| Data API emulator for changed database paths | passing (0037: 10; 0038: 52; 0039: 45) |
+| CI on PostgreSQL 17.9 | runs when the branches are pushed (push only runs tests; deploying is manual) |
+| Merge shape | fast-forward: `release/fde-sydney-pilot` (`e104a5b`) is an ancestor of `main` (`db81737` on origin), which is an ancestor of this branch. No conflicts and no merge commit. |
+| Safeguards | booking switch, kill switch, evidence guard, planner approval, requester ≠ decider: unchanged and re-tested |
+| Not done | push, deployment, AWS changes, Telegram in the pilot |
