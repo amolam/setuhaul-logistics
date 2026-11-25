@@ -326,6 +326,39 @@ def notification_provider(env: dict | None = None):
     raise RuntimeError(f"CONFIG: unknown SETUHAUL_NOTIFICATION_MODE {mode!r}")
 
 
+def telegram_transport(env: dict | None = None, client=None):
+    """The relay's Telegram transport, fail closed (roadmap Phase 4). `SETUHAUL_TELEGRAM_DELIVERY`:
+      test_sink (default)  linked drivers' messages go to the in-process Telegram sink; nothing leaves the process
+      off                  no Telegram routing (every driver is reached as before)
+      live                 the Bot API, ONLY with SETUHAUL_TELEGRAM_LIVE_AUTHORIZED=true (the owner's explicit
+                           authorization) and the token from Secrets Manager (SETUHAUL_TELEGRAM_BOT_SECRET_ID). The
+                           token is never read from a plain variable and never logged.
+    Anything else is refused."""
+    from ..notify.telegram import TelegramBotProvider, TelegramTestSink
+    env = dict(os.environ) if env is None else env
+    mode = env.get("SETUHAUL_TELEGRAM_DELIVERY", "test_sink")
+    if mode == "off":
+        return None
+    if mode == "test_sink":
+        return TelegramTestSink()
+    if mode == "live":
+        if env.get("SETUHAUL_TELEGRAM_LIVE_AUTHORIZED", "false").lower() != "true":
+            raise RuntimeError("CONFIG: SETUHAUL_TELEGRAM_DELIVERY=live needs SETUHAUL_TELEGRAM_LIVE_AUTHORIZED=true")
+        secret_id = env.get("SETUHAUL_TELEGRAM_BOT_SECRET_ID")
+        if not secret_id:
+            raise RuntimeError("CONFIG: SETUHAUL_TELEGRAM_BOT_SECRET_ID is required for live Telegram delivery")
+        if client is None:
+            import boto3
+            client = boto3.client("secretsmanager", region_name=env.get("SETUHAUL_AWS_REGION", "ap-southeast-2"))
+        try:
+            raw = client.get_secret_value(SecretId=secret_id)["SecretString"]
+            token = json.loads(raw)["token"] if raw.strip().startswith("{") else raw.strip()
+        except Exception as e:
+            raise RuntimeError(f"CONFIG: Telegram bot secret unreadable ({type(e).__name__})") from None
+        return TelegramBotProvider(token)
+    raise RuntimeError(f"CONFIG: unknown SETUHAUL_TELEGRAM_DELIVERY {mode!r}")
+
+
 def outbound_handler(event, context):
     """Sends due notifications through `notification_provider()` (the test sink in the synthetic pilot). Outside a
     driver's 24-hour window a WhatsApp notice goes as a Meta-approved template (SETUHAUL_WA_APPROVED_TEMPLATES); with
@@ -335,7 +368,8 @@ def outbound_handler(event, context):
     provider = notification_provider()
     relay = OutboundRelay(app.state.service.db, provider,
                           approved_templates=ApprovedTemplates.parse(os.environ.get("SETUHAUL_WA_APPROVED_TEMPLATES")),
-                          window_margin_min=int(os.environ.get("SETUHAUL_WA_WINDOW_MARGIN_MIN", "30")))
+                          window_margin_min=int(os.environ.get("SETUHAUL_WA_WINDOW_MARGIN_MIN", "30")),
+                          telegram=telegram_transport())
     result = relay.run_once(limit=int(os.environ.get("SETUHAUL_OUTBOUND_BATCH", "50")))
     log.info("outbound %s", {k: v for k, v in result.items() if isinstance(v, (int, str))})
     return {k: v for k, v in result.items() if isinstance(v, (int, str, bool))}

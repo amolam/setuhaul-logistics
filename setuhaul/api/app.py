@@ -180,6 +180,37 @@ class OfferIn(BaseModel):
     idempotency_key: str = Field(min_length=16, max_length=128)
 
 
+class ReassignIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    shipment_id: str = Field(min_length=3, max_length=80)
+    driver_id: str = Field(min_length=3, max_length=80)
+    idempotency_key: str = Field(min_length=16, max_length=128)
+
+
+class CancelIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    reason_code: Literal["DRIVER_UNAVAILABLE", "VEHICLE_BREAKDOWN", "SHIPMENT_CANCELLED", "CUSTOMER_REQUEST",
+                         "OPERATIONS_DECISION"]
+    note: str = Field(min_length=3, max_length=500)
+    idempotency_key: str = Field(min_length=16, max_length=128)
+
+
+class CancelDecision(BaseModel):
+    model_config = {"extra": "forbid"}
+    decision: Literal["APPROVE", "REJECT"]
+    note: str | None = Field(default=None, max_length=500)
+
+
+class EscalationNote(BaseModel):
+    model_config = {"extra": "forbid"}
+    note: str | None = Field(default=None, max_length=300)
+
+
+class EscalationResolve(BaseModel):
+    model_config = {"extra": "forbid"}
+    resolution: str = Field(min_length=5, max_length=500)
+
+
 class Move(BaseModel):
     model_config = {"extra": "forbid"}
     proposal_id: uuid.UUID
@@ -406,7 +437,10 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
                     await run_in_threadpool(relay.publish, out["event"])
                 except Exception:
                     log.exception("stored but not published; the recovery sweep will publish it")
-            chat = (update.get("message") or (update.get("callback_query") or {}).get("message") or {}).get("chat", {})
+            cq_msg = (update.get("callback_query") or {}).get("message") or {}
+            chat = (update.get("message") or cq_msg or {}).get("chat", {})
+            if out.get("clear_buttons") and isinstance(chat.get("id"), int) and isinstance(cq_msg.get("message_id"), int):
+                app.state.telegram.clear_buttons(str(chat["id"]), cq_msg["message_id"])
             if out.get("reply") and isinstance(chat.get("id"), int):
                 app.state.telegram.reply(str(chat["id"]), out["reply"])
             return {"ok": True}                          # constant: reveals nothing about links or drivers
@@ -527,6 +561,57 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
     @app.post("/console/drivers/{driver_id}/telegram-link-code")
     def telegram_link_code(driver_id: str = Path(min_length=3, max_length=80), p: Principal = Depends(staff)):
         return svc.issue_link_code(p, driver_id)
+
+    @app.post("/console/drivers/{driver_id}/telegram-link/revoke")
+    def telegram_link_revoke(body: Revoke, driver_id: str = Path(min_length=3, max_length=80),
+                             p: Principal = Depends(staff)):
+        return svc.revoke_link(p, driver_id, body.reason)
+
+    # ---------------------------------------------------------------- 0036: confirmed reassignment and cancellation
+    @app.post("/console/dispatch/reassignments")
+    def dispatch_reassign(body: ReassignIn, p: Principal = Depends(staff)):
+        return svc.reassign_confirmed(p, body.shipment_id, body.driver_id, body.idempotency_key)
+
+    @app.post("/console/appointments/{appointment_id}/cancellation-requests")
+    def cancellation_request(body: CancelIn, appointment_id: str = Path(min_length=1, max_length=80),
+                             p: Principal = Depends(staff)):
+        return svc.request_cancellation(p, appointment_id, body.reason_code, body.note, body.idempotency_key)
+
+    @app.get("/console/cancellation-requests")
+    def cancellation_requests(facility_id: str | None = Query(None, max_length=40), p: Principal = Depends(staff)):
+        return {"requests": svc.list_cancellations(p, facility_id)}
+
+    @app.post("/console/cancellation-requests/{request_id}/decision")
+    def cancellation_decision(body: CancelDecision, request_id: uuid.UUID, p: Principal = Depends(staff)):
+        return svc.decide_cancellation(p, str(request_id), body.decision, body.note)
+
+    # ---------------------------------------------------------------- planner schedule and operations health (read)
+    @app.get("/console/facilities/{facility_id}/schedule")
+    def facility_schedule(facility_id: str = Path(min_length=1, max_length=40), hours: int = Query(12, ge=1, le=48),
+                          p: Principal = Depends(staff)):
+        return svc.facility_schedule(p, facility_id, hours)
+
+    @app.get("/console/ops/notifications")
+    def ops_notifications(state: Literal["PENDING", "SENDING", "SENT", "DELIVERED", "RETRY", "FAILED", "UNKNOWN"] | None = None,
+                          limit: int = Query(100, ge=1, le=200), p: Principal = Depends(staff)):
+        return svc.ops_notifications(p, state, limit)
+
+    @app.get("/console/ops/audit")
+    def ops_audit(shipment_id: str | None = Query(None, max_length=80), limit: int = Query(100, ge=1, le=200),
+                  p: Principal = Depends(staff)):
+        return svc.ops_audit(p, shipment_id, limit)
+
+    @app.get("/console/ops/health")
+    def ops_health(p: Principal = Depends(staff)):
+        return svc.ops_health(p)
+
+    @app.post("/console/escalations/{escalation_id}/acknowledge")
+    def escalation_ack(body: EscalationNote, escalation_id: uuid.UUID, p: Principal = Depends(staff)):
+        return svc.acknowledge_escalation(p, str(escalation_id), body.note)
+
+    @app.post("/console/escalations/{escalation_id}/resolve")
+    def escalation_resolve(body: EscalationResolve, escalation_id: uuid.UUID, p: Principal = Depends(staff)):
+        return svc.resolve_escalation(p, str(escalation_id), body.resolution)
 
     @app.get("/console/me")
     def me(p: Principal = Depends(staff)):

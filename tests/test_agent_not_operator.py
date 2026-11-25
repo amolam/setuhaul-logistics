@@ -181,7 +181,8 @@ def test_ingest_role_allowlist(conn):
                      # 0035 (roadmap Phases 1/4/5): the verified inbound path answers dispatcher offers, records a
                      # shared location and links a Telegram account; every one checks the driver itself
                      "dispatch_offer_for_driver", "request_offer_alternative", "driver_location_context",
-                     "record_driver_location", "redeem_driver_link_code", "driver_for_channel"}
+                     "record_driver_location", "redeem_driver_link_code", "driver_for_channel",
+                     "open_offer_for_driver"}   # 0036: a typed Telegram reply answers the driver's own open offer
 
 
 def test_feasibility_role_allowlist(conn):

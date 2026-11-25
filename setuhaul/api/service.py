@@ -96,6 +96,14 @@ DISPATCH_PERMISSIONS: dict[str, frozenset] = {
     "view_dispatch":     frozenset({"operations", "planner", "ops_lead"}),
     "send_offer":        frozenset({"operations", "ops_lead"}),
     "link_driver":       frozenset({"operations", "ops_lead"}),
+    # 0036: cancellation of a confirmed appointment (dispatcher requests, a planner or ops_lead who is not the
+    # requester decides: the database checks both), the planner's schedule, the operations health board and the
+    # separate escalation actions
+    "request_cancellation": frozenset({"operations", "ops_lead"}),
+    "decide_cancellation":  frozenset({"planner", "ops_lead"}),
+    "view_schedule":        frozenset({"planner", "ops_lead", "operations"}),
+    "view_ops":             frozenset({"operations", "ops_lead"}),
+    "handle_escalation":    frozenset({"operations", "planner", "ops_lead"}),
 }
 
 
@@ -188,6 +196,15 @@ TOOLS = {"propose_facility_schedule": ScheduleArgs,
          "select_option": OptionArg, "confirm_selection": ConfirmArgs, "hold_option": OptionArg,
          "submit_booking_request": OptionArg, "release_hold": OptionArg, "get_booking_status": StatusArgs,
          "escalate_to_human": EscalateArgs}
+
+# Roadmap Phase 4: words that make a typed Telegram reply read like an answer to the offer on screen. Such a reply
+# that is not a clear yes or no ("haan lekin D3", "ok but 4 pm") is never guessed: the driver is asked again.
+_ANSWER_WORDS = {"yes", "haan", "han", "ha", "ji", "ok", "okay", "no", "nahi", "nahin", "accept", "decline", "confirm",
+                 "theek", "thik", "हाँ", "नहीं"}
+
+
+def _answers_offer(text: str) -> bool:
+    return bool(set(re.findall(r"[\wऀ-ॿ]+", (text or "").lower())) & _ANSWER_WORDS)
 
 
 class BookingService:
@@ -1588,7 +1605,11 @@ class BookingService:
                      "accept the trip and this slot, or NO to decline.")
     DISPATCH_CONFLICTS = {"SHIPMENT_NOT_BOOKABLE", "SHIPMENT_ALREADY_BOOKED", "BOOKING_IN_PROGRESS", "DRIVER_BUSY",
                           "DRIVER_NOT_AVAILABLE", "HUMAN_ACTIVE", "VEHICLE_CHANGE_NOT_SUPPORTED", "STALE_SHIPMENT",
-                          "IDEMPOTENCY_KEY_REUSED", "OPTION_NOT_FEASIBLE"}
+                          "IDEMPOTENCY_KEY_REUSED", "OPTION_NOT_FEASIBLE", "NO_CONFIRMED_APPOINTMENT",
+                          "APPOINTMENT_STARTED", "CANCELLATION_PENDING", "SAME_DRIVER", "DRIVER_HAS_OVERLAPPING_TRIP",
+                          "NOT_CANCELLABLE", "CANCELLATION_ALREADY_PENDING", "REASSIGNMENT_IN_PROGRESS",
+                          "ALREADY_DECIDED", "APPOINTMENT_CHANGED", "ALREADY_ACKNOWLEDGED", "ALREADY_RESOLVED",
+                          "ALREADY_REROUTED"}
 
     def _staff_fn(self, p: Principal, sql: str, args: tuple):
         try:
@@ -1599,7 +1620,8 @@ class BookingService:
             code = msg.split(":")[0]
             if code in ("ROLE_NOT_ALLOWED", "FORBIDDEN", "PRINCIPAL_MISMATCH", "UNTRUSTED_CONTEXT"):
                 raise ServiceError(403, code, msg) from e
-            if code in ("SHIPMENT_UNKNOWN", "DRIVER_NOT_IN_SCOPE"):
+            if code in ("SHIPMENT_UNKNOWN", "DRIVER_NOT_IN_SCOPE", "APPOINTMENT_UNKNOWN", "REQUEST_UNKNOWN",
+                        "ESCALATION_UNKNOWN"):
                 raise ServiceError(404, code) from e
             raise ServiceError(409 if code in self.DISPATCH_CONFLICTS else 400, code or "ERROR", msg) from e
 
@@ -1616,7 +1638,9 @@ class BookingService:
                 SELECT s.shipment_id, s.order_reference, s.destination_facility_id, s.current_status, s.priority_code,
                        s.original_eta_ts, s.driver_id, d.driver_name, s.vehicle_id, v.vehicle_type_code,
                        a.appointment_id, a.status, lower(a.during), k.dock_code,
-                       o.offer_id, o.kind, o.status, o.expires_at, o.driver_id
+                       o.offer_id, o.kind, o.status, o.expires_at, o.driver_id, o.status_reason,
+                       (SELECT c.status FROM cancellation_requests c WHERE c.appointment_id = a.appointment_id
+                         ORDER BY c.created_at DESC LIMIT 1)
                   FROM shipments s JOIN drivers d ON d.driver_id = s.driver_id JOIN vehicles v ON v.vehicle_id = s.vehicle_id
                   LEFT JOIN LATERAL (SELECT * FROM appointments x WHERE x.shipment_id = s.shipment_id
                                        AND (x.is_current OR x.status = 'PENDING_CONFIRMATION') AND x.status IN ('PENDING_CONFIRMATION','CONFIRMED','IN_PROGRESS')
@@ -1626,6 +1650,7 @@ class BookingService:
                                      ORDER BY y.created_at DESC LIMIT 1) o ON true
                  WHERE s.current_status IN ('PLANNED','ASSIGNED','IN_TRANSIT')
                  ORDER BY s.original_eta_ts, s.shipment_id LIMIT 200""").fetchall()
+            links = c.execute("SELECT driver_link_status(%s)", (sorted({r[6] for r in rows}),)).fetchone()[0] if rows else {}
         out = []
         for r in rows:
             out.append({"shipment_id": r[0], "order_reference": r[1], "facility_id": r[2], "status": r[3],
@@ -1634,8 +1659,14 @@ class BookingService:
                         "appointment": {"appointment_id": r[10], "status": r[11], "start": r[12].isoformat(),
                                         "dock_code": r[13]} if r[10] else None,
                         "latest_offer": {"offer_id": str(r[14]), "kind": r[15], "status": self._offer_status(r[16], r[17]),
-                                         "expires_at": r[17].isoformat(), "driver_id": r[18]} if r[14] else None,
-                        "bookable": r[10] is None})
+                                         "expires_at": r[17].isoformat(), "driver_id": r[18],
+                                         "status_reason": r[19]} if r[14] else None,
+                        "cancellation": r[20],
+                        "telegram": links.get(r[6]) or {"linked": False, "linked_at": None, "code_expires_at": None},
+                        "bookable": r[10] is None,
+                        # which workflow applies: a new booking, or the confirmed-appointment workflows
+                        "workflow": "NEW_BOOKING" if r[10] is None else
+                                    ("CONFIRMED" if r[11] == "CONFIRMED" else "PENDING_PLANNER")})
         return out
 
     def _dispatch_engine(self, p: Principal, shipment_id: str):
@@ -1691,7 +1722,10 @@ class BookingService:
             rows = c.execute("""
                 SELECT o.offer_id, o.kind, o.shipment_id, o.facility_id, o.driver_id, o.previous_driver_id, o.status,
                        o.status_reason, o.expires_at, o.responded_at, o.appointment_id, o.created_at, o.offered_by,
-                       k.dock_code, lower(so.during), a.status, f.state
+                       k.dock_code, lower(so.during), a.status, f.state,
+                       (SELECT n.status FROM notifications n WHERE n.chat_message_id = o.read_back_message_id
+                         ORDER BY n.created_at DESC LIMIT 1),
+                       a.pending_expires_at
                   FROM dispatch_offers o JOIN shown_options so ON so.option_id = o.option_id
                   JOIN docks k ON k.dock_id = so.dock_id
                   LEFT JOIN appointments a ON a.appointment_id = o.appointment_id
@@ -1701,7 +1735,12 @@ class BookingService:
                  "previous_driver_id": r[5], "status": self._offer_status(r[6], r[8]), "status_reason": r[7],
                  "expires_at": r[8].isoformat(), "responded_at": r[9].isoformat() if r[9] else None,
                  "appointment_id": r[10], "created_at": r[11].isoformat(), "offered_by": r[12], "dock_code": r[13],
-                 "start": r[14].isoformat(), "appointment_status": r[15], "conversation_state": r[16]} for r in rows]
+                 "start": r[14].isoformat(), "appointment_status": r[15], "conversation_state": r[16],
+                 # delivery is NOT the offer's business state: OFFERED + PENDING = not yet handed to a channel;
+                 # SENT = handed over (Telegram and the test sink give no delivery receipt); UNKNOWN = a timeout, not
+                 # proof of non-delivery
+                 "delivery_state": r[17] or "NOT_QUEUED_YET",
+                 "planner_decision_due": r[18].isoformat() if r[18] else None} for r in rows]
 
     def issue_link_code(self, p: Principal, driver_id: str, ttl_s: int | None = None) -> dict:
         """A one-time Telegram link code for a driver in this person's scope. The code is returned once (to be passed
@@ -1761,7 +1800,10 @@ class BookingService:
                 return {"result": now["status"], "offer_id": o["offer_id"]}
         after = self._offer_for_driver(offer_id, drv)
         if action == "DECLINE" or after["status"] != "ACCEPTED":
-            return {"result": after["status"], "offer_id": o["offer_id"]}
+            return {"result": after["status"], "offer_id": o["offer_id"], "reason": after.get("status_reason")}
+        if after["kind"] == "CONFIRMED_REASSIGNMENT":
+            # the database switched the driver on the EXISTING confirmed appointment; nothing to hold or request
+            return {"result": "REASSIGNED", "offer_id": o["offer_id"], "appointment_id": after["appointment_id"]}
         # accepted: the existing booking path, as the driver, in their own conversation
         with self.db.tx("ingest", driver=drv, readonly=True) as c:
             fac = c.execute("SELECT destination_facility_id FROM shipments WHERE shipment_id=%s",
@@ -1824,7 +1866,7 @@ class BookingService:
                               (tg.hash_code(ev.code), ev.user_id, ev.chat_id)).fetchone()[0]
             if r["linked"]:
                 return {"reply": tg.TEXT_LINKED, "event": None, "linked": True}
-            return {"reply": {"ACCOUNT_ALREADY_LINKED": tg.TEXT_ACCOUNT_TAKEN,
+            return {"reply": {"ACCOUNT_ALREADY_LINKED": tg.TEXT_ACCOUNT_TAKEN, "TOO_MANY_ATTEMPTS": tg.TEXT_TOO_MANY,
                               "DRIVER_ALREADY_LINKED": tg.TEXT_DRIVER_TAKEN}.get(r["reason"], tg.TEXT_LINK_FAILED),
                     "event": None, "linked": False}
         with self.db.tx("ingest", readonly=True) as c:
@@ -1835,10 +1877,262 @@ class BookingService:
             return {"reply": tg.TEXT_LINKED, "event": None}
         if ev.kind == "callback":
             r = self.respond_to_offer(drv, ev.offer_id, ev.action, ev.external_id, sessions)
-            return {"reply": tg.OFFER_REPLIES.get(r["result"], tg.OFFER_REPLIES["ACCEPTED"]), "event": None, "result": r}
+            # a valid answer (or one that can no longer count) clears the buttons; another driver's tap does not
+            return {"reply": tg.OFFER_REPLIES.get(r["result"], tg.OFFER_REPLIES["ACCEPTED"]), "event": None, "result": r,
+                    "clear_buttons": r["result"] != "NOT_FOUND"}
+        if ev.kind == "text" and ev.text.strip().lower() == tg.NOT_NOW.lower():
+            # the reply-keyboard "Not now" after a location request: recorded, and the delay report stands
+            r = self.record_location(drv, LocationReport(False), ev.external_id)
+            return {"reply": tg.TEXT_LOCATION["UNAVAILABLE"], "event": None, "result": r}
+        if ev.kind == "text":
+            with self.db.tx("ingest", driver=drv) as c:
+                open_offer = c.execute("SELECT open_offer_for_driver(%s)", (drv,)).fetchone()[0]
+            if open_offer is not None:
+                verdict = classify_confirmation(ev.text)
+                if verdict in ("YES", "NO"):          # a typed yes / no answers the offer on screen, like its button
+                    r = self.respond_to_offer(drv, str(open_offer), "ACCEPT" if verdict == "YES" else "DECLINE",
+                                              ev.external_id, sessions)
+                    return {"reply": tg.OFFER_REPLIES.get(r["result"], tg.OFFER_REPLIES["ACCEPTED"]), "event": None,
+                            "result": r}
+                if _answers_offer(ev.text):           # "haan lekin D3": never guessed, the driver is asked again
+                    kind = self._offer_for_driver(str(open_offer), drv).get("kind")
+                    self.ingest_driver(drv, ev.external_id, ev.text, sessions, channel="TELEGRAM", agent_turn=False)
+                    return {"reply": tg.TEXT_AMBIGUOUS_REASSIGN if kind == "CONFIRMED_REASSIGNMENT"
+                            else tg.TEXT_AMBIGUOUS, "event": None}
         if ev.kind == "location":
             r = self.record_location(drv, LocationReport(True, ev.latitude, ev.longitude, ev.observed_at, ev.accuracy_m),
                                      ev.external_id)
             return {"reply": tg.TEXT_LOCATION.get(r["assessment"]), "event": None, "result": r}
         e = self.ingest_driver(drv, ev.external_id, ev.text, sessions, channel="TELEGRAM")
         return {"reply": None, "event": e if "session_token" in e else None}
+
+    # ---------------------------------------------------------------- 0036: reassignment of a CONFIRMED appointment
+    CONFIRMED_REASSIGN_TEXT = ("New trip offered to you by your dispatcher: order {ref}, {facility}. Existing "
+                               "appointment: dock {dock} at {start}. Reply YES to accept this trip and that time, or "
+                               "NO to decline.")
+
+    def reassign_confirmed(self, p: Principal, shipment_id: str, driver_id: str, key: str) -> dict:
+        """Offer a shipment that already has a CONFIRMED appointment to another driver. The offer carries the existing
+        dock and time; the database validates the appointment, pending cancellations and the new driver's other
+        trips now and again at acceptance. The old driver and the appointment stay as they are until the new driver
+        says yes; then only the assignment changes (no hold, no new request, no capacity change)."""
+        self.require(p, "send_offer")
+        with self.db.tx("console", p.facilities, readonly=True) as c:
+            row = c.execute("""SELECT s.order_reference, f.facility_name, k.dock_code, lower(a.during)
+                                 FROM shipments s JOIN facilities f ON f.facility_id = s.destination_facility_id
+                                 JOIN appointments a ON a.shipment_id = s.shipment_id AND a.is_current
+                                                     AND a.status = 'CONFIRMED'
+                                 JOIN docks k ON k.dock_id = a.dock_id
+                                WHERE s.shipment_id = %s""", (shipment_id,)).fetchone()
+        if not row:
+            raise ServiceError(409, "NO_CONFIRMED_APPOINTMENT", "this shipment has no confirmed appointment to reassign")
+        text = self.CONFIRMED_REASSIGN_TEXT.format(ref=row[0], facility=row[1], dock=row[2], start=human_time(row[3]))
+        return self._staff_fn(p, "SELECT create_reassignment_offer(%s,%s,%s,%s,%s,%s)",
+                              (shipment_id, driver_id, int(self.option_ttl.total_seconds()), text, key, f"staff:{p.sub}"))
+
+    # ---------------------------------------------------------------- 0036: cancellation of a CONFIRMED appointment
+    def request_cancellation(self, p: Principal, appointment_id: str, reason_code: str, note: str, key: str) -> dict:
+        self.require(p, "request_cancellation")
+        return self._staff_fn(p, "SELECT request_cancellation(%s,%s,%s,%s,%s)",
+                              (appointment_id, reason_code, note, key, f"staff:{p.sub}"))
+
+    def decide_cancellation(self, p: Principal, request_id: str, decision: str, note: str | None) -> dict:
+        """Approve: the appointment is cancelled and its dock time released in ONE transaction, after the database
+        re-checks it is unchanged. Reject: nothing changes. The requester can never decide their own request."""
+        self.require(p, "decide_cancellation")
+        return self._staff_fn(p, "SELECT decide_cancellation(%s,%s,%s,%s)", (request_id, decision, note, f"staff:{p.sub}"))
+
+    def list_cancellations(self, p: Principal, facility: str | None = None) -> list[dict]:
+        self.require(p, "view_schedule")
+        with self.db.tx("console", self._scope(p, facility), readonly=True) as c:
+            rows = c.execute("""SELECT c.request_id, c.appointment_id, c.shipment_id, s.order_reference, c.facility_id,
+                                       k.dock_code, lower(c.during), c.reason_code, c.note, c.status, c.requested_by,
+                                       c.created_at, c.decided_by, c.decided_at, c.decision_note
+                                  FROM cancellation_requests c JOIN shipments s ON s.shipment_id = c.shipment_id
+                                  JOIN docks k ON k.dock_id = c.dock_id
+                                 ORDER BY (c.status = 'OPEN') DESC, c.created_at DESC LIMIT 100""").fetchall()
+        keys = ("request_id", "appointment_id", "shipment_id", "order_reference", "facility_id", "dock_code", "start",
+                "reason_code", "note", "status", "requested_by", "created_at", "decided_by", "decided_at", "decision_note")
+        return [{k: (v.isoformat() if hasattr(v, "isoformat") else (str(v) if k == "request_id" else v))
+                 for k, v in zip(keys, r)} for r in rows]
+
+    def revoke_link(self, p: Principal, driver_id: str, reason: str) -> dict:
+        self.require(p, "link_driver")
+        n = self._staff_fn(p, "SELECT revoke_driver_channel_link(%s,%s,%s)", (driver_id, reason, f"staff:{p.sub}"))
+        return {"driver_id": driver_id, "revoked": n}
+
+    # ---------------------------------------------------------------- planner schedule (read only)
+    def facility_schedule(self, p: Principal, facility: str, hours: int = 12) -> dict:
+        """What occupies each dock in the window, from the database only: confirmed appointments, pending requests
+        (with their claim, which holds the capacity until the planner decides or the request expires), live and
+        recently expired holds (180 s, from the driver's yes to the request), blocks. Capacity is in dock-minutes."""
+        self.require(p, "view_schedule")
+        scope = self._scope(p, facility)
+        now = datetime.now(timezone.utc)
+        start, end = now - timedelta(hours=1), now + timedelta(hours=max(1, min(hours, 48)))
+        with self.db.tx("console", scope, readonly=True) as c:
+            docks = [dict(zip(("dock_id", "dock_code", "dock_type", "supports_refrigerated", "max_vehicle_weight_kg"), r))
+                     for r in c.execute("""SELECT dock_id, dock_code, dock_type, supports_refrigerated, max_vehicle_weight_kg
+                                             FROM docks WHERE facility_id=%s ORDER BY dock_code""", (facility,))]
+            items = []
+            for r in c.execute("""
+                    SELECT a.dock_id, lower(a.during), upper(a.during), a.status, a.appointment_id, s.order_reference,
+                           s.shipment_id, a.booking_source, r.expires_at, r.kind,
+                           EXISTS (SELECT 1 FROM dispatch_offers o WHERE o.appointment_id = a.appointment_id
+                                    AND o.kind = 'INITIAL_BOOKING')
+                      FROM appointments a JOIN docks d ON d.dock_id = a.dock_id
+                      JOIN shipments s ON s.shipment_id = a.shipment_id
+                      LEFT JOIN approval_requests r ON r.appointment_id = a.appointment_id AND r.status = 'OPEN'
+                     WHERE d.facility_id = %s AND (a.is_current OR a.status = 'PENDING_CONFIRMATION')
+                       AND a.status IN ('PENDING_CONFIRMATION','CONFIRMED','IN_PROGRESS')
+                       AND a.during && tstzrange(%s, %s, '[)')""", (facility, start, end)):
+                items.append({"dock_id": r[0], "start": r[1].isoformat(), "end": r[2].isoformat(),
+                              "kind": "PENDING_DECISION" if r[3] == "PENDING_CONFIRMATION" else r[3],
+                              "appointment_id": r[4], "order_reference": r[5], "shipment_id": r[6],
+                              "source": "DISPATCHER_OFFER" if r[10] else r[7],
+                              "decision_due": r[8].isoformat() if r[8] else None, "approval_kind": r[9]})
+            for r in c.execute("""
+                    SELECT x.dock_id, lower(x.during), upper(x.during), x.kind, x.active, x.expires_at, s.order_reference
+                      FROM dock_occupancy x LEFT JOIN shipments s ON s.shipment_id = x.shipment_id
+                     WHERE x.facility_id = %s AND x.during && tstzrange(%s, %s, '[)')
+                       AND ((x.kind = 'HOLD' AND (x.active OR x.expires_at > now() - interval '2 hours'))
+                            OR (x.kind IN ('BLOCK','FIXED') AND x.active))""", (facility, start, end)):
+                kind = ("HOLD_ACTIVE" if r[4] and r[5] and r[5] > now else "HOLD_EXPIRED") if r[3] == "HOLD" else "BLOCKED"
+                items.append({"dock_id": r[0], "start": r[1].isoformat(), "end": r[2].isoformat(), "kind": kind,
+                              "hold_expires_at": r[5].isoformat() if r[5] else None, "order_reference": r[6]})
+        window_min = (end - start).total_seconds() / 60
+
+        def minutes(kind_set):
+            tot = 0.0
+            for it in items:
+                if it["kind"] in kind_set:
+                    a = max(datetime.fromisoformat(it["start"]), start)
+                    b = min(datetime.fromisoformat(it["end"]), end)
+                    tot += max(0.0, (b - a).total_seconds() / 60)
+            return round(tot)
+        total = round(window_min * len(docks))
+        used = {"confirmed": minutes({"CONFIRMED", "IN_PROGRESS"}), "pending_decision": minutes({"PENDING_DECISION"}),
+                "held": minutes({"HOLD_ACTIVE"}), "blocked": minutes({"BLOCKED"})}
+        return {"facility_id": facility, "as_of": now.isoformat(), "window_start": start.isoformat(),
+                "window_end": end.isoformat(), "docks": docks, "items": items,
+                "capacity": {"unit": "dock-minutes", "docks": len(docks), "window_minutes": round(window_min),
+                             "total": total, **used,
+                             "available": max(0, total - sum(used.values())),
+                             "explanation": "total = docks x window minutes; available = total minus confirmed, "
+                                            "pending-decision claims, live holds and blocked time"},
+                "pending": self._pending_detail(p, facility),
+                "cancellations": [x for x in self.list_cancellations(p, facility) if x["status"] == "OPEN"]}
+
+    def _pending_detail(self, p: Principal, facility: str) -> list[dict]:
+        now = datetime.now(timezone.utc)
+        with self.db.tx("console", (facility,), readonly=True) as c:
+            rows = c.execute("""
+                SELECT r.approval_id, r.kind, r.expires_at, a.appointment_id, lower(a.during), upper(a.during),
+                       s.shipment_id, s.order_reference, s.driver_id, s.vehicle_id, v.vehicle_type_code,
+                       s.load_weight_kg, s.required_dock_type, s.temperature_control_required,
+                       d.dock_code, d.dock_type, d.max_vehicle_weight_kg, d.supports_refrigerated,
+                       a.booking_source, x.active, x.kind,
+                       (SELECT o.offered_by FROM dispatch_offers o WHERE o.appointment_id = a.appointment_id LIMIT 1)
+                  FROM approval_requests r JOIN appointments a ON a.appointment_id = r.appointment_id
+                  JOIN shipments s ON s.shipment_id = a.shipment_id JOIN vehicles v ON v.vehicle_id = s.vehicle_id
+                  JOIN docks d ON d.dock_id = a.dock_id
+                  LEFT JOIN dock_occupancy x ON x.occupancy_id = a.occupancy_id      -- the request's claim (0016)
+                 WHERE r.status = 'OPEN' AND r.facility_id = %s ORDER BY r.expires_at""", (facility,)).fetchall()
+            hist = {}
+            for sid, at, who, action, reason in c.execute("""
+                    SELECT shipment_id, at, principal, action, reason FROM booking_events
+                     WHERE shipment_id = ANY(%s) ORDER BY at DESC LIMIT 200""", ([r[6] for r in rows],)):
+                hist.setdefault(sid, []).append({"at": at.isoformat(), "by": who, "action": action, "note": reason})
+        out = []
+        for r in rows:
+            problems = []
+            if r[11] > r[16]:
+                problems.append("load heavier than the dock allows")
+            if r[13] and not r[17]:
+                problems.append("needs a refrigerated dock")
+            if r[12] not in ("ANY", r[15]):
+                problems.append(f"needs a {r[12]} dock")
+            claim_ok = bool(r[19]) and r[20] == "APPOINTMENT"
+            out.append({"approval_id": str(r[0]), "approval_kind": r[1], "decision_due": r[2].isoformat(),
+                        "expired": r[2] <= now, "appointment_id": r[3], "start": r[4].isoformat(), "end": r[5].isoformat(),
+                        "shipment_id": r[6], "order_reference": r[7], "driver_id": r[8], "vehicle_id": r[9],
+                        "vehicle_type": r[10], "load_kg": r[11], "dock_code": r[14], "dock_type": r[15],
+                        "dock_max_kg": r[16], "compatibility": problems or ["compatible"],
+                        "source": "DISPATCHER_OFFER" if r[21] else r[18], "offered_by": r[21],
+                        "capacity_claimed": claim_ok,
+                        "capacity_note": ("dock time is claimed for this request until the decision is due"
+                                          if claim_ok else "no live claim: approving will be refused (CAPACITY_LOST)"),
+                        "history": hist.get(r[6], [])[:10]})
+        return out
+
+    # ---------------------------------------------------------------- operations health (read only) and escalations
+    def ops_notifications(self, p: Principal, state: str | None = None, limit: int = 100) -> dict:
+        """Delivery state only: the booking, decision and escalation states are elsewhere. UNKNOWN (a timeout) is not
+        FAILED: the message may have arrived. Telegram and the test sink give no delivery receipt, so SENT is the
+        best evidence there; DELIVERED/READ appear only where the provider reports them (WhatsApp)."""
+        self.require(p, "view_ops")
+        with self.db.tx("console", p.facilities, readonly=True) as c:
+            rows = c.execute("""
+                SELECT n.notification_id, n.template_id, n.channel, n.recipient_ref, n.status, n.attempts, n.max_attempts,
+                       n.next_retry_at, n.last_error, n.updated_at, n.unknown_deadline, n.shipment_id, s.order_reference,
+                       n.created_at, n.provider_message_id
+                  FROM notifications n LEFT JOIN shipments s ON s.shipment_id = n.shipment_id
+                 WHERE (%s::text IS NULL OR n.status = %s)
+                 ORDER BY (n.status IN ('FAILED','UNKNOWN','RETRY')) DESC, n.updated_at DESC LIMIT %s""",
+                             (state, state, max(1, min(limit, 200)))).fetchall()
+            drivers = sorted({r[3][7:] for r in rows if r[3] and r[3].startswith("driver:")})
+            links = c.execute("SELECT driver_link_status(%s)", (drivers,)).fetchone()[0] if drivers else {}
+        out = []
+        for r in rows:
+            drv = r[3][7:] if r[3] and r[3].startswith("driver:") else None
+            pm = r[14] or ""
+            out.append({"notification_id": str(r[0]), "what": r[1], "channel": r[2],
+                        "route_now": "TELEGRAM" if drv and (links.get(drv) or {}).get("linked") else r[2],
+                        "transport": "test sink" if pm.startswith("testsink.") else ("provider" if pm else None),
+                        "driver_id": drv, "status": r[4], "attempts": r[5], "max_attempts": r[6],
+                        "next_retry_at": r[7].isoformat() if r[7] else None, "last_error": r[8],
+                        "last_attempt_at": r[9].isoformat() if r[9] else None,
+                        "unknown_deadline": r[10].isoformat() if r[10] else None, "shipment_id": r[11],
+                        "order_reference": r[12], "created_at": r[13].isoformat()})
+        return {"as_of": datetime.now(timezone.utc).isoformat(), "notifications": out}
+
+    def ops_audit(self, p: Principal, shipment_id: str | None = None, limit: int = 100) -> dict:
+        self.require(p, "view_ops")
+        with self.db.tx("console", p.facilities, readonly=True) as c:
+            rows = c.execute("""SELECT at, principal, principal_role, action, facility_id, shipment_id, after_state, reason
+                                  FROM booking_events WHERE (%s::text IS NULL OR shipment_id = %s)
+                                 ORDER BY at DESC LIMIT %s""", (shipment_id, shipment_id, max(1, min(limit, 200)))).fetchall()
+        return {"as_of": datetime.now(timezone.utc).isoformat(),
+                "events": [{"at": r[0].isoformat(), "by": r[1], "role": r[2], "action": r[3], "facility_id": r[4],
+                            "shipment_id": r[5], "detail": r[6], "note": r[7]} for r in rows]}
+
+    def ops_health(self, p: Principal) -> dict:
+        """Counts the console role can read, each with its own source; a figure it cannot read is 'unavailable'."""
+        self.require(p, "view_ops")
+        out: dict = {"as_of": datetime.now(timezone.utc).isoformat()}
+        checks = {
+            "notifications_24h": """SELECT coalesce(jsonb_object_agg(status, n), '{}'::jsonb) FROM (
+                                      SELECT status, count(*) n FROM notifications
+                                       WHERE created_at > now() - interval '24 hours' GROUP BY status) x""",
+            "escalations_open": "SELECT count(*) FROM escalations WHERE status IN ('OPEN','ACKNOWLEDGED')",
+            "approvals_waiting": "SELECT count(*) FROM approval_requests WHERE status = 'OPEN'",
+            "cancellations_waiting": "SELECT count(*) FROM cancellation_requests WHERE status = 'OPEN'",
+            "telegram_last_inbound_at": "SELECT max(created_at) FROM chat_messages WHERE channel = 'TELEGRAM'",
+        }
+        for k, sql in checks.items():
+            try:
+                with self.db.tx("console", p.facilities, readonly=True) as c:
+                    v = c.execute(sql).fetchone()[0]
+                out[k] = v.isoformat() if hasattr(v, "isoformat") else v
+            except psycopg.Error:
+                out[k] = "unavailable"
+        return out
+
+    def acknowledge_escalation(self, p: Principal, escalation_id: str, note: str | None) -> dict:
+        """Acknowledged = someone owns it now. It is NOT resolved: the underlying issue stays open."""
+        self.require(p, "handle_escalation")
+        return self._staff_fn(p, "SELECT acknowledge_escalation(%s,%s,%s)", (escalation_id, note, f"staff:{p.sub}"))
+
+    def resolve_escalation(self, p: Principal, escalation_id: str, resolution: str) -> dict:
+        self.require(p, "handle_escalation")
+        return self._staff_fn(p, "SELECT resolve_escalation(%s,%s,%s)", (escalation_id, resolution, f"staff:{p.sub}"))

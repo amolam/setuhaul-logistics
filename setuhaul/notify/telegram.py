@@ -52,6 +52,8 @@ OFFER_REPLIES = {
     "SUPERSEDED": "This offer was replaced by a newer one. Please use the latest offer.",
     "UNAVAILABLE": "This offer can no longer be booked. Your dispatcher will be in touch.",
     "SLOT_TAKEN": "Sorry, that slot was just taken. Your dispatcher will send another time.",
+    "REASSIGNED": ("Thanks. The trip is now assigned to you, with its existing appointment time. Your dispatcher and the "
+                   "warehouse have been told."),
     "NOT_FOUND": "This button is not valid for your account.",
 }
 TEXT_LOCATION = {"VERIFIED": "Thanks, your location was received.",
@@ -79,11 +81,39 @@ def hash_code(code: str) -> str:
     return hashlib.sha256(("setuhaul-link:" + code).encode()).hexdigest()
 
 
-def offer_buttons(offer_id: str) -> list[list[dict]]:
-    """Inline keyboard for one offer (callback data <= 64 bytes, opaque id only)."""
+TEXT_TOO_MANY = "Too many attempts. Please wait 15 minutes and try again, or ask your dispatcher for help."
+TEXT_AMBIGUOUS = ("I'm not sure whether that is a yes. Please tap Accept to take the offered slot, or Another time if "
+                  "you need a different one.")
+TEXT_AMBIGUOUS_REASSIGN = ("I'm not sure whether that is a yes. Please tap \"Accept trip and time\" to take this trip "
+                           "at the time shown, or Decline.")
+NOT_NOW = "Not now"
+SHARE_LOCATION = "Share location once"
+
+
+def offer_buttons(offer_id: str, kind: str = "INITIAL_BOOKING") -> list[list[dict]]:
+    """Inline keyboard for one offer (callback data <= 64 bytes, opaque id only). A reassignment of a confirmed
+    appointment asks the driver to accept the trip AND its existing time; it has no "another time"."""
+    if kind == "CONFIRMED_REASSIGNMENT":
+        return [[{"text": "Accept trip and time", "callback_data": f"o:{offer_id}:A"},
+                 {"text": "Decline", "callback_data": f"o:{offer_id}:D"}]]
     return [[{"text": "Accept", "callback_data": f"o:{offer_id}:A"},
              {"text": "Decline", "callback_data": f"o:{offer_id}:D"}],
             [{"text": "Another time", "callback_data": f"o:{offer_id}:R"}]]
+
+
+def location_keyboard() -> dict:
+    """Telegram's native location request is a REPLY keyboard button (request_location), not an inline callback:
+    nothing is read until the driver taps it and Telegram asks them to confirm. One tap, one fix; never live."""
+    return {"keyboard": [[{"text": SHARE_LOCATION, "request_location": True}], [{"text": NOT_NOW}]],
+            "one_time_keyboard": True, "resize_keyboard": True}
+
+
+def reply_markup_for(route: dict) -> dict | None:
+    if route.get("offer_id"):
+        return {"inline_keyboard": offer_buttons(str(route["offer_id"]), route.get("offer_kind") or "INITIAL_BOOKING")}
+    if route.get("ask_location"):
+        return location_keyboard()
+    return None
 
 
 @dataclass(frozen=True)
@@ -141,22 +171,63 @@ def parse_update(u: dict) -> TelegramEvent:
     return TelegramEvent("text", uid, user, chat_id, ext, text=text[:2000])
 
 
+def _sink_log(kind: str, chat_id: str, text: str = "", key: str = "") -> None:
+    log.info("TELEGRAM_TEST_SINK %s chat=%s text_sha256=%s len=%d id=%s", kind,
+             hashlib.sha256(chat_id.encode()).hexdigest()[:12], hashlib.sha256(text.encode()).hexdigest()[:16],
+             len(text), key)
+
+
+class TelegramTestSink:
+    """The relay's Telegram transport in the synthetic pilot (the default): nothing leaves the process. It answers
+    ACCEPTED with a `testsink.tg.` id, so the relay's SENT / RETRY / UNKNOWN / FAILED handling runs as with the real
+    Bot API; `script` queues outcomes ("ok", "retry", "permanent", "timeout") for tests. A test-sink id is never a
+    Telegram delivery."""
+
+    __test__ = False
+    supports_idempotency = False
+    service_window = False
+
+    def __init__(self, script=None):
+        self.script = list(script or [])
+        self.sent: list[dict] = []
+
+    def send(self, to: str, text: str, idempotency_key: str, reply_markup: dict | None = None) -> SendResult:
+        step = self.script.pop(0) if self.script else "ok"
+        if step == "retry":
+            return SendResult(RETRYABLE, error="HTTP 429")
+        if step == "permanent":
+            return SendResult(PERMANENT, error="HTTP 403")                 # e.g. the driver blocked the bot
+        self.sent.append({"chat": to, "text": text, "key": idempotency_key, "reply_markup": reply_markup})
+        _sink_log("send", to, text, idempotency_key)
+        if step == "timeout":
+            raise ProviderTimeout("read timeout")
+        return SendResult(ACCEPTED, f"testsink.tg.{uuid.uuid4().hex}")
+
+
 class TelegramGateway:
-    """Bot replies to the webhook caller's chat (link results, button answers). Test-sink by default: one structured
-    log line (chat id hashed, text hashed) and an in-memory record for tests; nothing leaves the process."""
+    """Bot replies to the webhook caller's chat (link results, button answers) and clearing an answered offer's
+    buttons. Test-sink by default: one structured log line (chat id hashed, text hashed) and an in-memory record for
+    tests; nothing leaves the process."""
 
     def __init__(self, provider=None):
         self.provider = provider
         self.sent: list[tuple[str, str]] = []
+        self.cleared: list[tuple[str, int]] = []
 
     def reply(self, chat_id: str, text: str) -> None:
         self.sent.append((chat_id, text))
         if self.provider is None:
-            log.info("TELEGRAM_TEST_SINK chat=%s text_sha256=%s len=%d",
-                     hashlib.sha256(chat_id.encode()).hexdigest()[:12], hashlib.sha256(text.encode()).hexdigest()[:16],
-                     len(text))
+            _sink_log("reply", chat_id, text)
             return
         self.provider.send(chat_id, text, str(uuid.uuid4()))
+
+    def clear_buttons(self, chat_id: str, message_id: int) -> None:
+        """After a valid answer the offer message keeps its text and loses its buttons (editMessageReplyMarkup)."""
+        self.cleared.append((chat_id, message_id))
+        if self.provider is None:
+            _sink_log("clear_buttons", chat_id)
+            return
+        self.provider.clear_buttons(chat_id, message_id)
 
 
 class TelegramBotProvider:
@@ -168,14 +239,22 @@ class TelegramBotProvider:
 
     def __init__(self, token: str, client=None, base: str = "https://api.telegram.org"):
         import httpx
-        self._url = f"{base}/bot{token}/sendMessage"            # the token lives only in this URL, never in logs
+        self._base = f"{base}/bot{token}"                     # the token lives only in this URL, never in logs
+        self._url = f"{self._base}/sendMessage"
         self.http = client or httpx.Client(timeout=10)
 
-    def send(self, to: str, text: str, idempotency_key: str, buttons: list | None = None) -> SendResult:
+    def clear_buttons(self, chat_id: str, message_id: int) -> None:
+        try:                                                  # best effort: the backend already refuses stale taps
+            self.http.post(f"{self._base}/editMessageReplyMarkup",
+                           json={"chat_id": chat_id, "message_id": message_id, "reply_markup": {"inline_keyboard": []}})
+        except Exception:                                     # noqa: BLE001
+            log.warning("could not clear an answered offer's buttons")
+
+    def send(self, to: str, text: str, idempotency_key: str, reply_markup: dict | None = None) -> SendResult:
         import httpx
         body = {"chat_id": to, "text": text}
-        if buttons:
-            body["reply_markup"] = {"inline_keyboard": buttons}
+        if reply_markup:
+            body["reply_markup"] = reply_markup
         try:
             r = self.http.post(self._url, json=body)
         except (httpx.ConnectError, httpx.ConnectTimeout) as e:

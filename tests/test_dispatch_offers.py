@@ -29,12 +29,17 @@ DB = "setuhaul_build_dispatch"
 
 @pytest.fixture(scope="module")
 def dsn():
+    return make_database(DB)
+
+
+def make_database(name: str) -> str:
+    """A fresh, migrated and seeded database of its own (so modules using different names may run side by side)."""
     if not _pg_available():
         pytest.skip("PostgreSQL not reachable")
     with psycopg.connect(f"{BASE_DSN} dbname=postgres", autocommit=True) as c:
-        c.execute(f"DROP DATABASE IF EXISTS {DB} WITH (FORCE)")
-        c.execute(f"CREATE DATABASE {DB}")
-    d = f"{BASE_DSN} dbname={DB}"
+        c.execute(f"DROP DATABASE IF EXISTS {name} WITH (FORCE)")
+        c.execute(f"CREATE DATABASE {name}")
+    d = f"{BASE_DSN} dbname={name}"
     migrate(d)
     with psycopg.connect(d, autocommit=True) as c:
         c.execute("SET search_path = setuhaul")

@@ -274,8 +274,12 @@ class OutboundRelay:
     WINDOW_MIN = 24 * 60                                     # WhatsApp customer-service window, minutes
 
     def __init__(self, db, provider: Provider, resolve_phone: Callable[[str], str] | None = None,
-                 approved_templates: ApprovedTemplates | None = None, window_margin_min: int = 30):
+                 approved_templates: ApprovedTemplates | None = None, window_margin_min: int = 30, telegram=None):
         self.db, self.provider = db, provider
+        # Roadmap Phase 4 (0035/0036): a driver whose Telegram account is linked is reached on Telegram, through this
+        # same relay (same claim, retries, UNKNOWN and FAILED handling). None = no Telegram routing (WhatsApp/SMS
+        # behaviour unchanged). The transport is the test sink unless the owner authorizes real sends.
+        self.telegram = telegram
         self.resolve_phone = resolve_phone or self._phone
         self.approved = approved_templates or ApprovedTemplates()
         # Our receipt time trails the driver's send time by the webhook delay; the margin keeps us on the safe side.
@@ -293,12 +297,25 @@ class OutboundRelay:
                     WHERE t.driver_id = %s AND m.sender_type = 'DRIVER' AND m.channel = 'WHATSAPP'""",
                 (self.window_min, ident)).fetchone()[0])
 
+    def _telegram_route(self, nid) -> dict:
+        """The linked chat (if any), the open offer the message carries and whether to offer the one-off location
+        button: read by the database just before the send (telegram_delivery_for, 0036)."""
+        with self.db.tx("system", self._scope()) as c:
+            return c.execute("SELECT telegram_delivery_for(%s)", (str(nid),)).fetchone()[0] or {}
+
     def _deliver(self, ref: str, template: str | None, payload, body: str | None, nid) -> SendResult:
         lang = None
         if body is None:
             lang = self._language(nid)
             if template_text(template, lang) is None:
                 return SendResult(PERMANENT, error=f"UNKNOWN_TEMPLATE {template}")
+        if self.telegram is not None:
+            route = self._telegram_route(nid)
+            if route.get("chat_ref"):
+                from .telegram import reply_markup_for
+                text = body if body is not None else template_text(template, lang)
+                # Telegram has no 24-hour window and no templates; the stored reply or the fixed notice goes as is
+                return self.telegram.send(route["chat_ref"], text, str(nid), reply_markup=reply_markup_for(route))
         if getattr(self.provider, "service_window", False) and not self._window_open(ref):
             if body is not None:                               # a stored agent reply is free text: no template fits
                 return SendResult(PERMANENT, error="WINDOW_CLOSED: agent reply outside the 24-hour window")

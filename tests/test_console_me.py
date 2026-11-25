@@ -16,7 +16,10 @@ def test_an_operations_user_has_operations_only_and_no_lead_or_planner_action(cl
     # Telegram accounts, reads the dispatch board). It gains no lead or planner action, and dispatcher bookings are
     # decided as PLANNER_REVIEW, which operations cannot decide (tests/test_dispatch_offers.py).
     assert allowed == {"decide", "handback", "list_requests", "takeover", "view_kill_switch", "withdraw",
-                       "view_dispatch", "send_offer", "link_driver"}
+                       "view_dispatch", "send_offer", "link_driver",
+                       # 0036: requests a cancellation (a planner or ops_lead decides it), reads the schedule and the
+                       # operations board, acknowledges / resolves escalations; still no decide_cancellation
+                       "request_cancellation", "view_schedule", "view_ops", "handle_escalation"}
     assert not any(body["permissions"][a] for a in ("pause", "booking_hold", "move_appointment", "schedule_proposal",
                                                      "block_dock", "policy_report", "booking_kill_switch"))
     r = client.get(f"/console/facilities/{JAI}/schedule-proposal", headers=H(staff_token(keys, groups=("operations",))))
