@@ -226,7 +226,11 @@ def read_only_owner_connection():
 def collect(environment: str, approval_ref: str, report_path: str) -> State:
     import urllib.request
     import boto3
-    cf = boto3.client("cloudformation", region_name=REGION)
+    # In the activation workflow the deploy role cannot describe the stack: it passes the read-only CDK lookup role's
+    # session (SETUHAUL_LOOKUP_SESSION), as the gate collection does. The database reads stay on the caller's role.
+    lookup = os.environ.get("SETUHAUL_LOOKUP_SESSION")
+    session = boto3.Session(**json.loads(lookup)) if lookup else boto3.Session()
+    cf = session.client("cloudformation", region_name=REGION)
     stack = cf.describe_stacks(StackName=STACK)["Stacks"][0]
     outs = {o["OutputKey"]: o["OutputValue"] for o in stack.get("Outputs", [])}
     os.environ.setdefault("SETUHAUL_DB_CLUSTER_ARN", outs["ClusterArn"])
