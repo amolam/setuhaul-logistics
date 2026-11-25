@@ -583,7 +583,7 @@ def test_only_listed_drivers_can_be_linked_and_heard_and_two_drivers_stay_apart(
     r = tgclient.post(f"/console/drivers/{c['drv']}/telegram-link-code", headers=ops(keys))
     assert r.status_code == 403 and r.json()["error"] == "DRIVER_NOT_AUTHORIZED_FOR_TELEGRAM"
     assert tc.text("hello, any slot?") == tg.TEXT_NOT_LINKED                    # linked earlier, now unlisted
-    assert ta.text("/start") == tg.TEXT_LINKED and tb.text("/start") == tg.TEXT_LINKED
+    assert ta.text("/start") == tg.TEXT_ALREADY_LINKED and tb.text("/start") == tg.TEXT_ALREADY_LINKED
     with psycopg.connect(dsn) as conn:
         rows = dict(conn.execute("""SELECT l.chat_ref, l.driver_id FROM setuhaul.driver_channel_links l
                                      WHERE l.channel='TELEGRAM' AND l.revoked_at IS NULL AND l.driver_id = ANY(%s)""",

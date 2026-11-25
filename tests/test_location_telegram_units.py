@@ -110,7 +110,7 @@ def test_start_code_callback_and_location():
     code, h = tg.new_link_code()
     e = tg.parse_update(_msg(text=f"/start {code.lower()[:5]}-{code.lower()[5:]}"))
     assert e.kind == "start" and e.code == code and tg.hash_code(e.code) == h
-    assert tg.parse_update(_msg(text="/start nonsense!")).code is None
+    assert tg.parse_update(_msg(text="/start nonsense!")).code == ""          # a failed code, not a bare /start
     oid = "12345678-1234-1234-1234-123456789abc"
     e = tg.parse_update({"update_id": 9, "callback_query": {"id": "cb1", "from": {"id": 42},
                                                              "message": {"chat": {"id": 42}}, "data": f"o:{oid}:R"}})

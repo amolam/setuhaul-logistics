@@ -99,6 +99,10 @@ class TurnResult:
     driver_message_id: int | None = None                        # chat_messages id (an id, never text)
 
 
+# a request to change or drop an appointment (English, Hinglish, Hindi); used only when nothing is booked
+CHANGE_REQUEST = re.compile(r"\b(?:re-?schedul\w*|postpone\w*|prepone\w*|cancel\w*|change\s+(?:my\s+|the\s+)?"
+                            r"(?:slot|booking|appointment|time)|slot\s+badal\w*|time\s+badal\w*)\b|बदल|रद्द|पोस्टपोन",
+                            re.I)
 _NUMBER_ANSWER = re.compile(r"^\s*(?:no\.?\s*)?([1-9])\s*(?:number|no\.?|wala|vala|वाला|नंबर)?\s*[.!]?\s*$", re.I)
 
 
@@ -474,6 +478,13 @@ class Orchestrator:
         if res.expired_pick and not (c.earliest_start or c.latest_finish):
             res.path.append("options-expired")                    # say why, then offer what is free now
             return replies.t("options_expired", lang) + "\n" + self._options_turn(None, None, lang, tool, res, data)
+
+        # Pilot E2E (26 Nov 2026): "reschedule" / "cancel" with nothing booked used to fall into a waiting read-back
+        # ("Please reply YES to confirm"). With no current appointment there is nothing to change: say so.
+        if (c.intent == "CANCEL" or CHANGE_REQUEST.search(res.driver_text or "")) and state != "SUBMITTED" and not any(
+                s.get("current_appointment") for s in data["live_shipments"]):
+            res.path.append("no-booking")
+            return replies.t("no_booking", lang)
 
         # Review S3-01: a message that brings a new time constraint never selects or confirms in the same turn. The
         # constraint is resolved first (asked if ambiguous), then options are re-offered under it.

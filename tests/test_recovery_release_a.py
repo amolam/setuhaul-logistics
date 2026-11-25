@@ -185,10 +185,10 @@ def test_every_other_rule_still_applies_to_a_recovery(c):
     d2 = new_release(c, env)
     refused(lambda: recover(c, d2, a1, minutes=121), "1 to 120 minutes")            # hard maximum
     refused(lambda: recover(c, d2, a1, ref=used), "PROVISIONAL_APPROVAL_USED")      # the revoked window's approval
-    # four issued in this environment in 24 h (0034; the revoked ones count): a recovery is refused like any fifth
+    # eight issued in this environment in 24 h (0044; the revoked ones count): a recovery is refused like any ninth
     env2 = env_name()
     _, b1 = revoked_release(c, env2)
-    for _ in range(3):
+    for _ in range(7):
         insert_auth(c, other_dep(env2), "m-" + "1" * 40, "-1 hour", "-30 minutes", "REVOKED", "-40 minutes")
     e2 = new_release(c, env2)
     refused(lambda: recover(c, e2, b1), "PROVISIONAL_RATE_LIMIT")
@@ -818,7 +818,8 @@ def test_0034_applies_on_a_0033_database_and_changes_only_the_rate_limit(tmp_pat
             revoke(cx, env)
             complete(cx, env)
             d5 = new_release(cx, env)
-            refused(lambda: issue(cx, d5), "PROVISIONAL_RATE_LIMIT: 4 authorizations")   # never a fifth
+            issue(cx, d5)                                                         # the fifth: 0044 allows eight
+            assert cx.execute("SELECT setuhaul.provisional_rate_limit(%s)", (env,)).fetchone()[0] == 8
             fn = "'setuhaul.issue_provisional_authorization(text,text,text,text,text,integer,bigint)'::regprocedure"
             assert cx.execute(f"SELECT pg_get_userbyid(proowner) FROM pg_proc WHERE oid = {fn}").fetchone()[0] == \
                 "setuhaul_rpc"

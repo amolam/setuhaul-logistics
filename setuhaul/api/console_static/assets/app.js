@@ -573,7 +573,8 @@ async function dispatchAction(act, arg, btn){
 // ---------------------------------------------------------------- Planner schedule
 let SX = {fac:null, keys:{}};
 async function renderSchedule(list, detail){
-  if(!SX.fac){ try { SX.fac = (await api("GET", "/console/me")).facilities[0] } catch { SX.fac = null } }
+  // pilot E2E (26 Nov 2026): a planner with several facilities saw only the first one; every facility is a button now
+  if(!SX.fac){ try { SX.facs = (await api("GET", "/console/me")).facilities || []; SX.fac = SX.facs[0] } catch { SX.fac = null } }
   if(!SX.fac){ list.innerHTML = `<div class="empty">No facility in your scope.</div>`; detail.innerHTML = ""; return }
   const s = await api("GET", `/console/facilities/${encodeURIComponent(SX.fac)}/schedule?hours=12`);
   const cap = s.capacity, hrs = m => (m / 60).toFixed(1);
@@ -605,7 +606,9 @@ async function renderSchedule(list, detail){
     BLOCKED:"background:repeating-linear-gradient(45deg,#c9ced8 0 6px,#eef0f4 6px 12px);color:#1d2330"};
   const label = {CONFIRMED:"Confirmed", IN_PROGRESS:"In dock", PENDING_DECISION:"Pending decision", HOLD_ACTIVE:"Hold (≤180 s)",
     HOLD_EXPIRED:"Expired hold", BLOCKED:"Blocked"};
-  detail.innerHTML = `<div class="row"><h2 class="grow">${esc(s.facility_id)} · ${exact(s.window_start)} – ${exact(s.window_end)}</h2>
+  const facButtons = (SX.facs || []).length > 1 ? `<div class="row" style="margin-bottom:6px">${SX.facs.map(f =>
+      `<button class="${f === SX.fac ? "" : "ghost"}" data-act="sfac" data-arg="${esc(f)}">${esc(f)}</button>`).join(" ")}</div>` : "";
+  detail.innerHTML = `${facButtons}<div class="row"><h2 class="grow">${esc(s.facility_id)} · ${exact(s.window_start)} – ${exact(s.window_end)}</h2>
       <button class="ghost" data-act="srefresh">Refresh</button></div>
     <p class="muted">${Object.entries(label).map(([k, v]) => `<span class="pill" style="${style[k]}">${v}</span>`).join(" ")}</p>
     <div class="tablewrap"><div style="min-width:640px">${s.docks.map(dk => `<div class="row" style="align-items:stretch;border-bottom:1px solid var(--line);padding:4px 0">
@@ -625,6 +628,7 @@ async function renderSchedule(list, detail){
 
 async function scheduleAction(act, arg, btn){
   if(act === "srefresh") return render();
+  if(act === "sfac"){ if((SX.facs || []).includes(arg)) SX.fac = arg; return render() }
   if(act === "sdecide"){ const appt = btn.dataset.appt, name = `decide:${appt}:${arg}`; btn.disabled = true;
     try { const r = await api("POST", `/console/requests/${encodeURIComponent(appt)}/decision`, {decision:arg, idempotency_key:SX.keys[name] || (SX.keys[name] = key()),
         note:"schedule tab"});
