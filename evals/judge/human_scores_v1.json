@@ -1,0 +1,108 @@
+{
+ "dataset_version": "judge-v1-579de0ebb1ad",
+ "scorer": "",
+ "scored_on": "",
+ "instructions": "Fill from evals/judge/calibration_sheet_v1.md: integers 1-5, or null when the reply gives too little to judge that dimension. Do not look at judge output before scoring.",
+ "scores": {
+  "J01": {
+   "clarity": null,
+   "tone": null,
+   "language_match": null
+  },
+  "J02": {
+   "clarity": null,
+   "tone": null,
+   "language_match": null
+  },
+  "J03": {
+   "clarity": null,
+   "tone": null,
+   "language_match": null
+  },
+  "J04": {
+   "clarity": null,
+   "tone": null,
+   "language_match": null
+  },
+  "J05": {
+   "clarity": null,
+   "tone": null,
+   "language_match": null
+  },
+  "J06": {
+   "clarity": null,
+   "tone": null,
+   "language_match": null
+  },
+  "J07": {
+   "clarity": null,
+   "tone": null,
+   "language_match": null
+  },
+  "J08": {
+   "clarity": null,
+   "tone": null,
+   "language_match": null
+  },
+  "J09": {
+   "clarity": null,
+   "tone": null,
+   "language_match": null
+  },
+  "J10": {
+   "clarity": null,
+   "tone": null,
+   "language_match": null
+  },
+  "J11": {
+   "clarity": null,
+   "tone": null,
+   "language_match": null
+  },
+  "J12": {
+   "clarity": null,
+   "tone": null,
+   "language_match": null
+  },
+  "J13": {
+   "clarity": null,
+   "tone": null,
+   "language_match": null
+  },
+  "J14": {
+   "clarity": null,
+   "tone": null,
+   "language_match": null
+  },
+  "J15": {
+   "clarity": null,
+   "tone": null,
+   "language_match": null
+  },
+  "J16": {
+   "clarity": null,
+   "tone": null,
+   "language_match": null
+  },
+  "J17": {
+   "clarity": null,
+   "tone": null,
+   "language_match": null
+  },
+  "J18": {
+   "clarity": null,
+   "tone": null,
+   "language_match": null
+  },
+  "J19": {
+   "clarity": null,
+   "tone": null,
+   "language_match": null
+  },
+  "J20": {
+   "clarity": null,
+   "tone": null,
+   "language_match": null
+  }
+ }
+}

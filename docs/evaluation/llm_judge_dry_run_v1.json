@@ -1,0 +1,59 @@
+{
+ "kind": "llm_judge_dry_run",
+ "generated_at": "2026-11-25T14:39:37.454336+00:00",
+ "paid_calls_made": 0,
+ "dataset": {
+  "path": "evals/judge/dataset_v1.jsonl",
+  "version": "judge-v1-579de0ebb1ad",
+  "records": 30,
+  "calibration_records": 20,
+  "contrast_records": 5,
+  "by_language": {
+   "en": 16,
+   "hi": 7,
+   "hi-Latn": 7
+  }
+ },
+ "model": {
+  "model": "anthropic/claude-haiku-4.5",
+  "provider": "amazon-bedrock",
+  "provider_name": "Amazon Bedrock",
+  "routing": "pinned provider, no fallbacks, zdr=true, data_collection=deny",
+  "temperature": 0,
+  "max_tokens": 700,
+  "model_version": "reported by OpenRouter per call (paid run only)"
+ },
+ "prompt_version": "judge-p1",
+ "dimensions": [
+  "quality:clarity",
+  "quality:tone",
+  "quality:language_match"
+ ],
+ "estimate": {
+  "calls_expected": 30,
+  "calls_worst_case": 60,
+  "input_tokens_expected": 38082,
+  "output_tokens_expected": 7800,
+  "cost_usd_expected": "0.0771",
+  "cost_usd_upper_bound": "0.3456",
+  "price_basis": "anthropic/claude-haiku-4.5: USD 1.000000/M input, 5.000000/M output (setuhaul/agent/openrouter.py PRICE, OpenRouter list price 21 Nov 2026)"
+ },
+ "limits": {
+  "run_cap_usd": "1.00",
+  "run_cap_max_usd": "1.00",
+  "daily_cap_usd": "3.00",
+  "daily_cap_max_usd": "3.00"
+ },
+ "ledger_today": {
+  "available": true,
+  "spent_usd": "0",
+  "reserved_usd": "0",
+  "spent_by_purpose": {},
+  "judge_purpose_migrated": true
+ },
+ "paid_run_would_be_refused_because": [
+  "key: OPENROUTER_API_KEY is not set in this shell (the owner sets it; it is never printed)",
+  "approval: --approve must name the reviewed dataset version (judge-v1-579de0ebb1ad)"
+ ],
+ "business_effects": "none: the judge reads the frozen dataset only; no agent, database row other than the ledger, booking, dispatch, release gate or deployment is touched"
+}
