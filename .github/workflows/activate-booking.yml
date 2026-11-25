@@ -201,6 +201,10 @@ jobs:
         with:
           role-to-assume: ${{ vars.SETUHAUL_DEPLOY_ROLE_ARN }}
           aws-region: ap-southeast-2
+      - name: Readiness before any change (provisional only; read-only; stops before roles and logins rotate)
+        if: env.MODE == 'provisional'
+        run: |
+          python -m setuhaul.ops.readiness --approval-ref "$APPROVAL_REF" --release-sha "$GITHUB_SHA"             --report docs/release/evidence/provisional_gates.json ${RECOVERY_OF:+--recovery}
       - name: Deploy the checked assembly (booking ON for api and agent; they refuse to start until the gates are recorded)
         run: npx --yes "$CDK_CLI" deploy SetuHaulPilot --app cdk.out --require-approval never --outputs-file outputs.json
       - name: Migrations over the Data API
