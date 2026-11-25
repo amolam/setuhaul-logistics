@@ -185,10 +185,11 @@ def test_every_other_rule_still_applies_to_a_recovery(c):
     d2 = new_release(c, env)
     refused(lambda: recover(c, d2, a1, minutes=121), "1 to 120 minutes")            # hard maximum
     refused(lambda: recover(c, d2, a1, ref=used), "PROVISIONAL_APPROVAL_USED")      # the revoked window's approval
-    # two issued in this environment in 24 h (the revoked one counts): a recovery is refused like any third
+    # four issued in this environment in 24 h (0034; the revoked ones count): a recovery is refused like any fifth
     env2 = env_name()
     _, b1 = revoked_release(c, env2)
-    insert_auth(c, other_dep(env2), "m-" + "1" * 40, "-1 hour", "-30 minutes", "REVOKED", "-40 minutes")
+    for _ in range(3):
+        insert_auth(c, other_dep(env2), "m-" + "1" * 40, "-1 hour", "-30 minutes", "REVOKED", "-40 minutes")
     e2 = new_release(c, env2)
     refused(lambda: recover(c, e2, b1), "PROVISIONAL_RATE_LIMIT")
     # production and invalid names: refused before anything else
@@ -420,7 +421,8 @@ def test_0033_applies_on_a_0032_database_with_a_revoked_window_and_keeps_every_e
             env = env_name()
             d1, a1 = revoked_release(cx, env)                       # the 24 Nov state, written by 0032's functions
             the_id = _approval(cx, UUID_DECIDER, approval_id="29ffac03-d8bd-4dac-b35c-66b0f8ebf24b")
-        assert migrate(d) == ["0033_recovery_and_decider_provenance"]
+        applied = migrate(d)                                    # 0033, then any later forward migration (0034)
+        assert applied[0] == "0033_recovery_and_decider_provenance" and all(v > "0033" for v in applied[1:])
         with psycopg.connect(d, autocommit=True) as cx:
             assert dict(cx.execute("SELECT left(version,4), sha256 FROM setuhaul_meta.schema_migrations "
                                    "WHERE version >= '0028' AND version < '0033'").fetchall()) == pinned
@@ -767,3 +769,60 @@ def test_the_collector_corroborates_owner_requests_only_from_the_stacks_own_api_
                                          repo_root=tmp_path)[c2]["status"] == "previously_verified"
     assert m.owner_api_log_corroboration(owner, None, now, logs=FakeLogs([line]),
                                          repo_root=tmp_path)[c2]["status"] == "missing"
+
+
+def test_0034_applies_on_a_0033_database_and_changes_only_the_rate_limit(tmp_path):
+    """0034 (owner policy change): forward-only on the live 0033 state; the 0033 file keeps the live pilot's
+    fingerprint and the authorization history is untouched; afterwards a pilot may hold four issuances in 24 h,
+    never a fifth, and the issuing function keeps its owner and grants."""
+    if not _pg_available():
+        pytest.skip("PostgreSQL not reachable at SETUHAUL_TEST_DSN")
+    from setuhaul.db.migrate import migrate
+    assert hashlib.sha256((MIG / "0033_recovery_and_decider_provenance.sql").read_bytes()).hexdigest() == \
+        "4d7af180d025e774369672566051d3623cb3018007dd31c5ab9a2d04a68a7ec4"            # = the live pilot's 0033
+    old = tmp_path / "upto0033"
+    old.mkdir()
+    for p in MIG.glob("[0-9][0-9][0-9][0-9]_*.sql"):
+        if p.name[:4] <= "0033":
+            shutil.copy(p, old / p.name)
+    db = "setuhaul_build_upgrade_0034"
+    with psycopg.connect(f"{BASE_DSN} dbname=postgres", autocommit=True) as cx:
+        cx.execute(f"DROP DATABASE IF EXISTS {db} WITH (FORCE)")
+        cx.execute(f"CREATE DATABASE {db}")
+    d = f"{BASE_DSN} dbname={db}"
+    try:
+        assert migrate(d, old)[-1] == "0033_recovery_and_decider_provenance"
+        _seed(d)
+        with psycopg.connect(d, autocommit=True) as cx:
+            cx.execute("UPDATE setuhaul.booking_evidence_guard SET enforced = true, reason = 'test: as on the pilot'")
+            cx.execute("UPDATE setuhaul.booking_evidence_guard SET identity_enforced = true, reason = 'test: M2'")
+            env = env_name()
+            d1, _ = revoked_release(cx, env)                        # history written by 0033's function
+            insert_auth(cx, other_dep(env), "m-" + "1" * 40, "-2 hours", "-90 minutes", "REVOKED", "-100 minutes")
+            before = cx.execute("SELECT authorization_id, status, issued_at, closed_at FROM "
+                                "setuhaul.provisional_authorizations ORDER BY 1").fetchall()
+            complete(cx, env)                                       # a fully evidenced predecessor (no chaining)
+            d3 = new_release(cx, env)
+            refused(lambda: issue(cx, d3), "PROVISIONAL_RATE_LIMIT")             # under 0033 two is the limit
+        assert migrate(d) == ["0034_pilot_provisional_limit_4"]
+        with psycopg.connect(d, autocommit=True) as cx:
+            assert cx.execute("SELECT authorization_id, status, issued_at, closed_at FROM "
+                              "setuhaul.provisional_authorizations ORDER BY 1").fetchall() == before
+            assert events(cx, d1) == ["ISSUED", "REVOKED"]                       # history preserved
+            issue(cx, d3)                                                         # the third, now allowed
+            revoke(cx, env)
+            complete(cx, env)
+            d4 = new_release(cx, env)
+            issue(cx, d4)                                                         # the fourth
+            revoke(cx, env)
+            complete(cx, env)
+            d5 = new_release(cx, env)
+            refused(lambda: issue(cx, d5), "PROVISIONAL_RATE_LIMIT: 4 authorizations")   # never a fifth
+            fn = "'setuhaul.issue_provisional_authorization(text,text,text,text,text,integer,bigint)'::regprocedure"
+            assert cx.execute(f"SELECT pg_get_userbyid(proowner) FROM pg_proc WHERE oid = {fn}").fetchone()[0] == \
+                "setuhaul_rpc"
+            assert cx.execute(f"SELECT has_function_privilege('setuhaul_deploy_evidence', {fn}, 'EXECUTE'), "
+                              f"has_function_privilege('setuhaul_agent', {fn}, 'EXECUTE')").fetchone() == (True, False)
+    finally:
+        with psycopg.connect(f"{BASE_DSN} dbname=postgres", autocommit=True) as cx:
+            cx.execute(f"DROP DATABASE IF EXISTS {db} WITH (FORCE)")

@@ -224,7 +224,9 @@ def test_deploy_evidence_role_can_only_insert_evidence(conn):
                      # 0032 (Option P): issue (all conditions re-checked in the database), revoke on a failed run,
                      # mark expired windows, read one deployment's window; no table privilege
                      "issue_provisional_authorization", "revoke_provisional_authorization",
-                     "expire_provisional_authorizations", "booking_provisional_snapshot"}
+                     "expire_provisional_authorizations", "booking_provisional_snapshot",
+                     # 0034: read the pilot's provisional rate limit (the readiness check), nothing else
+                     "provisional_rate_limit"}
     r = conn.execute("SELECT rolsuper, rolbypassrls, rolcanlogin FROM pg_roles WHERE rolname='setuhaul_deploy_evidence'").fetchone()
     assert r == (False, False, False)
     n = conn.execute("""SELECT count(*) FROM pg_auth_members m JOIN pg_roles r ON r.oid = m.roleid
