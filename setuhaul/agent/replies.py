@@ -40,6 +40,9 @@ T = {
                 "अभी कोई सही स्लॉट नहीं मिला। कृपया अपने डिस्पैचर को कॉल करें।"),
     "cancelled": ("{ref} and its appointment were cancelled. Please contact your dispatcher before travelling.",
                   "{ref} और उसकी अपॉइंटमेंट रद्द हो गई है। आने से पहले अपने डिस्पैचर से बात करें।"),
+    # pilot E2E (26 Nov 2026): a reschedule / cancel request with nothing booked is answered, never "reply YES"
+    "no_booking": ("You have no booking yet, so there is nothing to change. Please contact your dispatcher.",
+                   "आपकी अभी कोई बुकिंग नहीं है, इसलिए बदलने को कुछ नहीं है। कृपया अपने डिस्पैचर से संपर्क करें।"),
     "no_live": ("I cannot find an active shipment for you today. Please contact your dispatcher before travelling.",
                 "आज आपका कोई सक्रिय शिपमेंट नहीं मिला। आने से पहले अपने डिस्पैचर से बात करें।"),
     "not_yours": ("I can only help with your own shipments: {refs}.", "मैं सिर्फ़ आपके अपने शिपमेंट में मदद कर सकता हूँ: {refs}।"),
@@ -76,6 +79,7 @@ HL = {
     "ask_yes": "Pakka karne ke liye YES bhej dijiye, ya koi aur option chun lijiye.",
     "no_slot": "Abhi koi sahi slot nahi mila. Apne dispatcher ko call kar lijiye.",
     "cancelled": "{ref} aur uski appointment cancel ho gayi hai. Aane se pehle apne dispatcher se baat kar lijiye.",
+    "no_booking": "Aapki abhi koi booking nahi hai, isliye badalne ko kuch nahi hai. Apne dispatcher se baat kar lijiye.",
     "no_live": "Aaj aapka koi active shipment nahi mila. Aane se pehle apne dispatcher se baat kar lijiye.",
     "not_yours": "Main sirf aapke apne shipments mein help kar sakta hoon: {refs}.",
     "ack": "Theek hai, note kar liya.",

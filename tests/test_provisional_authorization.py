@@ -278,9 +278,10 @@ def test_only_the_newest_release_and_one_authorization_per_deployment_and_approv
     assert old
 
 
-def test_one_open_window_per_environment_and_four_per_24_hours(c):
-    """0034 (owner policy change): four provisional authorizations per environment in a rolling 24 h (was two), the
-    same limit for every environment; one open at a time; the fifth is refused, whatever the status of the four
+def test_one_open_window_per_environment_and_eight_per_24_hours(c):
+    """0034, then 0044 (owner policy changes): eight provisional authorizations per environment in a rolling 24 h (was
+    four, before that two), the same limit for every environment; one open at a time; the ninth is refused, whatever
+    the status of the eight
     (revoked ones count). Production stays refused before the count, at any limit."""
     env = env_name()
     complete(c, env)
@@ -292,7 +293,7 @@ def test_one_open_window_per_environment_and_four_per_24_hours(c):
     with c.transaction():
         c.execute("SET LOCAL ROLE setuhaul_deploy_evidence")
         assert c.execute("SELECT setuhaul.revoke_provisional_authorization(%s,'test: close d1')", (env,)).fetchone()[0] == 1
-    for _ in range(3):                                           # the second, third and fourth in 24 h
+    for _ in range(7):                                           # the second to the eighth in 24 h
         issue(c, d3, ref=f"OWNER-APPROVAL-20261124-O{uuid.uuid4().hex[:6]}")
         with c.transaction():
             c.execute("SET LOCAL ROLE setuhaul_deploy_evidence")
@@ -300,10 +301,10 @@ def test_one_open_window_per_environment_and_four_per_24_hours(c):
         complete(c, env)
         d3 = new_release(c, env)
     refused(lambda: issue(c, d3, ref=f"OWNER-APPROVAL-20261124-O{uuid.uuid4().hex[:6]}"),
-            "PROVISIONAL_RATE_LIMIT: 4 authorizations")
+            "PROVISIONAL_RATE_LIMIT: 8 authorizations")
     assert d2
     assert c.execute("SELECT setuhaul.provisional_rate_limit(%s), setuhaul.provisional_rate_limit(%s)",
-                     (env, "production-ap-southeast-2")).fetchone() == (4, 4)
+                     (env, "production-ap-southeast-2")).fetchone() == (8, 8)
     prod = {"env": "production-ap-southeast-2", "dep": "m-" + "0" * 40}
     refused(lambda: issue(c, prod), "PROVISIONAL_REFUSED: only a pilot environment, never production")
 
