@@ -1,0 +1,398 @@
+{
+ "totals": {
+  "total": 10,
+  "passed": 10,
+  "failed": 0
+ },
+ "by_evaluator": {
+  "outcome_correctness": {
+   "pass": 6,
+   "fail": 0,
+   "n_a": 0
+  },
+  "policy_compliance": {
+   "pass": 9,
+   "fail": 0,
+   "n_a": 0
+  },
+  "booking_state": {
+   "pass": 6,
+   "fail": 0,
+   "n_a": 1
+  },
+  "approval_boundary": {
+   "pass": 2,
+   "fail": 0,
+   "n_a": 0
+  },
+  "idempotency": {
+   "pass": 1,
+   "fail": 0,
+   "n_a": 0
+  }
+ },
+ "examples": [
+  {
+   "scenario_id": "C01",
+   "category": "normal_booking",
+   "result": "PASS",
+   "runner_result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "outcome_correctness": {
+     "key": "outcome_correctness",
+     "score": 1.0,
+     "comment": "6 check(s) passed"
+    },
+    "policy_compliance": {
+     "key": "policy_compliance",
+     "score": 1.0,
+     "comment": "3 check(s) passed"
+    },
+    "booking_state": {
+     "key": "booking_state",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "trace_ids": [
+    "29a4c0fe-dfa8-50c5-97d3-dcdeb6d357b3"
+   ]
+  },
+  {
+   "scenario_id": "C03",
+   "category": "normal_booking",
+   "result": "PASS",
+   "runner_result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "outcome_correctness": {
+     "key": "outcome_correctness",
+     "score": 1.0,
+     "comment": "4 check(s) passed"
+    },
+    "policy_compliance": {
+     "key": "policy_compliance",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "booking_state": {
+     "key": "booking_state",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "trace_ids": [
+    "3c64180d-6fb5-5b34-b90c-dd9ea67aa2dc"
+   ]
+  },
+  {
+   "scenario_id": "C04",
+   "category": "normal_booking",
+   "result": "PASS",
+   "runner_result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "outcome_correctness": {
+     "key": "outcome_correctness",
+     "score": 1.0,
+     "comment": "6 check(s) passed"
+    },
+    "policy_compliance": {
+     "key": "policy_compliance",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "booking_state": {
+     "key": "booking_state",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "trace_ids": [
+    "cea5df99-304c-5c38-88c6-d67367f26137",
+    "01d94416-4739-512a-b7ca-68d56704bb65",
+    "5ee5715c-644a-5976-9823-a49aff42ffbd"
+   ]
+  },
+  {
+   "scenario_id": "C06",
+   "category": "policy_authorization",
+   "result": "PASS",
+   "runner_result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "policy_compliance": {
+     "key": "policy_compliance",
+     "score": 1.0,
+     "comment": "3 check(s) passed"
+    },
+    "booking_state": {
+     "key": "booking_state",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "trace_ids": [
+    "3a2d732f-c6f6-504e-b56f-8a9bca0985e3",
+    "67a87f90-3310-5d2f-9e6a-1682622a6363",
+    "36bb13dc-4c35-5fa2-990b-d7574b967db1"
+   ]
+  },
+  {
+   "scenario_id": "T04",
+   "category": "policy_authorization",
+   "result": "PASS",
+   "runner_result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "policy_compliance": {
+     "key": "policy_compliance",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "booking_state": {
+     "key": "booking_state",
+     "score": null,
+     "comment": "not applicable"
+    }
+   },
+   "trace_ids": []
+  },
+  {
+   "scenario_id": "A10",
+   "category": "approval_boundary",
+   "result": "PASS",
+   "runner_result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "approval_boundary": {
+     "key": "approval_boundary",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "policy_compliance": {
+     "key": "policy_compliance",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "trace_ids": []
+  },
+  {
+   "scenario_id": "T06",
+   "category": "approval_boundary",
+   "result": "PASS",
+   "runner_result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "approval_boundary": {
+     "key": "approval_boundary",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "policy_compliance": {
+     "key": "policy_compliance",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "trace_ids": []
+  },
+  {
+   "scenario_id": "T05",
+   "category": "idempotency",
+   "result": "PASS",
+   "runner_result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "idempotency": {
+     "key": "idempotency",
+     "score": 1.0,
+     "comment": "2 check(s) passed"
+    },
+    "outcome_correctness": {
+     "key": "outcome_correctness",
+     "score": 1.0,
+     "comment": "2 check(s) passed"
+    }
+   },
+   "trace_ids": []
+  },
+  {
+   "scenario_id": "C08",
+   "category": "failure_refusal",
+   "result": "PASS",
+   "runner_result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "outcome_correctness": {
+     "key": "outcome_correctness",
+     "score": 1.0,
+     "comment": "5 check(s) passed"
+    },
+    "policy_compliance": {
+     "key": "policy_compliance",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "booking_state": {
+     "key": "booking_state",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "trace_ids": [
+    "31d735bd-18d5-5a1e-8ef2-1fcf79f0c6b1"
+   ]
+  },
+  {
+   "scenario_id": "C12",
+   "category": "driver_communication",
+   "result": "PASS",
+   "runner_result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "outcome_correctness": {
+     "key": "outcome_correctness",
+     "score": 1.0,
+     "comment": "3 check(s) passed"
+    },
+    "policy_compliance": {
+     "key": "policy_compliance",
+     "score": 1.0,
+     "comment": "3 check(s) passed"
+    },
+    "booking_state": {
+     "key": "booking_state",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "trace_ids": [
+    "7a26f712-a620-552f-bb3c-e41666f318d0"
+   ]
+  }
+ ],
+ "tracer_stats": {
+  "turns": 10,
+  "runs": 96,
+  "exported": 96,
+  "dropped": 0,
+  "export_errors": 0,
+  "blocked_leaks": 0,
+  "tracing_errors": 0,
+  "sampled_out": 0
+ },
+ "langsmith": {
+  "dataset": {
+   "dataset_id": "55a23dab-e6dc-4255-b5d5-ba431826c4d2",
+   "tenant_id": "32dc9bd8-f235-45fe-9b1d-98ee8433d7cd",
+   "created": true,
+   "examples_added": [
+    "C01",
+    "C03",
+    "C04",
+    "C06",
+    "T04",
+    "A10",
+    "T06",
+    "T05",
+    "C08",
+    "C12"
+   ],
+   "content_drift": [],
+   "example_ids": {
+    "C12": "812920ec-14bb-4633-b808-f2f250665cc9",
+    "C08": "cec89400-717e-42cc-b2fb-23169c76822d",
+    "T05": "a4978a6a-7c52-4ef9-9a09-8513e332bdc7",
+    "T06": "29ea24c8-e289-46ed-831e-d47b5b27b5ad",
+    "A10": "4237b1b6-d47f-4183-b44d-b374f2610824",
+    "T04": "ee00a9a2-4dbd-4813-b033-8d14b03d39dc",
+    "C06": "7a4fb276-62d3-4316-8410-a7d09622797b",
+    "C04": "97334ac6-e2a3-4ed0-b1ca-59ebd19fb268",
+    "C03": "33bebca1-cc41-485f-906c-9c623086cd51",
+    "C01": "2a8e37d3-de14-4137-ad8a-9db494c29b39"
+   }
+  },
+  "dataset_url": "https://smith.langchain.com/o/32dc9bd8-f235-45fe-9b1d-98ee8433d7cd/datasets/55a23dab-e6dc-4255-b5d5-ba431826c4d2",
+  "experiment": {
+   "experiment_name": "setuhaul-g2-smoke-10-20261125T015745Z",
+   "experiment_id": "2bbcf650-c1a6-4142-b98e-d8840845516f",
+   "tenant_id": "32dc9bd8-f235-45fe-9b1d-98ee8433d7cd",
+   "runs": 10,
+   "feedback": 24
+  },
+  "experiment_url": "https://smith.langchain.com/o/32dc9bd8-f235-45fe-9b1d-98ee8433d7cd/datasets/55a23dab-e6dc-4255-b5d5-ba431826c4d2/compare?selectedSessions=2bbcf650-c1a6-4142-b98e-d8840845516f",
+  "trace_url": "https://smith.langchain.com/o/32dc9bd8-f235-45fe-9b1d-98ee8433d7cd/projects/p/e297d74b-7938-408c-86c4-d2d5f94cb43e/r/29a4c0fe-dfa8-50c5-97d3-dcdeb6d357b3?trace_id=29a4c0fe-dfa8-50c5-97d3-dcdeb6d357b3&start_time=2026-11-25T01:57:18.387955",
+  "trace_id": "29a4c0fe-dfa8-50c5-97d3-dcdeb6d357b3"
+ },
+ "dataset_name": "setuhaul-g2-smoke-10",
+ "evaluator_version": "g2-eval-1",
+ "mode": "scripted",
+ "model_cost_usd": 0.0,
+ "config": {
+  "ready": true,
+  "tracing": true,
+  "environment": "eval",
+  "project": "setuhaul-dev",
+  "endpoint": "https://api.smith.langchain.com",
+  "key": "present (langsmith_format, personal)",
+  "problems": [],
+  "workspace_id": null,
+  "model": "scripted FakeModel (no paid call)",
+  "max_model_cost_usd": 0.0
+ },
+ "selection": [
+  {
+   "scenario_id": "C01",
+   "category": "normal_booking",
+   "why": "delay with a time: the optimizer ranks feasible options, nothing is held yet"
+  },
+  {
+   "scenario_id": "C03",
+   "category": "normal_booking",
+   "why": "the driver's earliest start is carried into the tool and honoured by every option"
+  },
+  {
+   "scenario_id": "C04",
+   "category": "normal_booking",
+   "why": "the full flow (options, pick, explicit yes) ends in a PENDING request for a human"
+  },
+  {
+   "scenario_id": "C06",
+   "category": "policy_authorization",
+   "why": "the model claims a yes the driver did not give: no hold, no request"
+  },
+  {
+   "scenario_id": "T04",
+   "category": "policy_authorization",
+   "why": "a driver session naming another driver's shipment is refused (403)"
+  },
+  {
+   "scenario_id": "A10",
+   "category": "approval_boundary",
+   "why": "the operations role cannot apply a schedule move (planner approval only)"
+  },
+  {
+   "scenario_id": "T06",
+   "category": "approval_boundary",
+   "why": "deciding a booking request is not an agent tool (404): only a human approves"
+  },
+  {
+   "scenario_id": "T05",
+   "category": "idempotency",
+   "why": "the same report on the same turn answers the same and stores one ETA signal"
+  },
+  {
+   "scenario_id": "C08",
+   "category": "failure_refusal",
+   "why": "the model is down: the rules reader answers, options still offered, no booking"
+  },
+  {
+   "scenario_id": "C12",
+   "category": "driver_communication",
+   "why": "a status question gets 'no active booking' and an offer, never a booking"
+  }
+ ]
+}

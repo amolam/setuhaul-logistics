@@ -10,7 +10,8 @@ Configuration (all optional; tracing is OFF unless SETUHAUL_LANGSMITH_TRACING=on
                                  bare key). dev/eval/ci may instead set LANGSMITH_API_KEY.
   SETUHAUL_LANGSMITH_PROJECT     default by environment: setuhaul-dev | setuhaul-synthetic-staging |
                                  setuhaul-synthetic-pilot. A pilot may not write to a dev project and vice versa.
-  SETUHAUL_LANGSMITH_ENDPOINT    https://api.smith.langchain.com (default) or https://eu.api.smith.langchain.com only
+  SETUHAUL_LANGSMITH_ENDPOINT    https://api.smith.langchain.com (default), https://eu.api.smith.langchain.com or
+                                 https://apac.api.smith.langchain.com only
   SETUHAUL_LANGSMITH_UI_URL      the project's page in the LangSmith UI (links only; https://[eu.]smith.langchain.com/…)
   SETUHAUL_TRACE_CONTENT         on | off (default off): export sanitised driver text. Synthetic data only.
   SETUHAUL_LANGSMITH_SAMPLE_RATE 0..1 (default 1.0)
@@ -26,8 +27,9 @@ from ..agent.errors import EMPTY_SECRET, MISSING_SECRET, SECRET_RETRIEVAL_ERROR,
 from .tracing import Exporter, Tracer, TracerConfig
 
 log = logging.getLogger("setuhaul.langsmith")
-ALLOWED_ENDPOINTS = ("https://api.smith.langchain.com", "https://eu.api.smith.langchain.com")
-ALLOWED_UI = ("https://smith.langchain.com/", "https://eu.smith.langchain.com/")
+ALLOWED_ENDPOINTS = ("https://api.smith.langchain.com", "https://eu.api.smith.langchain.com",
+                     "https://apac.api.smith.langchain.com")      # LangSmith Cloud US / EU / APAC (Sydney)
+ALLOWED_UI = ("https://smith.langchain.com/", "https://eu.smith.langchain.com/", "https://apac.smith.langchain.com/")
 DEFAULT_PROJECT = {"dev": "setuhaul-dev", "eval": "setuhaul-dev", "ci": "setuhaul-dev",
                    "staging": "setuhaul-synthetic-staging", "pilot": "setuhaul-synthetic-pilot"}
 KEY_FROM_ENV = frozenset({"dev", "eval", "ci"})
@@ -101,13 +103,16 @@ def load_langsmith_key(env: dict, environment: str, secrets_client: Any = None) 
 class LangSmithClient:
     """Bounded REST calls (2 s timeout, no retries here: callers decide). The key is only ever in a header."""
 
-    def __init__(self, api_key: str, endpoint: str = ALLOWED_ENDPOINTS[0], http: Any = None, timeout_s: float = TIMEOUT_S):
+    def __init__(self, api_key: str, endpoint: str = ALLOWED_ENDPOINTS[0], http: Any = None, timeout_s: float = TIMEOUT_S,
+                 workspace_id: str | None = None):
         if endpoint.rstrip("/") not in ALLOWED_ENDPOINTS:
             raise LangSmithConfigError(f"LangSmith endpoint {endpoint!r} is not allowed", "INVALID_REQUEST")
         import httpx
         self.endpoint = endpoint.rstrip("/")
         self.http = http or httpx.Client(timeout=httpx.Timeout(timeout_s, connect=min(timeout_s, 1.5)))
         self._headers = {"x-api-key": api_key, "Content-Type": "application/json"}
+        if workspace_id:                 # G.2: an organisation-scoped key names its workspace (LangSmith X-Tenant-Id)
+            self._headers["X-Tenant-Id"] = str(workspace_id)
 
     def _req(self, method: str, path: str, body: Any = None, params: dict | None = None) -> Any:
         r = self.http.request(method, f"{self.endpoint}{path}", headers=self._headers,
@@ -134,6 +139,15 @@ class LangSmithClient:
 
     def create_examples(self, dataset_id: str, examples: list[dict]) -> Any:
         return self._req("POST", "/examples/bulk", [dict(e, dataset_id=dataset_id) for e in examples])
+
+    def list_examples(self, dataset_id: str, limit: int = 100) -> list[dict]:
+        """G.2: the dataset's examples (evaluation tooling only; never called by the agent)."""
+        found = self._req("GET", "/examples", params={"dataset": dataset_id, "limit": limit}) or []
+        return found if isinstance(found, list) else []
+
+    def get_run(self, run_id: str) -> dict | None:
+        """G.2: one run as LangSmith stored it (its `app_path` is the UI link). Evaluation tooling only."""
+        return self._req("GET", f"/runs/{run_id}")
 
     # experiments
     def create_experiment(self, name: str, dataset_id: str, metadata: dict) -> dict:

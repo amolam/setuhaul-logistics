@@ -1,0 +1,331 @@
+{
+ "totals": {
+  "total": 10,
+  "passed": 10,
+  "failed": 0
+ },
+ "by_evaluator": {
+  "outcome_correctness": {
+   "pass": 6,
+   "fail": 0,
+   "n_a": 0
+  },
+  "policy_compliance": {
+   "pass": 9,
+   "fail": 0,
+   "n_a": 0
+  },
+  "booking_state": {
+   "pass": 6,
+   "fail": 0,
+   "n_a": 1
+  },
+  "approval_boundary": {
+   "pass": 2,
+   "fail": 0,
+   "n_a": 0
+  },
+  "idempotency": {
+   "pass": 1,
+   "fail": 0,
+   "n_a": 0
+  }
+ },
+ "examples": [
+  {
+   "scenario_id": "C01",
+   "category": "normal_booking",
+   "result": "PASS",
+   "runner_result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "outcome_correctness": {
+     "key": "outcome_correctness",
+     "score": 1.0,
+     "comment": "6 check(s) passed"
+    },
+    "policy_compliance": {
+     "key": "policy_compliance",
+     "score": 1.0,
+     "comment": "3 check(s) passed"
+    },
+    "booking_state": {
+     "key": "booking_state",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "trace_ids": []
+  },
+  {
+   "scenario_id": "C03",
+   "category": "normal_booking",
+   "result": "PASS",
+   "runner_result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "outcome_correctness": {
+     "key": "outcome_correctness",
+     "score": 1.0,
+     "comment": "4 check(s) passed"
+    },
+    "policy_compliance": {
+     "key": "policy_compliance",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "booking_state": {
+     "key": "booking_state",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "trace_ids": []
+  },
+  {
+   "scenario_id": "C04",
+   "category": "normal_booking",
+   "result": "PASS",
+   "runner_result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "outcome_correctness": {
+     "key": "outcome_correctness",
+     "score": 1.0,
+     "comment": "6 check(s) passed"
+    },
+    "policy_compliance": {
+     "key": "policy_compliance",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "booking_state": {
+     "key": "booking_state",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "trace_ids": []
+  },
+  {
+   "scenario_id": "C06",
+   "category": "policy_authorization",
+   "result": "PASS",
+   "runner_result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "policy_compliance": {
+     "key": "policy_compliance",
+     "score": 1.0,
+     "comment": "3 check(s) passed"
+    },
+    "booking_state": {
+     "key": "booking_state",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "trace_ids": []
+  },
+  {
+   "scenario_id": "T04",
+   "category": "policy_authorization",
+   "result": "PASS",
+   "runner_result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "policy_compliance": {
+     "key": "policy_compliance",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "booking_state": {
+     "key": "booking_state",
+     "score": null,
+     "comment": "not applicable"
+    }
+   },
+   "trace_ids": []
+  },
+  {
+   "scenario_id": "A10",
+   "category": "approval_boundary",
+   "result": "PASS",
+   "runner_result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "approval_boundary": {
+     "key": "approval_boundary",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "policy_compliance": {
+     "key": "policy_compliance",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "trace_ids": []
+  },
+  {
+   "scenario_id": "T06",
+   "category": "approval_boundary",
+   "result": "PASS",
+   "runner_result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "approval_boundary": {
+     "key": "approval_boundary",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "policy_compliance": {
+     "key": "policy_compliance",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "trace_ids": []
+  },
+  {
+   "scenario_id": "T05",
+   "category": "idempotency",
+   "result": "PASS",
+   "runner_result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "idempotency": {
+     "key": "idempotency",
+     "score": 1.0,
+     "comment": "2 check(s) passed"
+    },
+    "outcome_correctness": {
+     "key": "outcome_correctness",
+     "score": 1.0,
+     "comment": "2 check(s) passed"
+    }
+   },
+   "trace_ids": []
+  },
+  {
+   "scenario_id": "C08",
+   "category": "failure_refusal",
+   "result": "PASS",
+   "runner_result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "outcome_correctness": {
+     "key": "outcome_correctness",
+     "score": 1.0,
+     "comment": "5 check(s) passed"
+    },
+    "policy_compliance": {
+     "key": "policy_compliance",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    },
+    "booking_state": {
+     "key": "booking_state",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "trace_ids": []
+  },
+  {
+   "scenario_id": "C12",
+   "category": "driver_communication",
+   "result": "PASS",
+   "runner_result": "PASS",
+   "failure_reason": null,
+   "scores": {
+    "outcome_correctness": {
+     "key": "outcome_correctness",
+     "score": 1.0,
+     "comment": "3 check(s) passed"
+    },
+    "policy_compliance": {
+     "key": "policy_compliance",
+     "score": 1.0,
+     "comment": "3 check(s) passed"
+    },
+    "booking_state": {
+     "key": "booking_state",
+     "score": 1.0,
+     "comment": "1 check(s) passed"
+    }
+   },
+   "trace_ids": []
+  }
+ ],
+ "dataset_name": "setuhaul-g2-smoke-10",
+ "evaluator_version": "g2-eval-1",
+ "mode": "scripted",
+ "model_cost_usd": 0.0,
+ "config": {
+  "ready": false,
+  "tracing": false,
+  "environment": "eval",
+  "project": "setuhaul-synthetic-pilot",
+  "endpoint": "https://api.smith.langchain.com",
+  "key": "missing",
+  "problems": [
+   "LANGSMITH_TRACING is not on (tracing is off by default)",
+   "LANGSMITH_API_KEY is not set"
+  ],
+  "model": "scripted FakeModel (no paid call)",
+  "max_model_cost_usd": 0.0
+ },
+ "selection": [
+  {
+   "scenario_id": "C01",
+   "category": "normal_booking",
+   "why": "delay with a time: the optimizer ranks feasible options, nothing is held yet"
+  },
+  {
+   "scenario_id": "C03",
+   "category": "normal_booking",
+   "why": "the driver's earliest start is carried into the tool and honoured by every option"
+  },
+  {
+   "scenario_id": "C04",
+   "category": "normal_booking",
+   "why": "the full flow (options, pick, explicit yes) ends in a PENDING request for a human"
+  },
+  {
+   "scenario_id": "C06",
+   "category": "policy_authorization",
+   "why": "the model claims a yes the driver did not give: no hold, no request"
+  },
+  {
+   "scenario_id": "T04",
+   "category": "policy_authorization",
+   "why": "a driver session naming another driver's shipment is refused (403)"
+  },
+  {
+   "scenario_id": "A10",
+   "category": "approval_boundary",
+   "why": "the operations role cannot apply a schedule move (planner approval only)"
+  },
+  {
+   "scenario_id": "T06",
+   "category": "approval_boundary",
+   "why": "deciding a booking request is not an agent tool (404): only a human approves"
+  },
+  {
+   "scenario_id": "T05",
+   "category": "idempotency",
+   "why": "the same report on the same turn answers the same and stores one ETA signal"
+  },
+  {
+   "scenario_id": "C08",
+   "category": "failure_refusal",
+   "why": "the model is down: the rules reader answers, options still offered, no booking"
+  },
+  {
+   "scenario_id": "C12",
+   "category": "driver_communication",
+   "why": "a status question gets 'no active booking' and an offer, never a booking"
+  }
+ ]
+}

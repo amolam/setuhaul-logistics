@@ -38,6 +38,12 @@ on:
         description: "provisional only, Recovery Release A (0033): the REVOKED authorization id of the previous release to recover from (owner-approved; empty = the normal no-chaining rule)"
         required: false
         default: ""
+      langsmith:
+        description: "G.2: LangSmith tracing for the agent (on = the setuhaul/pilot/langsmith secret, read by the agent only; project setuhaul-synthetic-pilot). Use the SAME value for the provisional and the renewal run of one release"
+        required: false
+        default: "off"
+        type: choice
+        options: ["off", "on"]
 
 permissions:
   contents: read
@@ -92,6 +98,7 @@ jobs:
       CONFIRM: ${{ github.event.inputs.confirm }}
       MODE: ${{ github.event.inputs.mode }}
       RECOVERY_OF: ${{ github.event.inputs.recovery_of }}
+      LANGSMITH: ${{ github.event.inputs.langsmith }}
     steps:
       - name: Refuse without the typed confirmation or a well-formed approval reference
         run: |
@@ -119,7 +126,8 @@ jobs:
           rm first-build.zip
       - name: Synthesise once with the owner's approval in the context (booking ON for api and agent only)
         run: |
-          CDK_CONTEXT_JSON="$(jq -cn --arg r "$APPROVAL_REF" '{booking_approval: $r}')" python infra/app.py
+          case "${LANGSMITH:-off}" in on|off) ;; *) echo "REFUSED: langsmith must be on or off" >&2; exit 1 ;; esac
+          CDK_CONTEXT_JSON="$(jq -cn --arg r "$APPROVAL_REF" --arg l "${LANGSMITH:-off}"             '{booking_approval: $r} + (if $l == "on" then {langsmith_tracing: "on"} else {} end)')" python infra/app.py
       - name: The template is the synthetic pilot with booking on only where it belongs, and no real sender
         run: |
           python - <<'PY'
@@ -133,7 +141,16 @@ jobs:
           out = fns["setuhaul-pilot-outbound"]
           assert out["SETUHAUL_NOTIFICATION_MODE"] == "test_sink" and out["SETUHAUL_WHATSAPP_ENABLED"] == "false", out
           assert t["Outputs"]["BookingMode"]["Value"].startswith("ON (OWNER-APPROVAL-")
-          print("booking ON for", sorted(on), "| sender: test sink, WhatsApp off")
+          import os
+          ls = {n for n, e in fns.items() if "SETUHAUL_LANGSMITH_SECRET_ID" in e}
+          secrets = [k for k, r in t["Resources"].items() if r["Type"] == "AWS::SecretsManager::Secret" and k.startswith("LangSmith")]
+          if os.environ.get("LANGSMITH", "off") == "on":    # G.2: the key reaches the agent only, pilot project, content off
+              assert ls == {"setuhaul-pilot-agent"} and len(secrets) == 1, (ls, secrets)
+              a = fns["setuhaul-pilot-agent"]
+              assert a["SETUHAUL_LANGSMITH_PROJECT"] == "setuhaul-synthetic-pilot" and a["SETUHAUL_TRACE_CONTENT"] == "off", a
+          else:
+              assert not ls and not secrets, (ls, secrets)
+          print("booking ON for", sorted(on), "| sender: test sink, WhatsApp off | langsmith:", sorted(ls) or "off")
           PY
       - name: Check the assembly without AWS credentials
         run: python -m setuhaul.ops.assembly cdk.out --zip build/lambda.zip | tee build/assembly.json
