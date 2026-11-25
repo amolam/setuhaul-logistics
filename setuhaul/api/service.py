@@ -88,18 +88,20 @@ PHASE_G_PERMISSIONS: dict[str, frozenset] = {
     "view_recommendations": frozenset({"planner", "ops_lead"}),
     "view_observability":   frozenset({"planner", "ops_lead"}),
 }
-# Roadmap Phase 1/5 (migration 0035): dispatcher actions. TEMPORARY ROLE MAPPING (owner, 25 Nov 2026): there is no
-# dispatcher group yet, so `operations` (and ops_lead) act as dispatcher. Offers they send are decided as PLANNER_REVIEW
-# in the database, so the role that sends an offer can never approve the booking it leads to. Review when a dispatcher
-# Cognito group exists. Planners may read the dispatch board but not send offers.
+# Roadmap Phase 1/5 (migration 0035) and 0037: dispatcher actions. `dispatcher` (Cognito group `dispatcher`) is the
+# dedicated role. `operations` keeps the same dispatch permissions as a COMPATIBILITY mapping until the owner moves
+# dispatcher users to the new group (docs/operations/TELEGRAM_TEST_BOT_VALIDATION_REPORT.md, section B); removing it is
+# a separate decision. Offers are decided as PLANNER_REVIEW in the database, so whoever sends an offer can never approve
+# the booking it leads to. A dispatcher gets no approval, cancellation decision, schedule or operations-health access:
+# the database refuses those as well (approval_role_rules does not admit `dispatcher`). Planners may read the board.
 DISPATCH_PERMISSIONS: dict[str, frozenset] = {
-    "view_dispatch":     frozenset({"operations", "planner", "ops_lead"}),
-    "send_offer":        frozenset({"operations", "ops_lead"}),
-    "link_driver":       frozenset({"operations", "ops_lead"}),
+    "view_dispatch":     frozenset({"dispatcher", "operations", "planner", "ops_lead"}),
+    "send_offer":        frozenset({"dispatcher", "operations", "ops_lead"}),
+    "link_driver":       frozenset({"dispatcher", "operations", "ops_lead"}),
     # 0036: cancellation of a confirmed appointment (dispatcher requests, a planner or ops_lead who is not the
     # requester decides: the database checks both), the planner's schedule, the operations health board and the
     # separate escalation actions
-    "request_cancellation": frozenset({"operations", "ops_lead"}),
+    "request_cancellation": frozenset({"dispatcher", "operations", "ops_lead"}),
     "decide_cancellation":  frozenset({"planner", "ops_lead"}),
     "view_schedule":        frozenset({"planner", "ops_lead", "operations"}),
     "view_ops":             frozenset({"operations", "ops_lead"}),

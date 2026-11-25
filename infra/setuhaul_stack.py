@@ -154,7 +154,7 @@ class SetuHaulPilotStack(Stack):
                                 mfa_second_factor=cognito.MfaSecondFactor(otp=True, sms=False),
                                 password_policy=cognito.PasswordPolicy(min_length=12, require_symbols=True),
                                 account_recovery=cognito.AccountRecovery.EMAIL_ONLY, removal_policy=RemovalPolicy.RETAIN)
-        for group in ("operations", "planner", "ops_lead"):
+        for group in ("operations", "planner", "ops_lead", "dispatcher"):   # dispatcher: 0037
             cognito.CfnUserPoolGroup(self, f"Group{group.title().replace('_', '')}", user_pool_id=pool.user_pool_id,
                                      group_name=group)
         # Staff sign in through Cognito's hosted page (MFA as the pool requires): authorization code with PKCE, a

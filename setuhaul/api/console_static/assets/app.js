@@ -105,6 +105,17 @@ function showApp(){
     const denied = Object.entries(me.permissions).filter(([, ok]) => !ok).map(([a]) => a);
     $("#who").textContent = `${c.username || ""} · server roles: ${me.roles.join(", ") || "none"} · ${me.facilities.join(", ")}`;
     $("#who").title = "Not permitted: " + (denied.join(", ") || "nothing");
+    // 0037: hide the tabs the server would refuse (a convenience only: every call is still checked by the server).
+    // A dispatcher-only account has no conversation list, so it starts on Dispatch.
+    const need = {dispatch: "view_dispatch", schedule: "view_schedule", ops: "view_ops", threads: "list_requests",
+                  requests: "list_requests", escalations: "list_requests", docks: "list_requests",
+                  optimizer: "view_recommendations", observability: "view_observability"};
+    document.querySelectorAll("#tabs button").forEach(b => {
+      const p = need[b.dataset.t]; b.hidden = !!p && me.permissions[p] === false });
+    if(need[tab] && me.permissions[need[tab]] === false){
+      const first = [...document.querySelectorAll("#tabs button")].find(b => !b.hidden);
+      if(first) setTab(first.dataset.t);
+    }
   }).catch(() => {});
   render();
 }
