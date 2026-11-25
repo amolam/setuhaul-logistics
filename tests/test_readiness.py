@@ -104,7 +104,12 @@ def test_the_check_reads_the_limit_and_rows_the_issuing_function_enforces_read_o
         db = rd.read_database(c, env, ref1)
         with pytest.raises(psycopg.errors.ReadOnlySqlTransaction):     # the check cannot write, even by mistake
             c.execute("UPDATE setuhaul.booking_kill_switch SET engaged = engaged")
-    assert db["limit"] == 2 and db["limit_source"] == "issue_provisional_authorization source"
+    # the database's own answer: 0034's provisional_rate_limit() when present (4), else the 0033 function's literal (2)
+    if c.execute("SELECT to_regprocedure('setuhaul.provisional_rate_limit(text)') IS NOT NULL").fetchone()[0]:
+        want = (c.execute("SELECT setuhaul.provisional_rate_limit(%s)", (env,)).fetchone()[0], "provisional_rate_limit()")
+    else:
+        want = (2, "issue_provisional_authorization source")
+    assert (db["limit"], db["limit_source"]) == want
     assert len(db["issued"]) == 1 and db["approval_used"] and db["open"] is None
     newest = c.execute("SELECT deployment_id FROM setuhaul.deployment_manifests WHERE environment=%s "
                        "ORDER BY manifest_id DESC LIMIT 1", (env,)).fetchone()[0]
@@ -122,3 +127,13 @@ def test_a_recovery_run_is_judged_by_the_recovery_rules():
                   "observed_utc": (NOW - timedelta(hours=1)).isoformat()}))
     assert not rd.blockers(rd.assess(s, REF, SHA, recovery=True))
     assert "running release authorized (no chaining)" in {c.name for c in rd.blockers(rd.assess(s, REF, SHA))}
+
+
+def test_before_0034_the_limit_is_read_from_the_0033_function_source():
+    """A database without provisional_rate_limit() (the live pilot before 0034): the literal the 0033 function enforces."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "migrations" / "0033_recovery_and_decider_provenance.sql").read_text(
+        encoding="utf-8")
+    assert sorted({int(m.group(1)) for m in rd.LIMIT_RX.finditer(src)}) == [2]
+    src34 = (Path(__file__).resolve().parents[1] / "migrations" / "0034_provisional_limit_4.sql").read_text(encoding="utf-8")
+    assert not list(rd.LIMIT_RX.finditer(src34))          # 0034 reads the function instead of a literal
