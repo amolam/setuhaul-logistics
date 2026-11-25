@@ -568,7 +568,16 @@ def test_only_listed_drivers_can_be_linked_and_heard_and_two_drivers_stay_apart(
     """Two authorized drivers on one bot are identified independently; an unlisted driver gets no link code, and an
     account linked BEFORE the list existed is treated as unlinked once the list excludes it."""
     from test_dispatch_offers import Tg, add_driver, link, ops
-    a, b, c = add_driver(dsn), add_driver(dsn), add_driver(dsn)
+    from setuhaul.observability.identifiers import is_valid
+
+    def listed_driver():
+        """add_driver makes DRV-<8 random hex>; about 5% of those contain 7+ digits in a row, which the driver-id gate
+        rightly refuses (it looks like a phone number), so an allowlist naming one fails closed. Use valid ids only."""
+        while True:
+            d = add_driver(dsn)
+            if is_valid("driver_id", d["drv"]):
+                return d
+    a, b, c = listed_driver(), listed_driver(), add_driver(dsn)
     ta, tb, tc = link(tgclient, keys, dsn, a["drv"]), link(tgclient, keys, dsn, b["drv"]), link(tgclient, keys, dsn, c["drv"])
     monkeypatch.setenv("SETUHAUL_TELEGRAM_AUTHORIZED_DRIVERS", f"{a['drv']},{b['drv']}")
     r = tgclient.post(f"/console/drivers/{c['drv']}/telegram-link-code", headers=ops(keys))
