@@ -575,3 +575,57 @@ def test_declining_to_share_is_recorded_and_the_delay_report_stands(client, dsn,
     r = app.state.service.record_location(d["drv"], LocationReport(shared=False), "declined-1", source="TEST_SINK")
     assert r["assessment"] == "UNAVAILABLE" and r["exception_id"] is not None
     assert q(dsn, "SELECT count(*) FROM driver_exceptions WHERE shipment_id=%s AND status='OPEN'", d["sid"])[0][0] == 1
+
+
+# ================================================================ 0039: a decided request no longer blocks a new offer
+def _flow(dsn, sid):
+    return q(dsn, """SELECT f.state FROM thread_flow f JOIN chat_threads t USING (thread_id)
+                      WHERE t.shipment_id=%s""", sid)[0][0]
+
+
+@pytest.mark.parametrize("decided", ["REJECT", "EXPIRE"])
+def test_after_a_rejected_or_expired_request_the_dispatcher_can_offer_again(client, dsn, keys, decided):
+    d = add_driver(dsn, eta_at=datetime.now(IST) + timedelta(hours=20))
+    tg = link(client, keys, dsn, d["drv"])
+    o1 = offer(client, keys, d)
+    assert "planner" in tg.press(o1["offer_id"], "A")
+    (appt, st), = appointments(dsn, d["sid"])
+    assert st == "PENDING_CONFIRMATION" and _flow(dsn, d["sid"]) == "SUBMITTED"
+    if decided == "REJECT":
+        r = client.post(f"/console/requests/{appt}/decision", headers=planner(keys),
+                        json={"decision": "REJECT", "idempotency_key": uuid.uuid4().hex})
+        assert r.status_code == 200 and r.json()["status"] == "REJECTED", r.text
+    else:                                                   # the request's window passed: the expiry job decides
+        with psycopg.connect(dsn, autocommit=True) as c:     # test only: move the deadline (rows are immutable)
+            c.execute("SET search_path = setuhaul")
+            c.execute("SET session_replication_role = replica")
+            c.execute("UPDATE approval_requests SET expires_at = now() - interval '1 second' WHERE appointment_id=%s",
+                      (appt,))
+            c.execute("SET session_replication_role = origin")
+            c.execute("SELECT set_config('app.facility_scope', %s, false)", (f"{JAI},{GGN}",))
+            assert c.execute("SELECT expire_pending_requests()").fetchone()[0] >= 1
+    assert appointments(dsn, d["sid"]) == []                # nothing live: the capacity went back
+    assert _flow(dsn, d["sid"]) == "SUBMITTED"              # still stale until someone looks (the driver or now us)
+    o2 = offer(client, keys, d)                             # before 0039: 409 BOOKING_IN_PROGRESS
+    assert o2["status"] == "OFFERED" and _flow(dsn, d["sid"]) == "SELECTED"
+    assert "planner" in tg.press(o2["offer_id"], "A")       # and the new offer books normally
+    assert [s for _, s in appointments(dsn, d["sid"])] == ["PENDING_CONFIRMATION"]
+
+
+def test_a_request_still_pending_keeps_blocking_a_new_offer(client, dsn, keys):
+    d = add_driver(dsn, eta_at=datetime.now(IST) + timedelta(hours=22))
+    tg = link(client, keys, dsn, d["drv"])
+    tg.press(offer(client, keys, d)["offer_id"], "A")
+    r = offer(client, keys, d, expect=409)
+    assert r["error"] in ("SHIPMENT_ALREADY_BOOKED", "BOOKING_IN_PROGRESS")
+    assert _flow(dsn, d["sid"]) == "SUBMITTED"
+
+
+def test_a_confirmed_request_reconciles_to_booked_and_is_not_offered_again(client, dsn, keys):
+    d = add_driver(dsn, eta_at=datetime.now(IST) + timedelta(hours=24))
+    tg = link(client, keys, dsn, d["drv"])
+    tg.press(offer(client, keys, d)["offer_id"], "A")
+    (appt, _), = appointments(dsn, d["sid"])
+    client.post(f"/console/requests/{appt}/decision", headers=planner(keys),
+                json={"decision": "CONFIRM", "idempotency_key": uuid.uuid4().hex})
+    assert offer(client, keys, d, expect=409)["error"] == "SHIPMENT_ALREADY_BOOKED"
