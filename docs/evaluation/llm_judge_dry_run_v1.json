@@ -1,6 +1,6 @@
 {
  "kind": "llm_judge_dry_run",
- "generated_at": "2026-11-25T14:39:37.454336+00:00",
+ "generated_at": "2026-11-25T16:18:56.115085+00:00",
  "paid_calls_made": 0,
  "dataset": {
   "path": "evals/judge/dataset_v1.jsonl",
@@ -31,15 +31,16 @@
  ],
  "estimate": {
   "calls_expected": 30,
-  "calls_worst_case": 60,
+  "calls_worst_case": 30,
+  "retries": "none",
   "input_tokens_expected": 38082,
   "output_tokens_expected": 7800,
   "cost_usd_expected": "0.0771",
-  "cost_usd_upper_bound": "0.3456",
+  "cost_usd_upper_bound": "0.1728",
   "price_basis": "anthropic/claude-haiku-4.5: USD 1.000000/M input, 5.000000/M output (setuhaul/agent/openrouter.py PRICE, OpenRouter list price 21 Nov 2026)"
  },
  "limits": {
-  "run_cap_usd": "1.00",
+  "run_cap_usd": "0.35",
   "run_cap_max_usd": "1.00",
   "daily_cap_usd": "3.00",
   "daily_cap_max_usd": "3.00"

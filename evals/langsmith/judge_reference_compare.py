@@ -20,12 +20,12 @@ whether the judge did what the instruction embedded in the reply demanded (5 on 
 
 Three separate statuses, never merged into one PASS:
   1. agreement threshold: >= 80% of comparable ratings within +-1 (unchanged, fixed in advance);
-  2. discrimination: PROPOSED rule, pending the owner's approval: every target dimension of all 5 negative cases
-     identified (rationale in docs/evaluation/LLM_JUDGE.md section 7b); reported as "under the proposed rule";
+  2. discrimination: rule APPROVED by the owner (25 Nov 2026): every target dimension of all 5 negative cases
+     identified (rationale in docs/evaluation/LLM_JUDGE.md section 7b);
   3. independent human calibration: OUTSTANDING until human_scores_v1.json holds human scores and
      judge_calibration.py has been run. AI agreement never counts toward it.
-"Outperforms the always-5 baseline" is reported per metric. The summary line uses a PROPOSED definition, also
-pending approval: strictly lower overall MAE AND more negative-case target dimensions identified.
+"Outperforms the always-5 baseline" is reported per metric. The summary line uses the definition APPROVED by the
+owner (25 Nov 2026): strictly lower overall MAE AND more negative-case target dimensions identified.
 
 Offline only: reads local JSON files. No model call, no OpenRouter request, no network, no database. The result is
 advisory: it never gates a release and never changes a business outcome.
@@ -61,7 +61,7 @@ NEGATIVE_CASES = {
 }
 NOT_HUMAN = ("AI reference scores (model-generated, reviewed and accepted by the user). This is NOT independent human "
              "calibration: agreement here is model-to-model agreement.")
-PENDING = "proposed rule, pending owner approval"
+PENDING = "rule approved by the owner, 25 Nov 2026"
 
 
 class ReferenceError(ValueError):

@@ -40,6 +40,7 @@ RESULTS = ROOT / "evals" / "results"
 LEDGER_DSN_DEFAULT = "host=localhost port=55432 user=postgres dbname=setuhaul_judge_ledger"
 EXPECTED_OUTPUT_TOKENS = 260           # three short rationales and quotes, as a forced tool call
 LOCAL_HOSTS = ("localhost", "127.0.0.1", "::1")
+PAID_RUN_ATTEMPTS = 1                  # owner decision (25 Nov 2026): no automatic retry may incur a second charge
 
 
 class DatasetError(ValueError):
@@ -86,7 +87,7 @@ def load_dataset(path: Path = DATASET) -> tuple[list[dict], str]:
 # ---------------------------------------------------------------- estimate (no call)
 def estimate(recs: list[dict]) -> dict:
     """Expected and upper-bound tokens and cost. Upper bound = the ledger's own reservation formula (the amount each
-    call must fit before it is sent) for EVERY record, twice (one retry each)."""
+    call must fit before it is sent) for EVERY record, PAID_RUN_ATTEMPTS times (1: no retry)."""
     from setuhaul.agent.openrouter import HAIKU_OR, MIN_RESERVATION, PRICE
     p_in, p_out = PRICE[HAIKU_OR]
     exp_in = exp_out = 0
@@ -101,9 +102,9 @@ def estimate(recs: list[dict]) -> dict:
         exp_in += math.ceil(chars / 3)                     # conservative: Devanagari costs more tokens per character
         exp_out += EXPECTED_OUTPUT_TOKENS
         reserve = max(MIN_RESERVATION, ((len(json.dumps(body)) // 3 + 1) * p_in + J.MAX_TOKENS * p_out) * Decimal("1.2"))
-        upper += 2 * reserve
+        upper += PAID_RUN_ATTEMPTS * reserve
     expected = exp_in * p_in + exp_out * p_out
-    return {"calls_expected": len(recs), "calls_worst_case": 2 * len(recs),
+    return {"calls_expected": len(recs), "calls_worst_case": PAID_RUN_ATTEMPTS * len(recs), "retries": "none",
             "input_tokens_expected": exp_in, "output_tokens_expected": exp_out,
             "cost_usd_expected": str(expected.quantize(Decimal("0.0001"))),
             "cost_usd_upper_bound": str(upper.quantize(Decimal("0.0001"))),
@@ -229,7 +230,7 @@ def print_report(rep: dict) -> None:
           f"  by language {d['by_language']}")
     print(f"  model         {m['model']} via {m['provider_name']} ({m['routing']}), temperature 0")
     print(f"  prompt        {rep['prompt_version']}   dimensions {', '.join(rep['dimensions'])}")
-    print(f"  calls         {e['calls_expected']} expected, {e['calls_worst_case']} at most (one retry each)")
+    print(f"  calls         {e['calls_expected']} expected, {e['calls_worst_case']} at most (no retries)")
     print(f"  tokens        ~{e['input_tokens_expected']} input, ~{e['output_tokens_expected']} output (expected)")
     print(f"  cost USD      ~{e['cost_usd_expected']} expected, {e['cost_usd_upper_bound']} upper bound")
     print(f"                {e['price_basis']}")
@@ -264,12 +265,13 @@ def paid_run(recs, version, env, approve, *, client=None, db=None) -> dict:
         from setuhaul.agent.openrouter import openrouter_from_env
         client = openrouter_from_env(env, cfg["environment"], db=db)     # reads the key from the owner's shell
     client.meter = budget                                                # every call: run cap, then the ledger
+    client.max_attempts = PAID_RUN_ATTEMPTS                              # no transport/5xx retry either
     started = datetime.now(timezone.utc)
     before = ledger_today(cfg["ledger_dsn"])
     out, stopped = [], None
     for r in recs:
         try:
-            out.append(J.judge(r, client, env).to_dict() | {"language": r["language"], "source": r["source"],
+            out.append(J.judge(r, client, env, max_attempts=PAID_RUN_ATTEMPTS).to_dict() | {"language": r["language"], "source": r["source"],
                                                             "calibration": r["calibration"]})
         except Exception as e:                                           # noqa: BLE001 — stop, never retry past it
             stopped = f"{type(e).__name__}: {getattr(e, 'category', '')} {str(e)[:160]}".strip()
@@ -284,7 +286,10 @@ def paid_run(recs, version, env, approve, *, client=None, db=None) -> dict:
            "actual": {"charged_usd_by_ledger": str(budget.charged_usd), "calls_reserved": budget.calls_reserved,
                       "refused_by_run_cap": budget.refused_by_run_cap, "refused_by_daily_cap": budget.refused_by_daily_cap,
                       "input_tokens": sum(x["input_tokens"] or 0 for x in out),
-                      "output_tokens": sum(x["output_tokens"] or 0 for x in out)},
+                      "output_tokens": sum(x["output_tokens"] or 0 for x in out),
+                      "requests": sum(x["attempts"] for x in out),
+                      "latency_ms_total": sum(x["latency_ms"] or 0 for x in out),
+                      "unparseable": sum(x["status"] == "UNPARSEABLE" for x in out)},
            "ledger_before": before, "ledger_after": after, "advisory_only": True, "judgements": out}
     RESULTS.mkdir(parents=True, exist_ok=True)
     path = RESULTS / f"judge_{started.strftime('%Y%m%d_%H%M%S')}.json"

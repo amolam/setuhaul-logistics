@@ -131,6 +131,9 @@ class OpenRouterModel:
         self.extract_model, self.phrase_model, self.provider = extract_model, phrase_model, provider
         self.provider_name = VERIFIED_ZDR_ROUTES[provider]
         self.meter, self.sleep, self.max_retry_wait_s = meter, sleep, max_retry_wait_s
+        # attempts per call (1 or 2). The agent keeps 2 (one bounded retry, see the module doc); the offline judge's
+        # owner-approved paid run sets 1, so nothing is ever sent twice.
+        self.max_attempts = 2
         self.client = client or httpx.Client(timeout=httpx.Timeout(read_timeout_s, connect=connect_timeout_s,
                                                                    write=5.0, pool=connect_timeout_s))
         self._set_key(api_key)
@@ -174,7 +177,7 @@ class OpenRouterModel:
                    schema_version=SCHEMA_VERSION if purpose == "extract" else None)
         tr.call_id, tr.requested_provider = str(call_id), self.provider
         self._maybe_refresh_key()                                 # G.1: before anything is reserved or sent
-        for attempt in (1, 2):
+        for attempt in range(1, max(1, min(2, self.max_attempts)) + 1):
             tr.attempts = attempt
             res = None
             if self.meter is not None:
@@ -259,7 +262,7 @@ class OpenRouterModel:
                 self._auth_failed_at = self.clock()               # G.1: re-read the key before the next call
                 log.error("ALERT model_call %s (%s): OpenRouter refused the key or its credit (status %s)",
                           category, detail, status)
-            if retry and attempt == 1:
+            if retry and attempt < self.max_attempts:
                 if wait:
                     self.sleep(wait)
                 continue

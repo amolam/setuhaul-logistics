@@ -7,8 +7,8 @@
 ## Status (three separate statuses, never merged into one)
 
 - **agreement threshold:** MET: 0.965 within ±1 vs required 0.8 (unchanged rule)
-- **outperforms always 5 baseline:** YES (proposed rule, pending owner approval: lower overall MAE and more negative-case target dimensions identified)
-- **negative case discrimination:** NOT DEMONSTRATED (proposed rule, pending owner approval: all 5 contrasts identified; 3/5 were)
+- **outperforms always 5 baseline:** YES (rule approved by the owner, 25 Nov 2026: lower overall MAE and more negative-case target dimensions identified)
+- **negative case discrimination:** NOT DEMONSTRATED (rule approved by the owner, 25 Nov 2026: all 5 contrasts identified; 3/5 were)
 - **independent human calibration:** OUTSTANDING: human_scores_v1.json has no human scores
 
 ## Actual judge vs ALWAYS_5_BASELINE
@@ -97,7 +97,7 @@ Only the target dimension decides "identified" (within ±1 of the reference). Th
 ## Final assessment
 
 - 80% agreement threshold: passed (0.965); the always-5 baseline scores 0.883 on the same rule.
-- Outperforms the always-5 baseline: yes (proposed rule, pending owner approval).
-- Negative-case discrimination: not demonstrated (3/5 contrasts; proposed rule, pending owner approval).
+- Outperforms the always-5 baseline: yes (rule approved by the owner, 25 Nov 2026).
+- Negative-case discrimination: not demonstrated (3/5 contrasts; rule approved by the owner, 25 Nov 2026).
 - Independent human calibration: still outstanding. Agreement with AI reference scores is not human calibration.
 - Exceeding the baseline does not by itself prove the judge reliable.

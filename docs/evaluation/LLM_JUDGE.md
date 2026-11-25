@@ -296,9 +296,9 @@ Each deliberate contrast is built to test particular dimensions, called its *tar
 - that human calibration is still outstanding;
 - that beating the baseline does not by itself prove the judge reliable.
 
-### Two proposed rules: need owner approval
+### Two acceptance rules: approved by the owner on 25 Nov 2026
 
-Both rules are implemented and reported, labelled as *"proposed rule, pending owner approval"*. Neither changes the 80% rule.
+Both rules are implemented and reported, labelled *"rule approved by the owner, 25 Nov 2026"*. Neither changes the 80% rule. A judge is accepted only when **both** hold; the 80% agreement status and the human-calibration status stay separate and are not part of acceptance.
 
 - **Discrimination demonstrated = all 5 contrasts identified (5/5).**
   - Each contrast covers a distinct failure class: wrong language twice, rude tone, vagueness, and injection.
@@ -325,7 +325,7 @@ Both rules are implemented and reported, labelled as *"proposed rule, pending ow
 - **It's still model-to-model agreement.** Beating the baseline shows the judge discriminates *the way the AI reference does*, not the way drivers or native speakers would.
 - **There are only five negative cases**, one per failure class. Passing them is necessary, but nowhere near sufficient. More contrasts would strengthen this, but they change the frozen dataset and would need a new version, so that is a separate decision.
 - **The judge's prompt is unchanged.** Whether it resists the J20 injection is measured, not assumed.
-- **Both proposed rules await approval** before their status is anything more than informational.
+- **Paid runs have no automatic retry.** A malformed or failed answer is recorded as such (`UNPARSEABLE` or the error), never re-sent, so one run is at most 30 requests.
 
 A sample built from **fabricated** judge output (labelled "SAMPLE ONLY - FABRICATED" in the report) is in `docs/evaluation/judge_vs_ai_reference_SAMPLE_report.md`. In that sample, agreement is met and the judge beats the baseline, yet discrimination is **not** demonstrated (3/5: J19 and J20 missed). That combination is exactly why the statuses are kept separate.
 

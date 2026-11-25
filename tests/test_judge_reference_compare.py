@@ -206,7 +206,7 @@ def test_a_perfect_judge_identifies_every_target_and_beats_the_baseline():
     assert (n["targets_identified"], n["targets_total"], n["cases_identified"]) == (5, 5, 5)
     assert rep["statuses"]["negative_case_discrimination"].startswith("DEMONSTRATED")
     assert rep["statuses"]["outperforms_always_5_baseline"].startswith("YES")
-    assert all("pending owner approval" in rep["statuses"][k]
+    assert all("approved by the owner" in rep["statuses"][k]
                for k in ("negative_case_discrimination", "outperforms_always_5_baseline"))
     assert rep["baseline"]["negative_cases"]["targets_identified"] == 0
 

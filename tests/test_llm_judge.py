@@ -230,7 +230,7 @@ def test_the_dry_run_makes_no_call_reads_no_key_and_reports_everything(monkeypat
     rep = JR.dry_run_report(RECS, VERSION, {})
     assert rep["paid_calls_made"] == 0 and rep["dataset"]["records"] == 30
     est = rep["estimate"]
-    assert est["calls_expected"] == 30 and est["calls_worst_case"] == 60
+    assert est["calls_expected"] == 30 and est["calls_worst_case"] == 30 and est["retries"] == "none"
     assert Decimal(est["cost_usd_expected"]) < Decimal(est["cost_usd_upper_bound"]) <= Decimal("1.00")
 
 
@@ -544,3 +544,46 @@ def test_calibration_reports_agreement_mae_bias_by_dimension_and_language():
     worse = C.report([dict(x, dimensions={d: {"score": 5} for d in J.DIMENSIONS}) for x in js],
                      {k: {d: 1 for d in J.DIMENSIONS} for k in human}, BY_ID)
     assert worse["verdict"].startswith("EXPERIMENTAL")
+
+
+# ================================================================ owner-approved paid run: no retries, USD 0.35 cap
+def test_the_paid_run_never_retries_and_records_requests_latency_and_failures(ledger_dsn, monkeypatch, tmp_path):
+    monkeypatch.setattr(JR, "RESULTS", tmp_path)
+    s, r = _today(ledger_dsn)
+    if Decimal(s) + Decimal(r) > Decimal("2"):
+        pytest.skip("today's test ledger is already near the 3 USD cap")
+    env = dict(ON, SETUHAUL_LLM_JUDGE_BUDGET_USD="0.35", SETUHAUL_LLM_DAILY_BUDGET_USD="3",
+               OPENROUTER_API_KEY="sk-or-v1-test", SETUHAUL_JUDGE_LEDGER_DSN=ledger_dsn)
+    sent = []
+
+    def handler(req):
+        sent.append(1)
+        n = len(sent)
+        if n == 1:
+            return _answer({"clarity": 1})                                     # malformed: recorded, NOT retried
+        if n == 2:
+            return httpx.Response(500, json={"error": {"message": "upstream"}})   # 5xx: NOT retried in a paid run
+        user = json.loads(req.content)["messages"][1]["content"]
+        return _answer(good_args(user.split("<assistant_reply>\n")[1].split("\n</assistant_reply>")[0]))
+    m = OpenRouterModel("sk-or-v1-test", client=httpx.Client(transport=httpx.MockTransport(handler)))
+    res = JR.paid_run(RECS[:4], VERSION, env, VERSION, client=m, db=_db(ledger_dsn))
+    assert m.max_attempts == 1 and len(sent) == 2                              # stopped at the provider error
+    assert res["judged"] == 1 and res["stopped_early"] and res["actual"]["requests"] == 1
+    assert res["judgements"][0]["status"] == "UNPARSEABLE" and res["judgements"][0]["attempts"] == 1
+    assert res["estimate"]["calls_worst_case"] == 4 and res["estimate"]["retries"] == "none"
+    assert res["actual"]["latency_ms_total"] >= 0 and "unparseable" in res["actual"]
+    rows = _rows(ledger_dsn, 2)
+    # both requests are in the ledger: the malformed one was a paid, provider-OK answer our validation rejected
+    assert [r[1] for r in rows] == ["OK", "ERROR"]
+
+
+def test_the_approved_run_cap_of_0_35_fits_the_no_retry_estimate_and_is_enforced():
+    est = JR.estimate(RECS)
+    assert Decimal(est["cost_usd_upper_bound"]) <= Decimal("0.35") and est["calls_worst_case"] == 30
+    cfg = JR.config_from_env(dict(ON, SETUHAUL_LLM_JUDGE_BUDGET_USD="0.35", SETUHAUL_LLM_DAILY_BUDGET_USD="3",
+                                  OPENROUTER_API_KEY="k"))
+    ledger = {"available": True, "judge_purpose_migrated": True, "spent_usd": "0", "reserved_usd": "0"}
+    assert JR.refusals(cfg, est, ledger, VERSION, VERSION) == []
+    b = J.RunBudget(FakeLedger(), "0.35")
+    got = [b.reserve(uuid.uuid4(), 1, "judge", "m", "p", Decimal("0.02")).status for _ in range(20)]
+    assert got.count("RESERVED") == 17 and b.committed() <= Decimal("0.35")     # 18th would pass 0.35: refused

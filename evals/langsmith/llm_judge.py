@@ -160,6 +160,7 @@ class Judgement:
     cost_usd: float | None = None                 # provider-reported, summed over attempts (None: unknown)
     actual_provider: str | None = None
     served_model: str | None = None
+    latency_ms: int | None = None                 # summed over attempts
 
     def feedback(self) -> dict[str, int | None]:
         """quality:* keys only. Advisory: never merged into a PASS/FAIL."""
@@ -208,9 +209,9 @@ def validate_judgement(args, reply: str) -> dict[str, DimensionScore]:
 
 
 # ---------------------------------------------------------------- one judgement
-def judge(example: dict, client, env: dict | None = None, dimensions=QUALITY_KEYS) -> Judgement:
+def judge(example: dict, client, env: dict | None = None, dimensions=QUALITY_KEYS, max_attempts: int = 2) -> Judgement:
     """Score one dataset record. `client` is the metered judge client (OpenRouterModel.judge or a fake in tests).
-    Malformed answers get ONE retry (a second, separately metered call). Budget refusals and provider errors propagate
+    Malformed answers get ONE retry (a second, separately metered call) unless max_attempts=1 (the paid run). Budget refusals and provider errors propagate
     (the runner stops); the agent, its replies and every business outcome are untouched whatever happens here."""
     bad = [k for k in dimensions if k not in QUALITY_KEYS]
     if bad:
@@ -219,7 +220,9 @@ def judge(example: dict, client, env: dict | None = None, dimensions=QUALITY_KEY
     system, user = build_prompt(example)
     j = Judgement(example_id=example["id"], status="NOT_RUN")
     last = None
-    for attempt in (1, 2):
+    if max_attempts not in (1, 2):
+        raise ValueError("max_attempts must be 1 or 2")
+    for attempt in range(1, max_attempts + 1):
         j.attempts = attempt
         try:
             args, tr = client.judge(system, user, JUDGE_TOOL)
@@ -242,7 +245,8 @@ def judge(example: dict, client, env: dict | None = None, dimensions=QUALITY_KEY
 
 
 def _acc(j: Judgement, tr) -> None:
-    for a, b in (("input_tokens", "input_tokens"), ("output_tokens", "output_tokens"), ("cost_usd", "cost_usd")):
+    for a, b in (("input_tokens", "input_tokens"), ("output_tokens", "output_tokens"), ("cost_usd", "cost_usd"),
+                 ("latency_ms", "latency_ms")):
         v = getattr(tr, b, None)
         if v is not None:
             setattr(j, a, (getattr(j, a) or 0) + v)
