@@ -262,8 +262,8 @@ def paid_run(recs, version, env, approve, *, client=None, db=None, preflight=Non
     assert_local(cfg["ledger_dsn"])
     from setuhaul.agent.metering import ModelBudget
     if db is None:
-        from setuhaul.api.db import Database
-        db = Database(cfg["ledger_dsn"])
+        from setuhaul.api.db import Db
+        db = Db(cfg["ledger_dsn"])
     budget = J.RunBudget(ModelBudget(db, cfg["environment"], cfg["daily_cap_usd"]), cfg["run_cap_usd"])
     if client is None:
         from setuhaul.agent.openrouter import openrouter_from_env

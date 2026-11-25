@@ -587,3 +587,21 @@ def test_the_approved_run_cap_of_0_35_fits_the_no_retry_estimate_and_is_enforced
     b = J.RunBudget(FakeLedger(), "0.35")
     got = [b.reserve(uuid.uuid4(), 1, "judge", "m", "p", Decimal("0.02")).status for _ in range(20)]
     assert got.count("RESERVED") == 17 and b.committed() <= Decimal("0.35")     # 18th would pass 0.35: refused
+
+
+def test_the_paid_run_opens_the_ledger_itself_when_none_is_injected(ledger_dsn, monkeypatch, tmp_path):
+    """Regression (owner's first paid attempt, 25 Nov 2026): the default ledger path imported a class that does not
+    exist and failed before any call. The run must open the ledger from SETUHAUL_JUDGE_LEDGER_DSN on its own."""
+    monkeypatch.setattr(JR, "RESULTS", tmp_path)
+    s, r = _today(ledger_dsn)
+    if Decimal(s) + Decimal(r) > Decimal("2"):
+        pytest.skip("today's test ledger is already near the 3 USD cap")
+    env = dict(ON, SETUHAUL_LLM_JUDGE_BUDGET_USD="0.35", SETUHAUL_LLM_DAILY_BUDGET_USD="3",
+               OPENROUTER_API_KEY="sk-or-v1-test", SETUHAUL_JUDGE_LEDGER_DSN=ledger_dsn)
+
+    def handler(req):
+        user = json.loads(req.content)["messages"][1]["content"]
+        return _answer(good_args(user.split("<assistant_reply>\n")[1].split("\n</assistant_reply>")[0]))
+    m = OpenRouterModel("sk-or-v1-test", client=httpx.Client(transport=httpx.MockTransport(handler)))
+    res = JR.paid_run(RECS[:2], VERSION, env, VERSION, client=m)                # no db: the runner opens it
+    assert res["judged"] == 2 and res["actual"]["calls_reserved"] == 2
