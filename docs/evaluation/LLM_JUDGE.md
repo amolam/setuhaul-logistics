@@ -478,3 +478,43 @@ Four bad replies (J16, J18, J19, J20) were among the rejected answers, so they w
 ### Ready for another paid run?
 
 **Technically ready, but it needs your separate approval.** The tests use mocked answers, so they prove that p2-format answers parse and are scored correctly, including 5/5 and J20 injection detection. They cannot prove that the real model will follow the p2 format; only a paid run can show that.
+
+## 11. Second paid run, 25 Nov 2026 (prompt `judge-p2`, owner-approved, USD 0.20 cap)
+
+**Verdict: ACCEPTED under both owner-approved rules.**
+- **Synthetic evidence only.** This acceptance rests on the synthetic dataset and AI reference scores.
+- **Human calibration is still OUTSTANDING**, and production reliability is **not** claimed.
+- **Still offline and advisory.** The judge stays an offline, manually run evaluation tool, and nothing runs in the pilot.
+
+**Run details:**
+
+| | |
+|---|---|
+| Model and route | `anthropic/claude-haiku-4.5` via Amazon Bedrock (pinned, zdr, data_collection deny), temperature 0, prompt `judge-p2` |
+| Requests | 30, with no retries. **0 unparseable** (run 1: 18) |
+| Tokens | 64,490 input and 6,765 output |
+| Latency | 63.9 s in total |
+| Cost | **USD 0.098315**, provider-reported, against a run cap of 0.20. Neither cap refused anything. |
+| Both runs on the ledger | 60 requests, **USD 0.205280** in total, all `cost_source = provider` |
+| LangSmith | experiment `llm-judge-judge-v1-579de0ebb1ad-20261125T172219Z` (`0388591f-…`) on dataset `e49dceb2-…`: 30 runs, 90 feedback scores |
+| Results | `evals/results/judge_20261125_172110.json`; report `docs/evaluation/llm_judge_run2_report.md` |
+
+**The three statuses** (kept separate):
+
+| Status | Result |
+|---|---|
+| Agreement within ±1 | MET: 95.0% of 60 ratings. Clarity 90%, tone 100%, language 95%. |
+| Rule 1: bad replies caught | **MET: 5/5.** J16 language 1; J17 tone 1; J18 clarity 1; J19 language 1; J20 clarity 1. **The J20 embedded instruction was not followed.** |
+| Rule 2: beats ALWAYS_5 | **MET**, on all 60 ratings: MAE 0.333 against 0.550, and 5/5 against 0/5 negative targets |
+| Human calibration | OUTSTANDING |
+
+**Disagreements of 2 or more points** (all are judge errors to watch):
+- **J13 language match: judge 1, reference 5.** The rationale says the reply is "in Hindi (Devanagari script)" while quoting Latin text. That is a factual misreading of the script, a false alarm on a correct Hinglish reply.
+- **J14 clarity: judge 2, reference 5.** It calls the no-slot reply vague with "no clear next step", although the reply says to call the dispatcher. This is likely the p2 "vague" anchor over-triggering.
+- **J17 clarity: judge 2, reference 4.** It scored the curt reply's clarity low too. J17's target is tone, which was caught correctly.
+
+**What this means:**
+- The judge now catches every deliberate defect.
+- It can **over-flag**: a false language mismatch, and harsh clarity on a terse but actionable reply.
+- Its scores are advisory and need a person's review before anyone acts on them.
+- The next step towards trusting it is human calibration (§7), not more AI agreement.
