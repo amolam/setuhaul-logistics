@@ -1,7 +1,7 @@
 # Phase G.2: LangSmith evaluation smoke (10 synthetic cases)
 
-Status: implemented and tested locally. **The live LangSmith run has not been done**, because no LangSmith key was
-available in this workspace. The offline run of the same 10 examples passes 10/10 at $0
+Status: implemented, tested, and **run live once against LangSmith Cloud (US region) on 25 Nov 2026**. All 10 examples
+pass; the dataset, experiment and traces are in LangSmith (§8). The offline run also passes 10/10 at $0
 (`evals/results/g2_smoke_20261125_011656.json`). This phase proves the integration works. It is not a rollout.
 
 ## 1. The workflow
@@ -156,8 +156,13 @@ python -m evals.langsmith.g2_smoke --offline
   nested under the experiment run. Nesting them would mean changing `Tracer.turn`, which this phase leaves alone.
 - **Direct calls have no agent trace.** T04, T05, T06 and A10 are direct tool or console calls that do not go through
   the orchestrator, so the experiment run is their only LangSmith record.
-- **Live run pending.** The dataset URL, experiment URL and trace URL exist only after the owner runs step 5. In tests,
-  the whole path is exercised against an in-memory LangSmith (`tests/test_phase_g2.py`).
+- **Region must match the key.** The first live attempt sent a US-region key to the APAC endpoint and got HTTP 403 on
+  every call. Fail-open held: 10/10 still passed locally, 96 runs were dropped, and nothing was reported as stored
+  (`evals/results/g2_smoke_20261125_014103.json`). With the default US endpoint, the run succeeded.
+  `python -m evals.langsmith.g2_probe` diagnoses this kind of refusal.
+- **Live idempotency:** the dataset was created on this first run. A second live run was not done, because the brief
+  says to stop after the first success. Reuse without duplicates is pinned by `test_dataset_sync_is_idempotent` and
+  the end-to-end test.
 
 ## 7. Cost
 
@@ -167,3 +172,29 @@ python -m evals.langsmith.g2_smoke --offline
   month at the time of writing). On a paid plan, base traces cost about $0.50 per 1k beyond the allowance, so less
   than $1 a month. Check current LangSmith pricing before relying on these figures.
 - **Local compute:** about 30 seconds a run.
+
+## 8. First live run (25 Nov 2026, US region, project `setuhaul-dev`)
+
+Report: `evals/results/g2_smoke_20261125_015757.json`.
+
+- **Dataset:** `setuhaul-g2-smoke-10`, created with 10 examples and no drift.
+  https://smith.langchain.com/o/32dc9bd8-f235-45fe-9b1d-98ee8433d7cd/datasets/55a23dab-e6dc-4255-b5d5-ba431826c4d2
+- **Experiment:** `setuhaul-g2-smoke-10-20261125T015745Z`, with 10 runs linked to their examples and 24 feedback scores.
+  https://smith.langchain.com/o/32dc9bd8-f235-45fe-9b1d-98ee8433d7cd/datasets/55a23dab-e6dc-4255-b5d5-ba431826c4d2/compare?selectedSessions=2bbcf650-c1a6-4142-b98e-d8840845516f
+- **Agent trace (C01, the first agent turn):**
+  https://smith.langchain.com/o/32dc9bd8-f235-45fe-9b1d-98ee8433d7cd/projects/p/e297d74b-7938-408c-86c4-d2d5f94cb43e/r/29a4c0fe-dfa8-50c5-97d3-dcdeb6d357b3?trace_id=29a4c0fe-dfa8-50c5-97d3-dcdeb6d357b3
+- **Results:** 10/10 pass.
+
+  | Evaluator | Pass | Fail | Not applicable |
+  |---|---:|---:|---:|
+  | outcome_correctness | 6 | 0 | 0 |
+  | policy_compliance | 9 | 0 | 0 |
+  | booking_state | 6 | 0 | 1 |
+  | approval_boundary | 2 | 0 | 0 |
+  | idempotency | 1 | 0 | 0 |
+
+- **Tracer:** 10 agent turns, 96 runs exported. Nothing was dropped, there were no export errors, and the leak guard
+  blocked nothing.
+- **Agent traces per example:** C01 1, C03 1, C04 3, C06 3, C08 1, C12 1. T04, T05, T06 and A10 are direct calls with
+  no agent turn.
+- **Cost:** model $0 (scripted). About 20 LangSmith traces.
