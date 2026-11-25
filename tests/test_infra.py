@@ -720,3 +720,13 @@ def test_g2_the_activation_workflow_passes_langsmith_only_on_request_and_its_che
             r = subprocess.run([sys.executable, "-c", check], cwd=d.parent, capture_output=True, text=True,
                                env=dict(os.environ, LANGSMITH=given))
             assert (r.returncode == 0) == (given == ls), (ls, given, r.stdout, r.stderr[-300:])
+
+
+def test_demo_fast_track_readiness_runs_before_the_deploy_in_provisional_mode():
+    """Demo fast track: the read-only readiness check stops a provisional run before roles and logins rotate."""
+    wf = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "activate-booking.yml").read_text(encoding="utf-8")
+    activate = wf.split("\n  activate:\n", 1)[1]
+    ready, deploy = activate.index("python -m setuhaul.ops.readiness"), activate.index("deploy SetuHaulPilot --app cdk.out")
+    assert ready < deploy and activate.index("configure-aws-credentials") < ready
+    step = activate[activate.rindex("- name:", 0, ready):ready]
+    assert "if: env.MODE == 'provisional'" in step and "continue-on-error" not in step
