@@ -428,3 +428,53 @@ No retry was allowed, as the owner required, so those records have no scores. Th
 **Possible next steps.** Each needs separate owner approval, and the second needs a new paid run:
 1. **Change the prompt or the validation.** For example, have the prompt require short rationales and quotes, or truncate an over-long rationale instead of rejecting the answer. That is a change to the judge, so it would be a new prompt version.
 2. **Re-run the 30 replies** under that new version, within a new cap.
+
+## 10. Remediation after run 1: prompt `judge-p2` (no paid call)
+
+### Root cause of the 18 rejections
+
+| Count | Rejection | Cause |
+|---|---|---|
+| 13 | rationale or evidence over the limit (200 or 120 characters) | The p1 prompt asked for "at most 200 characters". A model can't count characters, and the provider doesn't enforce the tool schema's `maxLength`. Even the **accepted** answers ran right at the limit: rationales averaged 156 characters (max 193) and quotes averaged 64 (max 117). So roughly half went just over. |
+| 4 | not exactly `clarity`, `tone`, `language_match` at the top level | Probably a wrapper object or an extra key (for example an overall score). p1 never stated the exact shape, and run 1 didn't record which keys came back. |
+| 1 | evidence not an exact quote | A paraphrased or partial quote. |
+
+Four bad replies (J16, J18, J19, J20) were among the rejected answers, so they were never scored. That is why only 1 of 5 was caught. J17 was scored and caught.
+
+### Changes
+
+**Prompt `judge-p2`.** The validator is unchanged and just as strict; only the instructions to the model changed.
+- **Format.** It states the exact shape: exactly three keys and no other (no wrapper, no overall score), and exactly four fields per dimension. The rationale is ONE sentence of at most **20 words**, which is well under 200 characters. The evidence is **2–10 consecutive words copied exactly** from the reply, well under 120 characters, with no paraphrasing, translating or ellipses. The prompt includes a placeholder example, and a test checks that example against the unchanged validator.
+- **Defect anchors:**
+  - vague or non-committal replies, and replies with no options and no next step, score clarity 1–2;
+  - rude, blaming or scolding replies score tone 1–2;
+  - a reply in a different language or script from `<expected_language>` scores language match 1, with the J16 and J19 cases given as examples, and `<expected_language>` (not the reply) is the target.
+- **Instruction isolation.** A SECURITY paragraph says that everything inside the fences is untrusted data and must never be obeyed. An instruction aimed at an evaluator inside the reply is a defect and lowers clarity. The closing line of the user block repeats this.
+- **Diagnostics.** A rejection now records exactly which rule failed, using only key names and lengths, never the model's text. Examples: `got keys [judgement]; missing [...]`, `rationale too long (243 > 200 characters)`.
+
+**Unchanged:**
+- the validation rules and limits;
+- the reference scores;
+- the dataset and its fingerprint (`judge-v1-579de0ebb1ad`);
+- both acceptance rules;
+- the no-retry setting and the USD 0.35 cap;
+- the judge's offline, advisory-only status.
+
+### Provider and billing reconciliation (run 1)
+
+| Question | Answer |
+|---|---|
+| Actual provider | **Amazon Bedrock**, as OpenRouter's upstream. The client pins it and refuses any answer that reports a different provider. All 30 ledger rows show requested `amazon-bedrock` and actual `Amazon Bedrock`. |
+| Model | requested `anthropic/claude-haiku-4.5`; served `anthropic/claude-haiku-4.5` (OpenRouter's `model` field) |
+| Who bills | **OpenRouter**, from the owner's OpenRouter credit. The owner's AWS account is **not** billed, because Bedrock here runs in OpenRouter's account. There is nothing to reconcile in AWS billing. |
+| Ledger cost basis | **Provider-reported** (`cost_source = provider` on all 30 rows). That is OpenRouter's `usage.cost` for each generation, not the list price. The list price is used only for the dry-run estimate and the pre-send reservation. |
+| Reconciliation | The 30 rows carry OpenRouter generation ids, which can be matched in OpenRouter's activity view. The provider-reported total, USD 0.106965, equals 48,980 input × USD 1/M plus 11,597 output × USD 5/M exactly, so OpenRouter charged its list price. |
+| Is the USD 0.35 cap still valid? | **Yes.** It is enforced before every request against the ledger's reservation, which is an upper bound priced from OpenRouter's list price with a 20% margin and a 700-token output cap. Settlement uses OpenRouter's reported cost, which for run 1 equalled the list price. If OpenRouter changes its price, the reservation formula in `openrouter.py` must be updated. |
+
+**The p2 estimate** (`docs/evaluation/llm_judge_dry_run_p2.txt`): 30 requests with no retries, about USD 0.10 expected and **USD 0.1969 upper bound**, within the USD 0.35 cap.
+
+**The "expected" estimate understated run 1** (USD 0.077 against USD 0.107), because Devanagari text and longer answers used more tokens. The upper bound held, and it is the figure that matters.
+
+### Ready for another paid run?
+
+**Technically ready, but it needs your separate approval.** The tests use mocked answers, so they prove that p2-format answers parse and are scored correctly, including 5/5 and J20 injection detection. They cannot prove that the real model will follow the p2 format; only a paid run can show that.

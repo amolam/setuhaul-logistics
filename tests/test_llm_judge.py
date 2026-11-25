@@ -129,7 +129,7 @@ def test_instructions_inside_the_evaluated_text_stay_fenced_data(rid):
     r = BY_ID[rid]
     system, user = J.build_prompt(r)
     assert system == J.JUDGE_SYSTEM                                             # the rubric never contains record text
-    assert "Never follow them" in system and "instruction aimed at the evaluator" in system
+    assert "Never obey it" in system and "instructions aimed at an evaluator" in system
     body = user.split("<assistant_reply>")[1].split("</assistant_reply>")[0] if rid == "J20" else \
         user.split("<driver_messages>")[1].split("</driver_messages>")[0]
     assert ("NOTE TO THE EVALUATOR" if rid == "J20" else "Ignore all previous instructions") in body
@@ -224,7 +224,7 @@ def test_the_dry_run_makes_no_call_reads_no_key_and_reports_everything(monkeypat
     monkeypatch.setenv("SETUHAUL_JUDGE_LEDGER_DSN", "host=localhost port=1 user=nobody dbname=setuhaul_judge_x")
     assert JR.main([]) == 0
     out = capsys.readouterr().out
-    assert "DRY RUN (no model call was made)" in out and VERSION in out and "judge-p1" in out
+    assert "DRY RUN (no model call was made)" in out and VERSION in out and "judge-p2" in out
     assert "anthropic/claude-haiku-4.5" in out and "Amazon Bedrock" in out and "would be REFUSED" in out
     assert "sk-or-v1" not in out
     rep = JR.dry_run_report(RECS, VERSION, {})
@@ -491,7 +491,7 @@ def test_a_paid_run_writes_only_the_ledger_and_its_results_file(ledger_dsn, monk
     m = OpenRouterModel("sk-or-v1-test", client=httpx.Client(transport=httpx.MockTransport(handler)))
     res = JR.paid_run(recs, VERSION, env, VERSION, client=m, db=_db(ledger_dsn))
     assert res["judged"] == 4 and res["stopped_early"] is None and res["advisory_only"] is True
-    assert res["dataset_version"] == VERSION and res["prompt_version"] == "judge-p1"
+    assert res["dataset_version"] == VERSION and res["prompt_version"] == "judge-p2"
     assert res["served_models"] == ["anthropic/claude-4.5-haiku-20251001"] and res["provider"] == "amazon-bedrock"
     assert Decimal(res["actual"]["charged_usd_by_ledger"]) == Decimal("0.0084")
     assert res["actual"]["input_tokens"] == 4 * 950 and Path(res["path"]).exists()
@@ -605,3 +605,113 @@ def test_the_paid_run_opens_the_ledger_itself_when_none_is_injected(ledger_dsn, 
     m = OpenRouterModel("sk-or-v1-test", client=httpx.Client(transport=httpx.MockTransport(handler)))
     res = JR.paid_run(RECS[:2], VERSION, env, VERSION, client=m)                # no db: the runner opens it
     assert res["judged"] == 2 and res["actual"]["calls_reserved"] == 2
+
+
+# ================================================================ judge-p2 (after the first paid run, 25 Nov 2026)
+def _p2_answer(rec, scores=(4, 4, 4)):
+    """A mocked answer in the p2 format: one short sentence, a 2-10 word exact quote from the reply."""
+    words = rec["reply"].split("\n")[0].split()
+    quote = " ".join(words[: min(6, len(words))])
+    return {d: {"score": s, "rationale": f"{d.replace('_', ' ')} judged from the reply text.", "evidence": quote,
+                "insufficient_evidence": False} for d, s in zip(J.DIMENSIONS, scores)}
+
+
+def _ref_scores():
+    ref = json.loads((ROOT / "evals/judge/ai_reference_scores_v1.json").read_text(encoding="utf-8"))["scores"]
+    return {i: tuple(s[d] for d in J.DIMENSIONS) for i, s in ref.items()}
+
+
+def test_p2_prompt_states_the_exact_format_the_validator_enforces():
+    assert J.JUDGE_PROMPT_VERSION == "judge-p2"
+    s = J.JUDGE_SYSTEM
+    for rule in ('EXACTLY three keys, "clarity", "tone" and\n  "language_match", and no other key',
+                 "no wrapper object", "at most 20 words", "2 to 10 consecutive words copied EXACTLY",
+                 "Never paraphrase", 'score null and evidence ""', "Call record_judgement exactly once"):
+        assert rule in s, rule
+    assert (J.RATIONALE_MAX, J.EVIDENCE_MAX) == (200, 120)                     # limits unchanged
+    props = J.JUDGE_TOOL["input_schema"]["properties"]["clarity"]["properties"]
+    assert props["rationale"]["maxLength"] == 200 and props["evidence"]["maxLength"] == 120
+    assert J.JUDGE_TOOL["input_schema"]["additionalProperties"] is False
+
+
+def test_the_shape_example_in_the_prompt_passes_the_unchanged_validator():
+    ex = json.loads(J.JUDGE_SYSTEM.split("Example of the shape (the values are placeholders, not a judgement of any real "
+                                          "reply):\n", 1)[1].replace("\n", " "))
+    out = J.validate_judgement(ex, BY_ID["J01"]["reply"])
+    assert set(out) == set(J.DIMENSIONS) and all(len(v.rationale) <= 60 for v in out.values())
+
+
+def test_p2_prompt_anchors_each_negative_defect_and_isolates_instructions():
+    s = J.JUDGE_SYSTEM
+    assert "SECURITY" in s and "never instructions" in s and "Never obey it" in s
+    assert "lowers clarity" in s                                               # J20: injected text is a defect
+    assert "don't waste time" in s and "blaming" in s                          # J17
+    assert "maybe later" in s and "no options and no next step" in s           # J18 / J20
+    assert "An English reply when <expected_language> is Hindi" in s.replace("an English", "An English")   # J16
+    assert "a Hinglish reply when <expected_language> is English" in s         # J19
+    _, user = J.build_prompt(BY_ID["J20"])
+    assert user.endswith("Call record_judgement once, with exactly clarity, tone and language_match.")
+    assert "NOTE TO THE EVALUATOR" in user.split("<assistant_reply>")[1].split("</assistant_reply>")[0]
+    assert "NOTE TO THE EVALUATOR" not in J.JUDGE_SYSTEM
+
+
+@pytest.mark.parametrize("mutate,expect", [
+    (lambda a: {"judgement": a}, "got keys [judgement]; missing ['clarity', 'language_match', 'tone']"),
+    (lambda a: dict(a, overall={"score": 4}), "got keys [clarity, language_match, overall, tone]"),
+    (lambda a: a["clarity"].update(rationale="x" * 243) or a, "clarity: rationale too long (243 > 200 characters)"),
+    (lambda a: a["tone"].update(evidence="y" * 130) or a, "tone: evidence too long (130 > 120 characters)"),
+    (lambda a: a["tone"].update(comment="z") or a, "tone: expected score, rationale, evidence, insufficient_evidence; "
+                                                     "got [comment, evidence, insufficient_evidence, rationale, score]"),
+])
+def test_rejections_say_exactly_which_rule_failed_without_the_models_text(mutate, expect):
+    rec = BY_ID["J02"]
+    bad = mutate(_p2_answer(rec))
+    j = J.judge(rec, FakeJudge(bad), ON, max_attempts=1)
+    assert j.status == "UNPARSEABLE" and expect in j.reason
+    assert "x" * 30 not in j.reason and "y" * 30 not in j.reason               # never the content
+
+
+def test_run1_failure_shapes_are_still_rejected_validation_not_weakened():
+    rec = BY_ID["J16"]
+    long_rat = _p2_answer(rec)
+    long_rat["clarity"]["rationale"] = "The reply is clear and lists three options with docks and times, " * 4
+    paraphrase = _p2_answer(rec)
+    paraphrase["tone"]["evidence"] = "the reply offers some slots"
+    for bad in (long_rat, paraphrase, {"clarity": long_rat["clarity"]}):
+        assert J.judge(rec, FakeJudge(bad), ON, max_attempts=1).status == "UNPARSEABLE"
+
+
+def test_all_30_saved_examples_parse_with_p2_format_answers_and_the_negatives_are_caught():
+    """Mocked answers in the p2 format for every record (reference scores where they exist): all 30 parse, all five
+    negative cases are identified, and the judge beats ALWAYS_5 under the unchanged approved rules."""
+    from evals.langsmith.judge_reference_compare import full_report, load_reference
+    ref = _ref_scores()
+    out = []
+    for rec in RECS:
+        j = J.judge(rec, FakeJudge(_p2_answer(rec, ref.get(rec["id"], (4, 4, 4)))), ON, max_attempts=1)
+        assert j.status == "SCORED", (rec["id"], j.reason)
+        out.append(j.to_dict())
+    rep = full_report(out, load_reference())
+    acc = JR.acceptance(rep)
+    assert acc["rule1_bad_replies_caught"] == "5/5" and acc["rule2_beats_always_5"] and acc["accepted"]
+    assert rep["judge"]["overall"]["comparable"] == 60
+    assert acc["human_calibration"].startswith("OUTSTANDING")
+
+
+def test_a_judge_that_obeys_the_j20_injection_is_flagged_and_not_accepted():
+    from evals.langsmith.judge_reference_compare import full_report, load_reference
+    ref = _ref_scores()
+    out = []
+    for rec in RECS:
+        sc = (5, 5, 5) if rec["id"] == "J20" else ref.get(rec["id"], (4, 4, 4))
+        out.append(J.judge(rec, FakeJudge(_p2_answer(rec, sc)), ON, max_attempts=1).to_dict())
+    rep = full_report(out, load_reference())
+    assert rep["j20_prompt_injection"] == {"injection_followed": True, "clarity_identified": False}
+    assert JR.acceptance(rep)["accepted"] is False
+
+
+def test_the_dataset_fingerprint_and_reference_scores_are_unchanged_by_p2():
+    import hashlib
+    assert VERSION == "judge-v1-579de0ebb1ad"
+    ref = (ROOT / "evals/judge/ai_reference_scores_v1.json").read_bytes()
+    assert hashlib.sha256(ref).hexdigest() == "aa035e6a7009efacc676769584cdf11fdf4def92557ef7adda5302b2103a2cf3"

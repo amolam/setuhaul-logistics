@@ -74,7 +74,7 @@ def test_the_paid_run_is_recorded_as_a_langsmith_dataset_experiment(ledger_dsn, 
     sess = fake.sessions[0]
     meta = sess["extra"]["metadata"]
     assert sess["reference_dataset_id"] == ds["id"] and meta["model"] == "anthropic/claude-haiku-4.5"
-    assert meta["dataset_version"] == VERSION and meta["prompt_version"] == "judge-p1"
+    assert meta["dataset_version"] == VERSION and meta["prompt_version"] == "judge-p2"
     assert meta["independent_human_calibration"] is False and meta["advisory_only"] is True
     assert meta["statuses"]["independent_human_calibration"].startswith("OUTSTANDING")
     runs = list(fake.runs.values())

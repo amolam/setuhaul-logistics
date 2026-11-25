@@ -1,0 +1,14 @@
+LLM JUDGE - DRY RUN (no model call was made)
+  dataset       evals/judge/dataset_v1.jsonl  version judge-v1-579de0ebb1ad
+  records       30 (20 calibration, 5 contrast)  by language {'en': 16, 'hi': 7, 'hi-Latn': 7}
+  model         anthropic/claude-haiku-4.5 via Amazon Bedrock (pinned provider, no fallbacks, zdr=true, data_collection=deny), temperature 0
+  prompt        judge-p2   dimensions quality:clarity, quality:tone, quality:language_match
+  calls         30 expected, 30 at most (no retries)
+  tokens        ~58302 input, ~7800 output (expected)
+  cost USD      ~0.0973 expected, 0.1969 upper bound
+                anthropic/claude-haiku-4.5: USD 1.000000/M input, 5.000000/M output (setuhaul/agent/openrouter.py PRICE, OpenRouter list price 21 Nov 2026)
+  run cap       0.35 (max 1.00)   daily cap 3.00 (max 3.00, shared with the agent on this ledger)
+  ledger today  spent USD 0.106965, reserved USD 0.000000, by purpose {'judge': '0.106965'}, judge purpose migrated: True
+  paid run      would be REFUSED:
+                - key: OPENROUTER_API_KEY is not set in this shell (the owner sets it; it is never printed)
+                - approval: --approve must name the reviewed dataset version (judge-v1-579de0ebb1ad)
