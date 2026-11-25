@@ -101,10 +101,13 @@ def test_test_bot_mode_ready_is_always_allowlisted_and_never_the_live_mode():
     # the live authorization neither enables nor widens test_bot; live itself still needs its own authorization
     t2, allow2 = telegram_from_env({**BASE, "SETUHAUL_TELEGRAM_LIVE_AUTHORIZED": "true"})
     assert isinstance(t2, AllowlistedTelegram) and allow2 == allow
-    with pytest.raises(RuntimeError, match="LIVE_AUTHORIZED"):
-        telegram_from_env({**BASE, "SETUHAUL_TELEGRAM_DELIVERY": "live"})
-    with pytest.raises(RuntimeError, match="BOT_SECRET_ID"):   # live never reads a plain-variable token
+    with pytest.raises(RuntimeError, match="SETUHAUL_ENV in"):  # Full Activation: live only in the synthetic pilot
         telegram_from_env({**BASE, "SETUHAUL_TELEGRAM_DELIVERY": "live", "SETUHAUL_TELEGRAM_LIVE_AUTHORIZED": "true"})
+    pilot = {**BASE, "SETUHAUL_ENV": "pilot", "SETUHAUL_DATA_CLASS": "synthetic"}
+    with pytest.raises(RuntimeError, match="LIVE_AUTHORIZED"):
+        telegram_from_env({**pilot, "SETUHAUL_TELEGRAM_DELIVERY": "live"})
+    with pytest.raises(RuntimeError, match="BOT_SECRET_ID"):   # live never reads a plain-variable token
+        telegram_from_env({**pilot, "SETUHAUL_TELEGRAM_DELIVERY": "live", "SETUHAUL_TELEGRAM_LIVE_AUTHORIZED": "true"})
     assert isinstance(telegram_from_env({})[0], TelegramTestSink)      # the default is still the sink
 
 
@@ -130,9 +133,9 @@ def test_the_app_refuses_to_start_on_a_broken_test_bot_configuration(monkeypatch
     monkeypatch.setenv("SETUHAUL_TELEGRAM_DELIVERY", "test_bot")
     monkeypatch.delenv("SETUHAUL_TELEGRAM_TEST_BOT_AUTHORIZED", raising=False)
     with pytest.raises(RuntimeError, match="AUTHORIZED"):
-        app_mod._telegram_replies_from_env()
+        app_mod._telegram_from_env()
     monkeypatch.setenv("SETUHAUL_TELEGRAM_DELIVERY", "test_sink")
-    assert app_mod._telegram_replies_from_env() == {"telegram_mode": "test_sink"}
+    assert app_mod._telegram_from_env() == {"telegram_mode": "test_sink", "telegram_webhook_secret": None}
 
 
 def test_runner_refuses_a_database_that_is_not_the_dedicated_test_bot_database(monkeypatch):

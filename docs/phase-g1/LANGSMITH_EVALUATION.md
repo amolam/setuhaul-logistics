@@ -61,6 +61,10 @@ idempotency, expiry, fabrication, tools, extracted values). It raises unless `SE
 dev/eval and an owner-approved budget is set. Even then G.1 ships no model call (paid calls need approval). A judge
 score never changes PASS/FAIL.
 
+*Superseded (Part A, 25 Nov 2026):* the stub is now the offline judge, synthetic datasets only, dry run by
+default, the shared usage ledger plus a per-run cap of at most USD 1; see `docs/evaluation/LLM_JUDGE.md`. No paid run
+has been made; the first one needs the owner's approval of the dry-run report.
+
 ## 5. Running it
 
 ```

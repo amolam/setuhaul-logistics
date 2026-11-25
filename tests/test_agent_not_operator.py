@@ -28,6 +28,9 @@ AGENT_FUNCTIONS = {"hold_option", "submit_booking_request", "release_hold", "rec
                    # 0026 (Option D): read-only snapshot for the booking switch's start-up check (gate rows, guard
                    # triggers, kill switch, recorded manifest); returns no facility, driver or booking data
                    "booking_gate_snapshot",
+                   # 0043 (Full Activation): the advisory online judge's own daily spend (a number) and the writer of
+                   # its advisory, append-only judgement rows. Neither touches booking, approval or capacity state.
+                   "judge_spent_today", "record_turn_judgement",
                    # 0032 (Option P): read-only snapshot of one deployment's provisional authorization (status and
                    # window only); no facility, driver or booking data
                    "booking_provisional_snapshot"}

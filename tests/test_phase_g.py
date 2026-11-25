@@ -96,7 +96,7 @@ def test_correlation_id_is_echoed_or_replaced(client, keys):
 # ---------------------------------------------------------------- driver path with the optimizer ranking
 def test_driver_options_come_from_the_optimizer_and_the_turn_is_measured(ranked_app, dsn, caplog):
     c = TestClient(ranked_app)
-    _, phone, (sid,) = add_driver(dsn)
+    drv, phone, (sid,) = add_driver(dsn)
     d = Driver(c, phone)
     orch = Orchestrator(ranked_app.state.service, ranked_app.state.sessions,
                         FakeModel(extractions=[exd(delay_kind="ARRIVAL_TIME", declared_eta_local=in_90())]))
@@ -120,7 +120,10 @@ def test_driver_options_come_from_the_optimizer_and_the_turn_is_measured(ranked_
     assert {x["event"] for x in logged} >= {"optimizer.run", "agent.turn"}
     assert all(x["correlation_id"] == res.correlation_id for x in logged)
     blob = json.dumps(logged)
-    assert phone not in blob and phone[1:] not in blob and "Traffic" not in blob and "driver_id" not in blob
+    assert phone not in blob and phone[1:] not in blob and "Traffic" not in blob
+    # driver traceability (0041): the turn line names the driver by its internal id, format-gated, never the phone
+    from setuhaul.observability.identifiers import export_id
+    assert next(x for x in logged if x["event"] == "agent.turn")["driver_id"] == export_id("driver_id", drv)
 
 
 def test_optimizer_failure_falls_back_to_the_engine_options(ranked_app, dsn, monkeypatch):
@@ -200,7 +203,9 @@ def test_evaluation_runs_are_written_only_by_the_system_role(dsn):
 def test_telemetry_never_logs_personal_fields():
     rec = telemetry.emit("x.y", None, phone="+919876543210", driver_id="DRV1", text="hello", body="b", note="n",
                          facility_id=JAI, n=3, long="z" * 500)
-    assert set(rec) == {"event", "correlation_id", "facility_id", "n", "long"} and len(rec["long"]) == 120
+    # driver traceability: driver_id is kept only when well-formed; "DRV1" is not, so it is logged as [INVALID_ID]
+    assert set(rec) == {"event", "correlation_id", "facility_id", "driver_id", "n", "long"} and len(rec["long"]) == 120
+    assert rec["driver_id"] == "[INVALID_ID]" and "+919876543210" not in json.dumps(rec)
 
 
 # ---------------------------------------------------------------- concurrency: same recommended slot, one winner

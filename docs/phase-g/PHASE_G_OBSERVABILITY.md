@@ -35,6 +35,8 @@ Every answer carries `data_label: "SYNTHETIC DATA - pilot/local only, no real dr
 * `setuhaul/ops/telemetry.py` emits one JSON object per line on the `setuhaul.telemetry` logger: `optimizer.run` and
   `agent.turn` events. Keys that could carry personal data or text (`phone`, `driver_id`, `name`, `text`, `body`,
   `message`, `note`, `summary`, `args`, `prompt`, …) are dropped whatever the caller passes; long strings are cut.
+  *Superseded for `driver_id` by migration 0041:* `driver_id` and `shipment_id` are now logged when well-formed
+  (`[INVALID_ID]` otherwise); see `docs/observability/DRIVER_TRACEABILITY.md`.
 * Correlation id: every HTTP request gets one (a well-formed `X-Correlation-Id` is kept, anything else replaced) and it is
   echoed in the response. Every agent turn gets one in `Orchestrator.handle`. The same id is the optimizer run's
   `request_id`, the `agent_turn_metrics.turn_ref` and the `correlation_id` of each log line of that turn.
@@ -45,4 +47,4 @@ Every answer carries `data_label: "SYNTHETIC DATA - pilot/local only, no real dr
 * `record_optimization_run` refuses a facility outside the caller's scope and a shipment or dock of another facility.
 * The three 0027 tables are append-only (triggers).
 * `test_driver_options_come_from_the_optimizer_and_the_turn_is_measured` asserts the logged events contain neither the
-  driver's phone nor their words nor a driver id.
+  driver's phone nor their words (since 0041 it asserts the format-gated driver id instead of its absence).

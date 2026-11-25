@@ -62,7 +62,8 @@ class Settings:
     # Roadmap Phase 2: how long a shown option / dispatcher offer stays acceptable (SETUHAUL_OPTION_TTL_S, default 300)
     option_ttl_s: int | None = None
     # Roadmap Phase 5: Telegram webhook secret (setWebhook secret_token). Unset: the /webhooks/telegram route does not
-    # exist. In AWS it would come from Secrets Manager like the other secrets; NOT provisioned yet (owner approval).
+    # exist. In AWS it comes from Secrets Manager (SETUHAUL_TELEGRAM_WEBHOOK_SECRET_ID; notify.telegram.
+    # webhook_secret_from_env); SETUHAUL_TELEGRAM_WEBHOOK_ENABLED=false removes the route (inbound kill switch).
     telegram_webhook_secret: str | None = None
     # Where webhook replies go (link results, button answers, cleared buttons): None = the in-process test sink. With
     # SETUHAUL_TELEGRAM_DELIVERY=test_bot this is the allowlisted test bot, and `telegram_allowlist` makes the webhook
@@ -86,8 +87,7 @@ class Settings:
                    console_client_id=os.environ.get("COGNITO_CONSOLE_CLIENT_ID") or None,
                    optimizer_ranking=os.environ.get("SETUHAUL_OPTIMIZER_RANKING", "off").lower() in ("on", "true", "1"),
                    option_ttl_s=int(os.environ["SETUHAUL_OPTION_TTL_S"]) if os.environ.get("SETUHAUL_OPTION_TTL_S") else None,
-                   telegram_webhook_secret=os.environ.get("SETUHAUL_TELEGRAM_WEBHOOK_SECRET") or None,
-                   **_telegram_replies_from_env(),
+                   **_telegram_from_env(),
                    deployment_id=os.environ.get("SETUHAUL_DEPLOYMENT_ID") or None,
                    deployment_manifest=os.environ.get("SETUHAUL_DEPLOYMENT_MANIFEST") or None,
                    manifest_source=os.environ.get("SETUHAUL_DEPLOYMENT_MANIFEST_SOURCE", "file"),
@@ -95,14 +95,50 @@ class Settings:
                                 and os.environ.get("SETUHAUL_ENV") not in ("staging", "pilot")))
 
 
-def _telegram_replies_from_env() -> dict:
-    """Only test_bot / live put a real transport behind webhook replies; anything else keeps the test sink."""
-    mode = os.environ.get("SETUHAUL_TELEGRAM_DELIVERY", "test_sink")
-    if mode not in ("test_bot", "live"):
-        return {"telegram_mode": mode}
-    from ..notify.telegram import telegram_from_env
-    transport, allow = telegram_from_env(dict(os.environ))       # raises on any missing piece: the app does not start
-    return {"telegram_replies": transport, "telegram_allowlist": allow, "telegram_mode": mode}
+def _telegram_from_env() -> dict:
+    """The webhook secret and the transport behind webhook replies. Only test_bot / live put a real transport there;
+    anything else keeps the test sink. test_bot (local/dev only) still raises on any missing piece (the app does not
+    start). LIVE fails closed on TELEGRAM ONLY: an unreadable token or webhook secret, or a refused environment, logs an
+    ALERT and leaves the webhook route absent (Telegram keeps the updates and redelivers once fixed), so the console,
+    booking and every other route keep working. Nothing secret is logged."""
+    from ..notify.telegram import telegram_from_env, webhook_secret_from_env
+    env = dict(os.environ)
+    mode = env.get("SETUHAUL_TELEGRAM_DELIVERY", "test_sink")
+    out: dict = {"telegram_mode": mode}
+    if mode == "live":
+        try:
+            transport, allow = telegram_from_env(env)
+            out.update(telegram_replies=transport, telegram_allowlist=allow)
+        except RuntimeError as e:
+            log.error("ALERT Telegram live unavailable (%s): the webhook route is not registered", str(e)[:160])
+            return {"telegram_mode": "live_unavailable"}
+    elif mode == "test_bot":
+        transport, allow = telegram_from_env(env)                # raises on any missing piece: the app does not start
+        out.update(telegram_replies=transport, telegram_allowlist=allow)
+    try:
+        out["telegram_webhook_secret"] = webhook_secret_from_env(env)
+    except RuntimeError as e:
+        if mode == "test_bot":
+            raise
+        log.error("ALERT Telegram webhook secret unavailable (%s): the webhook route is not registered", str(e)[:160])
+        out["telegram_webhook_secret"] = None
+    return out
+
+
+def _features_public(settings) -> dict:
+    """The six independent controls for /health. Never a secret, token, chat id, key or budget figure."""
+    try:
+        from ..ops.features import resolve
+        f = resolve(dict(os.environ))
+        return {"booking_switch": f.booking_enabled, "telegram_delivery_mode": settings.telegram_mode or f.telegram_delivery_mode,
+                "telegram_live_authorized": f.telegram_live_authorized,
+                "telegram_outbound_enabled": f.telegram_outbound_enabled,
+                "telegram_webhook_enabled": bool(settings.telegram_webhook_secret),     # the route is registered
+                "telegram_driver_allowlist": bool((os.environ.get("SETUHAUL_TELEGRAM_AUTHORIZED_DRIVERS") or "").strip()),
+                "llm_judge_enabled": f.llm_judge_enabled, "llm_judge_advisory_only": True,
+                "langsmith_tracing_enabled": f.langsmith_tracing_enabled, "production": f.production}
+    except Exception:                                               # noqa: BLE001 — diagnostics never break /health
+        return {"unavailable": True}
 
 
 class ToolCall(BaseModel):
@@ -329,7 +365,10 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
                 # Telegram delivery mode only (test_sink | test_bot | live | off): no token, chat or allowlist
                 "telegram": settings.telegram_mode or ("test_bot" if settings.telegram_allowlist is not None
                                                        else "live" if settings.telegram_replies is not None
-                                                       else "test_sink")}
+                                                       else "test_sink"),
+                # Full Activation: the independent controls as this function resolves them (setuhaul.ops.features):
+                # modes and booleans only; booking_enabled above stays the database's answer
+                "features": _features_public(settings)}
         if not gate["switch"]:
             return JSONResponse(body, status_code=200 if database == "ok" else 503)
         body["booking_switch"] = "on"
@@ -462,12 +501,22 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
                     if isinstance(update, dict) else None
                 if not (isinstance(frm, dict) and str(frm.get("id")) in tg_allow):
                     return {"ok": True}
+            from ..observability import tracing
+            tr = tracing.tracer()
+            kind = next((k for k in ("callback_query", "message") if isinstance(update, dict) and k in update), "other")
             try:
-                out = await run_in_threadpool(svc.handle_telegram_update, update, sessions)
+                # Full Activation: one telegram_inbound trace per verified update (driver id set by the service once
+                # identified; never the chat id, the user id, the text or the secret). No-op when tracing is off.
+                with tr.turn(str(uuid.uuid4()), "telegram_inbound",
+                             metadata={"channel": "TELEGRAM", "component": "telegram_inbound", "update_kind": kind}):
+                    out = await run_in_threadpool(svc.handle_telegram_update, update, sessions)
             except Exception:
                 # not stored: answer 5xx so Telegram redelivers; the stored part is deduplicated on the retry
                 log.exception("could not handle a Telegram update; Telegram will retry")
                 return JSONResponse({"ok": False}, status_code=503)
+            finally:
+                if tr.enabled:
+                    await run_in_threadpool(lambda: tracing.safe(tr.flush, 0.5))
             if out.get("event"):
                 try:
                     await run_in_threadpool(relay.publish, out["event"])
@@ -571,10 +620,10 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
 
     @app.get("/console/observability")
     def observability(facility: str | None = Query(None, max_length=40), hours: int = Query(24, ge=1, le=744),
-                      p: Principal = Depends(staff)):
+                      driver: str | None = Query(None, max_length=48), p: Principal = Depends(staff)):
         """Phase G3, read only: operational, agent, optimizer, reliability and evaluation metrics in this person's
         facility scope. Every number is a persisted row or a measured timing; anything else is marked unavailable."""
-        return svc.observability(p, facility, hours)
+        return svc.observability(p, facility, hours, driver)
 
     @app.get("/console/escalations")
     def escalations(p: Principal = Depends(staff)):

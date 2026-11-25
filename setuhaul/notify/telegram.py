@@ -307,6 +307,47 @@ class TelegramBotProvider:
         return SendResult(PERMANENT, error=f"HTTP {r.status_code}")        # 400 bad chat, 403 blocked by the user
 
 
+class TracedTelegram:
+    """LangSmith tracing around ANY Telegram transport (live, test bot, test sink, paused): one root trace per send,
+    named telegram_outbound, with the outcome. Records only what happened: a chat TAG (never the chat id), the
+    notification's idempotency key (links the trace to notifications, hence to the driver and booking), lengths and
+    the outcome. Never the text, the token or the chat id. Tracing failures never affect the send."""
+
+    def __init__(self, inner, tracer):
+        self.inner, self.tracer = inner, tracer
+        self.supports_idempotency = getattr(inner, "supports_idempotency", False)
+        self.service_window = getattr(inner, "service_window", False)
+
+    def send(self, to: str, text: str, idempotency_key: str, reply_markup: dict | None = None) -> SendResult:
+        try:
+            ctx = self.tracer.turn(str(uuid.uuid4()), "telegram_outbound", metadata={
+                "channel": "TELEGRAM", "component": "telegram_outbound", "chat_tag": chat_tag(to),
+                "notification_ref": str(idempotency_key)[:80], "text_chars": len(text or ""),
+                "buttons": bool(reply_markup), "transport": type(self.inner).__name__})
+            run = ctx.__enter__()
+        except Exception:                                     # noqa: BLE001 — tracing never blocks a send
+            return self.inner.send(to, text, idempotency_key, reply_markup=reply_markup)
+        exc = None
+        try:
+            r = self.inner.send(to, text, idempotency_key, reply_markup=reply_markup)
+            try:
+                run.set(outcome=r.outcome, error=r.error, provider_ref_kind=(r.provider_message_id or "").split(".")[0])
+            except Exception:                                 # noqa: BLE001
+                pass
+            return r
+        except BaseException as e:
+            exc = e
+            raise
+        finally:
+            try:
+                ctx.__exit__(type(exc) if exc else None, exc, exc.__traceback__ if exc else None)
+            except Exception:                                 # noqa: BLE001
+                pass
+
+    def __getattr__(self, name):                              # clear_buttons, answer_callback, allows ...
+        return getattr(self.inner, name)
+
+
 REMOVE_KEYBOARD = {"remove_keyboard": True}      # after a location share or "Not now": the one-time keyboard goes away
 
 
@@ -341,11 +382,45 @@ class AllowlistedTelegram:
         self.provider.answer_callback(callback_query_id)        # answers the tap that was already allowlisted inbound
 
 
+class PausedTelegram:
+    """The Telegram OUTBOUND kill switch (SETUHAUL_TELEGRAM_OUTBOUND_ENABLED=false). Nothing leaves the process: every
+    send answers PERMANENT, so the relay records the notification FAILED with an escalation (visible to the dispatcher,
+    never silent, never a hidden fallback to another channel). Webhook replies and button clean-up are skipped and
+    logged. Inbound (the webhook) and booking are unaffected; turn it back on and new messages flow again."""
+
+    supports_idempotency = False
+    service_window = False
+
+    def send(self, to: str, text: str, idempotency_key: str, reply_markup: dict | None = None) -> SendResult:
+        log.warning("TELEGRAM_OUTBOUND_DISABLED refused a send chat=%s", hashlib.sha256(str(to).encode()).hexdigest()[:12])
+        return SendResult(PERMANENT, error="TELEGRAM_OUTBOUND_DISABLED")
+
+    def clear_buttons(self, chat_id: str, message_id: int) -> None:
+        log.warning("TELEGRAM_OUTBOUND_DISABLED skipped clearing buttons")
+
+    def answer_callback(self, callback_query_id: str) -> None:
+        log.warning("TELEGRAM_OUTBOUND_DISABLED skipped answering a callback")
+
+
 TEST_BOT_ENVS = ("local", "dev")
+LIVE_ENVS = ("pilot",)                                          # live Telegram: the synthetic pilot only (this release)
+PRODUCTION_ENVS = ("production", "prod")
+WEBHOOK_SECRET_MIN = 32
 _CHAT_ID_RE = re.compile(r"^[1-9][0-9]{4,14}$")                # a private chat id is a positive integer
 
 
 def telegram_from_env(env: dict, secrets_client=None):
+    """See _telegram_from_env; with SETUHAUL_TELEGRAM_OUTBOUND_ENABLED=false any sending transport is replaced by
+    PausedTelegram (the outbound kill switch; the allowlist, if any, is still returned for the inbound filter)."""
+    transport, allow = _telegram_from_env(env, secrets_client)
+    if transport is not None and str(env.get("SETUHAUL_TELEGRAM_OUTBOUND_ENABLED", "true")).strip().lower() in (
+            "false", "off", "0", "no"):
+        log.warning("TELEGRAM_OUTBOUND_DISABLED: the Telegram outbound kill switch is on; nothing will be sent")
+        return PausedTelegram(), allow
+    return transport, allow
+
+
+def _telegram_from_env(env: dict, secrets_client=None):
     """The ONE place Telegram delivery is chosen (relay and webhook replies). Returns (transport, allowlist):
 
       off        (None, None)                    no Telegram routing
@@ -355,8 +430,10 @@ def telegram_from_env(env: dict, secrets_client=None):
                  SETUHAUL_TELEGRAM_TEST_CHAT_IDS (1-10 numeric ids), and the token from Secrets Manager
                  (SETUHAUL_TELEGRAM_BOT_SECRET_ID) or, locally, SETUHAUL_TELEGRAM_TEST_BOT_TOKEN. It ignores
                  SETUHAUL_TELEGRAM_LIVE_AUTHORIZED and is refused in pilot / staging / production.
-      live       (TelegramBotProvider, None)     production-style; needs SETUHAUL_TELEGRAM_LIVE_AUTHORIZED=true and the
-                 token from Secrets Manager only. Not used in this cycle.
+      live       (TelegramBotProvider, None)     real drivers; needs ALL of: SETUHAUL_ENV in LIVE_ENVS (the synthetic
+                 pilot), SETUHAUL_DATA_CLASS=synthetic, SETUHAUL_TELEGRAM_LIVE_AUTHORIZED=true (set by CDK only with
+                 the owner's Telegram approval reference) and the token from Secrets Manager only. Refused in
+                 production and every other environment.
 
     Anything missing or unknown raises (fail closed). The token is never logged or returned."""
     mode = env.get("SETUHAUL_TELEGRAM_DELIVERY", "test_sink")
@@ -381,10 +458,18 @@ def telegram_from_env(env: dict, secrets_client=None):
         allow = frozenset(ids)
         return AllowlistedTelegram(TelegramBotProvider(token), allow), allow
     if mode == "live":
+        environment = (env.get("SETUHAUL_ENV") or "").strip().lower()
+        if environment in PRODUCTION_ENVS or environment not in LIVE_ENVS:
+            raise RuntimeError(f"CONFIG: live Telegram delivery runs only with SETUHAUL_ENV in {LIVE_ENVS}")
+        if (env.get("SETUHAUL_DATA_CLASS") or "").strip().lower() != "synthetic":
+            raise RuntimeError("CONFIG: live Telegram delivery runs only with SETUHAUL_DATA_CLASS=synthetic")
         if env.get("SETUHAUL_TELEGRAM_LIVE_AUTHORIZED", "false").lower() != "true":
             raise RuntimeError("CONFIG: SETUHAUL_TELEGRAM_DELIVERY=live needs SETUHAUL_TELEGRAM_LIVE_AUTHORIZED=true")
         if not env.get("SETUHAUL_TELEGRAM_BOT_SECRET_ID"):
             raise RuntimeError("CONFIG: SETUHAUL_TELEGRAM_BOT_SECRET_ID is required for live Telegram delivery")
+        if authorized_drivers_from_env(env) is None:                 # raises on a malformed list
+            raise RuntimeError("CONFIG: live Telegram needs SETUHAUL_TELEGRAM_AUTHORIZED_DRIVERS (the owner's list of "
+                               "authorized pilot driver ids)")
         return TelegramBotProvider(_token_from_secret(env, secrets_client)), None
     raise RuntimeError(f"CONFIG: unknown SETUHAUL_TELEGRAM_DELIVERY {mode!r}")
 
@@ -399,3 +484,70 @@ def _token_from_secret(env: dict, client) -> str:
         return json.loads(raw)["token"] if raw.strip().startswith("{") else raw.strip()
     except Exception as e:
         raise RuntimeError(f"CONFIG: Telegram bot secret unreadable ({type(e).__name__})") from None
+
+
+MAX_AUTHORIZED_DRIVERS = 50
+
+
+def authorized_drivers_from_env(env: dict) -> frozenset[str] | None:
+    """The owner's explicit list of pilot drivers allowed on LIVE Telegram (SETUHAUL_TELEGRAM_AUTHORIZED_DRIVERS: comma-
+    separated SetuHaul driver ids, never phones, names or chat ids). None = no list configured (test sink / local:
+    unchanged behaviour). In live mode the list is REQUIRED (telegram_from_env refuses live without it), and:
+      * staff cannot issue a link code for an unlisted driver;
+      * a Telegram account linked to an unlisted driver is treated as NOT LINKED (nothing is processed);
+      * the relay never sends to an unlisted driver's Telegram chat (FAILED + escalation, visible).
+    Identity is still proved only by a staff-issued, single-use link code redeemed from the driver's own account."""
+    raw = (env.get("SETUHAUL_TELEGRAM_AUTHORIZED_DRIVERS") or "").strip()
+    if not raw:
+        return None
+    from ..observability.identifiers import is_valid
+    ids = [x.strip() for x in raw.split(",") if x.strip()]
+    if not ids or len(ids) > MAX_AUTHORIZED_DRIVERS or not all(is_valid("driver_id", x) for x in ids):
+        raise RuntimeError(f"CONFIG: SETUHAUL_TELEGRAM_AUTHORIZED_DRIVERS must list 1-{MAX_AUTHORIZED_DRIVERS} "
+                           "SetuHaul driver ids (DRV-...)")
+    return frozenset(ids)
+
+
+def driver_authorized(driver_id: str | None, env: dict | None = None) -> bool:
+    """True when no list is configured or the driver is on it. An invalid list authorizes nobody (fail closed)."""
+    import os
+    try:
+        allow = authorized_drivers_from_env(dict(os.environ) if env is None else env)
+    except RuntimeError:
+        return False
+    return allow is None or (driver_id is not None and driver_id in allow)
+
+
+def webhook_secret_from_env(env: dict, secrets_client=None) -> str | None:
+    """The webhook's secret_token (the value given to setWebhook), or None when the inbound route must not exist.
+
+      SETUHAUL_TELEGRAM_WEBHOOK_ENABLED=false           -> None (the independent inbound kill switch)
+      SETUHAUL_TELEGRAM_WEBHOOK_SECRET_ID               -> read from Secrets Manager ({"secret": "..."} or the bare value)
+      SETUHAUL_TELEGRAM_WEBHOOK_SECRET (plain variable) -> local / dev / ci / eval only; refused anywhere else
+
+    A secret shorter than 32 characters raises (fail closed: never a weak secret). The value is never logged."""
+    if str(env.get("SETUHAUL_TELEGRAM_WEBHOOK_ENABLED", "true")).strip().lower() in ("false", "off", "0", "no"):
+        return None
+    environment = (env.get("SETUHAUL_ENV") or "dev").strip().lower()
+    secret_id = (env.get("SETUHAUL_TELEGRAM_WEBHOOK_SECRET_ID") or "").strip()
+    plain = (env.get("SETUHAUL_TELEGRAM_WEBHOOK_SECRET") or "").strip()
+    if secret_id:
+        import json
+        if secrets_client is None:
+            import boto3
+            secrets_client = boto3.client("secretsmanager", region_name=env.get("SETUHAUL_AWS_REGION", "ap-southeast-2"))
+        try:
+            raw = secrets_client.get_secret_value(SecretId=secret_id)["SecretString"].strip()
+            value = json.loads(raw)["secret"] if raw.startswith("{") else raw
+        except Exception as e:
+            raise RuntimeError(f"CONFIG: Telegram webhook secret unreadable ({type(e).__name__})") from None
+    elif plain:
+        if environment not in ("local", "dev", "ci", "eval", "test"):
+            raise RuntimeError("CONFIG: SETUHAUL_TELEGRAM_WEBHOOK_SECRET is not accepted here; use "
+                               "SETUHAUL_TELEGRAM_WEBHOOK_SECRET_ID (Secrets Manager)")
+        value = plain
+    else:
+        return None
+    if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_-]{32,256}", value):
+        raise RuntimeError("CONFIG: the Telegram webhook secret must be 32-256 characters of A-Z a-z 0-9 _ -")
+    return value

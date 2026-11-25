@@ -38,5 +38,13 @@ SetuHaulPilotStack(
     approved_templates=ctx("whatsapp_approved_templates") or "[]",
     booking_approval=ctx("booking_approval") or "",
     langsmith_tracing=ctx("langsmith_tracing") or "",            # G.1: off unless the owner passes "on"
-    langsmith_ui_url=ctx("langsmith_ui_url") or "")
+    langsmith_ui_url=ctx("langsmith_ui_url") or "",
+    # Full Activation (pilot): live Telegram needs its own owner approval reference; the judge budget defaults to 0
+    # (nothing sent); release_commit labels traces and logs. LangSmith is on by default in the pilot (langsmith_tracing
+    # off opts out).
+    telegram_live_approval=ctx("telegram_live_approval") or "",
+    telegram_authorized_drivers=ctx("telegram_authorized_drivers") or "",    # the owner's pilot-driver ids
+    llm_judge_budget_usd=str(ctx("llm_judge_budget_usd") or "0"),
+    llm_judge_sample_rate=str(ctx("llm_judge_sample_rate") or "0.2"),
+    release_commit=ctx("release_commit") or "")
 app.synth()
