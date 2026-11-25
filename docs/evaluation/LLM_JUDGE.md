@@ -379,3 +379,52 @@ A sample built from **fabricated** judge output (labelled "SAMPLE ONLY - FABRICA
   - the request is pinned, zero-retention, deterministic and a forced tool call.
 - **No side effects:** a paid run with a fake transport writes only the ledger and its results file (every other table is unchanged), and nothing that decides imports the judge.
 - **Calibration:** the report's maths and verdicts.
+
+## 9. First paid run, 25 Nov 2026 (owner-approved, USD 0.35 cap)
+
+**Verdict: NOT ACCEPTED. The judge stays an offline, manual evaluation tool and nothing runs on a schedule.**
+
+**Run details:**
+
+| | |
+|---|---|
+| Dataset | `judge-v1-579de0ebb1ad`, 30 synthetic replies |
+| Model | `anthropic/claude-haiku-4.5`, served as `anthropic/claude-haiku-4.5` via Amazon Bedrock (pinned, zdr, data_collection deny), temperature 0 |
+| Prompt | `judge-p1` |
+| Requests | 30, with **no retries** |
+| Tokens | 48,980 input and 11,597 output |
+| Latency | 84.4 s in total |
+| Cost | **USD 0.106965**, charged by the ledger at the provider-reported cost. Neither cap refused anything. |
+| LangSmith | dataset `setuhaul-llm-judge-judge-v1-579de0ebb1ad` (`e49dceb2-…`); experiment `llm-judge-judge-v1-579de0ebb1ad-20261125T171030Z` (`f863f7dc-…`): 30 runs, 36 feedback scores |
+| Results | `evals/results/judge_20261125_170901.json`; comparison in `docs/evaluation/llm_judge_run1_report.md` |
+
+**Statuses** (always kept apart):
+
+| Status | Result |
+|---|---|
+| Agreement within ±1 | MET: 95.8%, but on only **24** comparable ratings |
+| Rule 1: bad replies caught | **NOT MET: 1/5**. J17 (tone) was caught. J16, J18, J19 and J20 were **not scored**. |
+| Rule 2: beats ALWAYS_5 | reported as MET (MAE 0.208 vs 0.55), but **not comparable**: the judge covers 24 ratings and the baseline covers 60 |
+| Human calibration | OUTSTANDING |
+
+**Why it failed.** **18 of 30 answers were rejected by the judge's own strict validation** before scoring:
+- 13 had a rationale or evidence longer than the limit (200 or 120 characters), although the tool schema declares those limits;
+- 4 had the wrong set of dimension keys;
+- 1 had a quote that was not exact.
+
+No retry was allowed, as the owner required, so those records have no scores. The four uncaught bad replies are among them.
+
+**What this does and doesn't show:**
+- The model did **not** misjudge those four replies. Their answers were discarded for format before any score was read.
+- The one bad reply that was scored (J17) was scored correctly: tone 1, against a reference of 1.
+- The run therefore **cannot show** the discrimination that rule 1 requires.
+
+**Not done:**
+- the validation was not loosened;
+- the reference scores were not changed;
+- the rules were not reinterpreted;
+- no second paid run was made.
+
+**Possible next steps.** Each needs separate owner approval, and the second needs a new paid run:
+1. **Change the prompt or the validation.** For example, have the prompt require short rationales and quotes, or truncate an over-long rationale instead of rejecting the answer. That is a change to the judge, so it would be a new prompt version.
+2. **Re-run the 30 replies** under that new version, within a new cap.

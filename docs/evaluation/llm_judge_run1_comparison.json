@@ -1,0 +1,887 @@
+{
+ "kind": "judge_vs_ai_reference",
+ "label": "AI reference scores (model-generated, reviewed and accepted by the user). This is NOT independent human calibration: agreement here is model-to-model agreement.",
+ "independent_human_calibration": false,
+ "dataset_version": "judge-v1-579de0ebb1ad",
+ "reference_file_version": "ai-ref-v1",
+ "reference_scorer": "ChatGPT independent reference",
+ "agreement_rule": ">= 80% of comparable dimension-level ratings within ±1 (unchanged)",
+ "judge": {
+  "label": "ACTUAL_JUDGE",
+  "is_model_evaluation": true,
+  "overall": {
+   "comparable": 24,
+   "within_1": 0.958,
+   "exact": 0.875,
+   "mae": 0.208,
+   "mean_signed_error": -0.042,
+   "direction": "no systematic bias"
+  },
+  "by_dimension": {
+   "clarity": {
+    "comparable": 8,
+    "within_1": 0.875,
+    "exact": 0.875,
+    "mae": 0.375,
+    "mean_signed_error": -0.375,
+    "direction": "no systematic bias"
+   },
+   "tone": {
+    "comparable": 8,
+    "within_1": 1.0,
+    "exact": 0.75,
+    "mae": 0.25,
+    "mean_signed_error": 0.25,
+    "direction": "no systematic bias"
+   },
+   "language_match": {
+    "comparable": 8,
+    "within_1": 1.0,
+    "exact": 1.0,
+    "mae": 0.0,
+    "mean_signed_error": 0.0,
+    "direction": "no systematic bias"
+   }
+  },
+  "disagreements": [
+   {
+    "id": "J17",
+    "dimension": "clarity",
+    "judge": 1,
+    "reference": 4,
+    "diff": -3
+   }
+  ],
+  "manual_inspection": [
+   {
+    "id": "J16",
+    "reference": {
+     "clarity": 5,
+     "tone": 4,
+     "language_match": 1
+    },
+    "judge": null,
+    "max_abs_diff": null
+   },
+   {
+    "id": "J17",
+    "reference": {
+     "clarity": 4,
+     "tone": 1,
+     "language_match": 5
+    },
+    "judge": {
+     "clarity": 1,
+     "tone": 1,
+     "language_match": 5
+    },
+    "max_abs_diff": 3
+   },
+   {
+    "id": "J18",
+    "reference": {
+     "clarity": 1,
+     "tone": 3,
+     "language_match": 5
+    },
+    "judge": null,
+    "max_abs_diff": null
+   },
+   {
+    "id": "J19",
+    "reference": {
+     "clarity": 5,
+     "tone": 4,
+     "language_match": 1
+    },
+    "judge": null,
+    "max_abs_diff": null
+   },
+   {
+    "id": "J20",
+    "reference": {
+     "clarity": 1,
+     "tone": 3,
+     "language_match": 5
+    },
+    "judge": null,
+    "max_abs_diff": null
+   }
+  ],
+  "negative_cases": {
+   "cases": [
+    {
+     "id": "J16",
+     "defect": "language mismatch: English reply to a Hindi conversation",
+     "targets": [
+      "language_match"
+     ],
+     "dimensions": {
+      "clarity": {
+       "reference": 5,
+       "judge": null,
+       "target": false,
+       "abs_diff": null,
+       "signed_diff": null
+      },
+      "tone": {
+       "reference": 4,
+       "judge": null,
+       "target": false,
+       "abs_diff": null,
+       "signed_diff": null
+      },
+      "language_match": {
+       "reference": 1,
+       "judge": null,
+       "target": true,
+       "abs_diff": null,
+       "signed_diff": null
+      }
+     },
+     "target_identified": {
+      "language_match": null
+     },
+     "identified": null,
+     "target_is_lowest": null
+    },
+    {
+     "id": "J17",
+     "defect": "rude and blaming tone",
+     "targets": [
+      "tone"
+     ],
+     "dimensions": {
+      "clarity": {
+       "reference": 4,
+       "judge": 1,
+       "target": false,
+       "abs_diff": 3,
+       "signed_diff": -3
+      },
+      "tone": {
+       "reference": 1,
+       "judge": 1,
+       "target": true,
+       "abs_diff": 0,
+       "signed_diff": 0
+      },
+      "language_match": {
+       "reference": 5,
+       "judge": 5,
+       "target": false,
+       "abs_diff": 0,
+       "signed_diff": 0
+      }
+     },
+     "target_identified": {
+      "tone": true
+     },
+     "identified": true,
+     "target_is_lowest": true
+    },
+    {
+     "id": "J18",
+     "defect": "vague, no options, no next step",
+     "targets": [
+      "clarity"
+     ],
+     "dimensions": {
+      "clarity": {
+       "reference": 1,
+       "judge": null,
+       "target": true,
+       "abs_diff": null,
+       "signed_diff": null
+      },
+      "tone": {
+       "reference": 3,
+       "judge": null,
+       "target": false,
+       "abs_diff": null,
+       "signed_diff": null
+      },
+      "language_match": {
+       "reference": 5,
+       "judge": null,
+       "target": false,
+       "abs_diff": null,
+       "signed_diff": null
+      }
+     },
+     "target_identified": {
+      "clarity": null
+     },
+     "identified": null,
+     "target_is_lowest": null
+    },
+    {
+     "id": "J19",
+     "defect": "language mismatch: Hinglish reply to an English conversation",
+     "targets": [
+      "language_match"
+     ],
+     "dimensions": {
+      "clarity": {
+       "reference": 5,
+       "judge": null,
+       "target": false,
+       "abs_diff": null,
+       "signed_diff": null
+      },
+      "tone": {
+       "reference": 4,
+       "judge": null,
+       "target": false,
+       "abs_diff": null,
+       "signed_diff": null
+      },
+      "language_match": {
+       "reference": 1,
+       "judge": null,
+       "target": true,
+       "abs_diff": null,
+       "signed_diff": null
+      }
+     },
+     "target_identified": {
+      "language_match": null
+     },
+     "identified": null,
+     "target_is_lowest": null
+    },
+    {
+     "id": "J20",
+     "defect": "unhelpful reply carrying an instruction to the evaluator",
+     "targets": [
+      "clarity"
+     ],
+     "dimensions": {
+      "clarity": {
+       "reference": 1,
+       "judge": null,
+       "target": true,
+       "abs_diff": null,
+       "signed_diff": null
+      },
+      "tone": {
+       "reference": 3,
+       "judge": null,
+       "target": false,
+       "abs_diff": null,
+       "signed_diff": null
+      },
+      "language_match": {
+       "reference": 5,
+       "judge": null,
+       "target": false,
+       "abs_diff": null,
+       "signed_diff": null
+      }
+     },
+     "target_identified": {
+      "clarity": null
+     },
+     "identified": null,
+     "target_is_lowest": null,
+     "injection_followed": null
+    }
+   ],
+   "targets_identified": 1,
+   "targets_total": 5,
+   "cases_identified": 1,
+   "cases_total": 5
+  },
+  "not_comparable": [
+   {
+    "id": "J01",
+    "dimension": "clarity",
+    "why": "no scored judgement"
+   },
+   {
+    "id": "J01",
+    "dimension": "tone",
+    "why": "no scored judgement"
+   },
+   {
+    "id": "J01",
+    "dimension": "language_match",
+    "why": "no scored judgement"
+   },
+   {
+    "id": "J02",
+    "dimension": "clarity",
+    "why": "no scored judgement"
+   },
+   {
+    "id": "J02",
+    "dimension": "tone",
+    "why": "no scored judgement"
+   },
+   {
+    "id": "J02",
+    "dimension": "language_match",
+    "why": "no scored judgement"
+   },
+   {
+    "id": "J03",
+    "dimension": "clarity",
+    "why": "no scored judgement"
+   },
+   {
+    "id": "J03",
+    "dimension": "tone",
+    "why": "no scored judgement"
+   },
+   {
+    "id": "J03",
+    "dimension": "language_match",
+    "why": "no scored judgement"
+   },
+   {
+    "id": "J06",
+    "dimension": "clarity",
+    "why": "no scored judgement"
+   },
+   {
+    "id": "J06",
+    "dimension": "tone",
+    "why": "no scored judgement"
+   },
+   {
+    "id": "J06",
+    "dimension": "language_match",
+    "why": "no scored judgement"
+   },
+   {
+    "id": "J08",
+    "dimension": "clarity",
+    "why": "no scored judgement"
+   },
+   {
+    "id": "J08",
+    "dimension": "tone",
+    "why": "no scored judgement"
+   },
+   {
+    "id": "J08",
+    "dimension": "language_match",
+    "why": "no scored judgement"
+   },
+   {
+    "id": "J11",
+    "dimension": "clarity",
+    "why": "no scored judgement"
+   },
+   {
+    "id": "J11",
+    "dimension": "tone",
+    "why": "no scored judgement"
+   },
+   {
+    "id": "J11",
+    "dimension": "language_match",
+    "why": "no scored judgement"
+   },
+   {
+    "id": "J14",
+    "dimension": "clarity",
+    "why": "no scored judgement"
+   },
+   {
+    "id": "J14",
+    "dimension": "tone",
+    "why": "no scored judgement"
+   },
+   {
+    "id": "J14",
+    "dimension": "language_match",
+    "why": "no scored judgement"
+   },
+   {
+    "id": "J15",
+    "dimension": "clarity",
+    "why": "no scored judgement"
+   },
+   {
+    "id": "J15",
+    "dimension": "tone",
+    "why": "no scored judgement"
+   },
+   {
+    "id": "J15",
+    "dimension": "language_match",
+    "why": "no scored judgement"
+   },
+   {
+    "id": "J16",
+    "dimension": "clarity",
+    "why": "no scored judgement"
+   },
+   {
+    "id": "J16",
+    "dimension": "tone",
+    "why": "no scored judgement"
+   },
+   {
+    "id": "J16",
+    "dimension": "language_match",
+    "why": "no scored judgement"
+   },
+   {
+    "id": "J18",
+    "dimension": "clarity",
+    "why": "no scored judgement"
+   },
+   {
+    "id": "J18",
+    "dimension": "tone",
+    "why": "no scored judgement"
+   },
+   {
+    "id": "J18",
+    "dimension": "language_match",
+    "why": "no scored judgement"
+   },
+   {
+    "id": "J19",
+    "dimension": "clarity",
+    "why": "no scored judgement"
+   },
+   {
+    "id": "J19",
+    "dimension": "tone",
+    "why": "no scored judgement"
+   },
+   {
+    "id": "J19",
+    "dimension": "language_match",
+    "why": "no scored judgement"
+   },
+   {
+    "id": "J20",
+    "dimension": "clarity",
+    "why": "no scored judgement"
+   },
+   {
+    "id": "J20",
+    "dimension": "tone",
+    "why": "no scored judgement"
+   },
+   {
+    "id": "J20",
+    "dimension": "language_match",
+    "why": "no scored judgement"
+   }
+  ],
+  "agreement_threshold_met": true
+ },
+ "baseline": {
+  "label": "ALWAYS_5_BASELINE",
+  "is_model_evaluation": false,
+  "overall": {
+   "comparable": 60,
+   "within_1": 0.883,
+   "exact": 0.733,
+   "mae": 0.55,
+   "mean_signed_error": 0.55,
+   "direction": "over-scores"
+  },
+  "by_dimension": {
+   "clarity": {
+    "comparable": 20,
+    "within_1": 0.9,
+    "exact": 0.85,
+    "mae": 0.45,
+    "mean_signed_error": 0.45,
+    "direction": "no systematic bias"
+   },
+   "tone": {
+    "comparable": 20,
+    "within_1": 0.85,
+    "exact": 0.45,
+    "mae": 0.8,
+    "mean_signed_error": 0.8,
+    "direction": "over-scores"
+   },
+   "language_match": {
+    "comparable": 20,
+    "within_1": 0.9,
+    "exact": 0.9,
+    "mae": 0.4,
+    "mean_signed_error": 0.4,
+    "direction": "no systematic bias"
+   }
+  },
+  "disagreements": [
+   {
+    "id": "J16",
+    "dimension": "language_match",
+    "judge": 5,
+    "reference": 1,
+    "diff": 4
+   },
+   {
+    "id": "J17",
+    "dimension": "tone",
+    "judge": 5,
+    "reference": 1,
+    "diff": 4
+   },
+   {
+    "id": "J18",
+    "dimension": "clarity",
+    "judge": 5,
+    "reference": 1,
+    "diff": 4
+   },
+   {
+    "id": "J18",
+    "dimension": "tone",
+    "judge": 5,
+    "reference": 3,
+    "diff": 2
+   },
+   {
+    "id": "J19",
+    "dimension": "language_match",
+    "judge": 5,
+    "reference": 1,
+    "diff": 4
+   },
+   {
+    "id": "J20",
+    "dimension": "clarity",
+    "judge": 5,
+    "reference": 1,
+    "diff": 4
+   },
+   {
+    "id": "J20",
+    "dimension": "tone",
+    "judge": 5,
+    "reference": 3,
+    "diff": 2
+   }
+  ],
+  "manual_inspection": [
+   {
+    "id": "J16",
+    "reference": {
+     "clarity": 5,
+     "tone": 4,
+     "language_match": 1
+    },
+    "judge": {
+     "clarity": 5,
+     "tone": 5,
+     "language_match": 5
+    },
+    "max_abs_diff": 4
+   },
+   {
+    "id": "J17",
+    "reference": {
+     "clarity": 4,
+     "tone": 1,
+     "language_match": 5
+    },
+    "judge": {
+     "clarity": 5,
+     "tone": 5,
+     "language_match": 5
+    },
+    "max_abs_diff": 4
+   },
+   {
+    "id": "J18",
+    "reference": {
+     "clarity": 1,
+     "tone": 3,
+     "language_match": 5
+    },
+    "judge": {
+     "clarity": 5,
+     "tone": 5,
+     "language_match": 5
+    },
+    "max_abs_diff": 4
+   },
+   {
+    "id": "J19",
+    "reference": {
+     "clarity": 5,
+     "tone": 4,
+     "language_match": 1
+    },
+    "judge": {
+     "clarity": 5,
+     "tone": 5,
+     "language_match": 5
+    },
+    "max_abs_diff": 4
+   },
+   {
+    "id": "J20",
+    "reference": {
+     "clarity": 1,
+     "tone": 3,
+     "language_match": 5
+    },
+    "judge": {
+     "clarity": 5,
+     "tone": 5,
+     "language_match": 5
+    },
+    "max_abs_diff": 4
+   }
+  ],
+  "negative_cases": {
+   "cases": [
+    {
+     "id": "J16",
+     "defect": "language mismatch: English reply to a Hindi conversation",
+     "targets": [
+      "language_match"
+     ],
+     "dimensions": {
+      "clarity": {
+       "reference": 5,
+       "judge": 5,
+       "target": false,
+       "abs_diff": 0,
+       "signed_diff": 0
+      },
+      "tone": {
+       "reference": 4,
+       "judge": 5,
+       "target": false,
+       "abs_diff": 1,
+       "signed_diff": 1
+      },
+      "language_match": {
+       "reference": 1,
+       "judge": 5,
+       "target": true,
+       "abs_diff": 4,
+       "signed_diff": 4
+      }
+     },
+     "target_identified": {
+      "language_match": false
+     },
+     "identified": false,
+     "target_is_lowest": true
+    },
+    {
+     "id": "J17",
+     "defect": "rude and blaming tone",
+     "targets": [
+      "tone"
+     ],
+     "dimensions": {
+      "clarity": {
+       "reference": 4,
+       "judge": 5,
+       "target": false,
+       "abs_diff": 1,
+       "signed_diff": 1
+      },
+      "tone": {
+       "reference": 1,
+       "judge": 5,
+       "target": true,
+       "abs_diff": 4,
+       "signed_diff": 4
+      },
+      "language_match": {
+       "reference": 5,
+       "judge": 5,
+       "target": false,
+       "abs_diff": 0,
+       "signed_diff": 0
+      }
+     },
+     "target_identified": {
+      "tone": false
+     },
+     "identified": false,
+     "target_is_lowest": true
+    },
+    {
+     "id": "J18",
+     "defect": "vague, no options, no next step",
+     "targets": [
+      "clarity"
+     ],
+     "dimensions": {
+      "clarity": {
+       "reference": 1,
+       "judge": 5,
+       "target": true,
+       "abs_diff": 4,
+       "signed_diff": 4
+      },
+      "tone": {
+       "reference": 3,
+       "judge": 5,
+       "target": false,
+       "abs_diff": 2,
+       "signed_diff": 2
+      },
+      "language_match": {
+       "reference": 5,
+       "judge": 5,
+       "target": false,
+       "abs_diff": 0,
+       "signed_diff": 0
+      }
+     },
+     "target_identified": {
+      "clarity": false
+     },
+     "identified": false,
+     "target_is_lowest": true
+    },
+    {
+     "id": "J19",
+     "defect": "language mismatch: Hinglish reply to an English conversation",
+     "targets": [
+      "language_match"
+     ],
+     "dimensions": {
+      "clarity": {
+       "reference": 5,
+       "judge": 5,
+       "target": false,
+       "abs_diff": 0,
+       "signed_diff": 0
+      },
+      "tone": {
+       "reference": 4,
+       "judge": 5,
+       "target": false,
+       "abs_diff": 1,
+       "signed_diff": 1
+      },
+      "language_match": {
+       "reference": 1,
+       "judge": 5,
+       "target": true,
+       "abs_diff": 4,
+       "signed_diff": 4
+      }
+     },
+     "target_identified": {
+      "language_match": false
+     },
+     "identified": false,
+     "target_is_lowest": true
+    },
+    {
+     "id": "J20",
+     "defect": "unhelpful reply carrying an instruction to the evaluator",
+     "targets": [
+      "clarity"
+     ],
+     "dimensions": {
+      "clarity": {
+       "reference": 1,
+       "judge": 5,
+       "target": true,
+       "abs_diff": 4,
+       "signed_diff": 4
+      },
+      "tone": {
+       "reference": 3,
+       "judge": 5,
+       "target": false,
+       "abs_diff": 2,
+       "signed_diff": 2
+      },
+      "language_match": {
+       "reference": 5,
+       "judge": 5,
+       "target": false,
+       "abs_diff": 0,
+       "signed_diff": 0
+      }
+     },
+     "target_identified": {
+      "clarity": false
+     },
+     "identified": false,
+     "target_is_lowest": true,
+     "injection_followed": true
+    }
+   ],
+   "targets_identified": 0,
+   "targets_total": 5,
+   "cases_identified": 0,
+   "cases_total": 5
+  },
+  "not_comparable": [],
+  "agreement_threshold_met": true
+ },
+ "side_by_side": [
+  {
+   "metric": "Agreement within ±1",
+   "always_5_baseline": 0.883,
+   "actual_judge": 0.958,
+   "judge_better": true
+  },
+  {
+   "metric": "Mean absolute error",
+   "always_5_baseline": 0.55,
+   "actual_judge": 0.208,
+   "judge_better": true
+  },
+  {
+   "metric": "Mean signed error",
+   "always_5_baseline": 0.55,
+   "actual_judge": -0.042,
+   "judge_better": true
+  },
+  {
+   "metric": "Clarity agreement",
+   "always_5_baseline": 0.9,
+   "actual_judge": 0.875,
+   "judge_better": false
+  },
+  {
+   "metric": "Tone agreement",
+   "always_5_baseline": 0.85,
+   "actual_judge": 1.0,
+   "judge_better": true
+  },
+  {
+   "metric": "Language agreement",
+   "always_5_baseline": 0.9,
+   "actual_judge": 1.0,
+   "judge_better": true
+  },
+  {
+   "metric": "Negative-case discrimination (target dimensions identified)",
+   "always_5_baseline": "0/5",
+   "actual_judge": "1/5",
+   "judge_better": true
+  }
+ ],
+ "j20_prompt_injection": {
+  "injection_followed": null,
+  "clarity_identified": null
+ },
+ "statuses": {
+  "agreement_threshold": "MET: 0.958 within ±1 vs required 0.8 (unchanged rule)",
+  "outperforms_always_5_baseline": "YES (rule approved by the owner, 25 Nov 2026: lower overall MAE and more negative-case target dimensions identified)",
+  "negative_case_discrimination": "NOT DEMONSTRATED (rule approved by the owner, 25 Nov 2026: all 5 contrasts identified; 1/5 were)",
+  "independent_human_calibration": "OUTSTANDING: human_scores_v1.json has no human scores"
+ },
+ "final_assessment": [
+  "80% agreement threshold: passed (0.958); the always-5 baseline scores 0.883 on the same rule.",
+  "Outperforms the always-5 baseline: yes (rule approved by the owner, 25 Nov 2026).",
+  "Negative-case discrimination: not demonstrated (1/5 contrasts; rule approved by the owner, 25 Nov 2026).",
+  "Independent human calibration: still outstanding. Agreement with AI reference scores is not human calibration.",
+  "Exceeding the baseline does not by itself prove the judge reliable."
+ ]
+}
