@@ -243,8 +243,17 @@ function renderOptimizer(list, detail){
     } catch(e){ detail.innerHTML = `<div class="empty err">${e.status === 404 ? "Not found, or not in your facilities." : "Refused by the server: " + esc(e.message)}</div>` }
   };
 }
+// Driver traceability (0041): filter the recent turns by one internal driver id (the server checks its format).
+let OBS_DRIVER = "";
 async function renderObservability(list, detail){
-  const r = await api("GET", "/console/observability?hours=24");
+  const q = new URLSearchParams({hours: "24"}); if (OBS_DRIVER) q.set("driver", OBS_DRIVER);
+  let r;
+  try { r = await api("GET", "/console/observability?" + q); }
+  catch(e){
+    if (e.status === 422 && OBS_DRIVER) { const bad = OBS_DRIVER; OBS_DRIVER = ""; await renderObservability(list, detail);
+      const m = document.getElementById("obsdrivermsg"); if (m) m.textContent = `"${bad}" is not a driver id (example: DRV-JAI-0042). Showing all drivers.`; return; }
+    throw e;
+  }
   const o = r.overview, a = r.agent, z = r.optimization, rel = r.reliability;
   list.innerHTML = `<p class="pill">${esc(r.data_label)}</p>
     <p class="muted">Window: ${when(r.since)} – ${when(r.generated_at)} · facilities ${esc(r.facilities.join(", "))}.
@@ -286,7 +295,7 @@ async function renderObservability(list, detail){
       "spent today USD": mu.today_spent_usd, "budget day": (mo.budget || {}).day_boundary,
       "latency p50 ms": mu.latency_p50_ms, "latency p95 ms": mu.latency_p95_ms, "by model": mu.by_model})}
     <p class="muted">${esc((mo.tokens || {}).note || "")}</p>
-    ${renderLangSmith(r.langsmith || {}, a.recent_turns || [])}
+    ${renderLangSmith(r.langsmith || {}, a.recent_turns || [], r.driver_filter)}
     <h2 style="margin-top:18px">Optimization performance</h2>${kvTable({"runs": z.runs, "with options": z.with_options, "fallbacks to engine order": z.fallbacks,
       "p50 ms": z.p50_ms, "p95 ms": z.p95_ms, "max ms": z.max_ms, "avg candidates": z.avg_candidates, "avg rejected": z.avg_rejected})}
     <h3>By solver status</h3>${kvTable(z.by_status)}<h3>By outcome</h3>${kvTable(z.by_outcome)}<h3>By caller</h3>${kvTable(z.by_caller)}
@@ -303,11 +312,15 @@ async function renderObservability(list, detail){
     <div class="tablewrap"><table><tr><th>Suite</th><th>Mode</th><th>Dataset</th><th>Passed</th><th>Failed</th><th>Skipped</th><th>Cost USD</th><th>Finished</th></tr>${r.evaluation.map(e => e.status
       ? `<tr><td colspan="8" class="muted">${esc(e.status)}</td></tr>`
       : `<tr><td>${esc(e.suite)}</td><td>${esc(e.mode)}</td><td>${esc(e.dataset_version)}</td><td>${e.passed}/${e.total}</td><td>${e.failed}</td><td>${e.skipped}</td><td>${esc(e.cost_usd)}</td><td>${when(e.finished_at)}</td></tr>`).join("")}</table></div>`;
+  const f = document.getElementById("obsdriverform");
+  if (f) f.onsubmit = ev => { ev.preventDefault(); OBS_DRIVER = (document.getElementById("obsdriver").value || "").trim(); renderObservability(list, detail); };
+  const clr = document.getElementById("obsdriverclear");
+  if (clr) clr.onclick = () => { OBS_DRIVER = ""; renderObservability(list, detail); };
 }
 
 // G.1 (G6): LangSmith links for planner/ops_lead (the server only returns this tab to them). Links only: the browser
 // holds no LangSmith credential and makes no call to LangSmith.
-function renderLangSmith(ls, turns){
+function renderLangSmith(ls, turns, driverFilter){
   const ev = ls.latest_eval;
   return `<h2 style="margin-top:18px">LangSmith (traces and evaluation)</h2>
     ${kvTable({"tracing": ls.tracing, "project": ls.project_url ? "configured (link below)" : (ls.project_status || "unavailable"),
@@ -317,10 +330,18 @@ function renderLangSmith(ls, turns){
     ${ls.project_url ? `<p>Project: ${extLink(ls.project_url, ls.project_url)}</p>` : ""}
     ${ls.experiment_url ? `<p>Latest experiment: ${extLink(ls.experiment_url, ls.experiment_url)}</p>` : ""}
     <h3>Recent turns</h3>
-    ${turns.length ? `<div class="tablewrap"><table><tr><th>When</th><th>Facility</th><th>Reader</th><th>Failure category</th><th>ms</th><th>Trace</th></tr>${turns.map(t =>
-      `<tr><td>${when(t.created_at)}</td><td>${esc(t.facility_id || "CENTRAL")}</td><td>${esc(t.extractor)}</td><td>${esc(t.fallback_reason || "")}</td>
+    <form id="obsdriverform" class="row" style="gap:6px;align-items:center;margin:4px 0 8px">
+      <label for="obsdriver" class="muted">Driver</label>
+      <input id="obsdriver" maxlength="48" placeholder="DRV-JAI-0042" value="${esc(driverFilter || "")}" style="width:180px">
+      <button type="submit">Filter</button>${driverFilter ? ` <button type="button" id="obsdriverclear">Show all drivers</button>` : ""}
+      <span id="obsdrivermsg" class="muted"></span>
+    </form>
+    <p class="muted">The same driver id finds a turn in LangSmith (metadata <span class="mono">driver_id</span>) and in CloudWatch
+      (<span class="mono">agent.turn</span> lines). Turns before a shipment was known show no driver here.</p>
+    ${turns.length ? `<div class="tablewrap"><table><tr><th>When</th><th>Facility</th><th>Driver</th><th>Shipment</th><th>Reader</th><th>Failure category</th><th>ms</th><th>Trace</th></tr>${turns.map(t =>
+      `<tr><td>${when(t.created_at)}</td><td>${esc(t.facility_id || "CENTRAL")}</td><td class="mono">${esc(t.driver_id || "")}</td><td class="mono">${esc(t.shipment_id || "")}</td><td>${esc(t.extractor)}</td><td>${esc(t.fallback_reason || "")}</td>
        <td>${esc(t.turn_ms)}</td><td>${t.trace_url ? extLink(t.trace_url, "open trace") : `<span class="muted mono" title="Search CloudWatch for this turn_ref">${esc(String(t.turn_ref).slice(0, 8))}… (no trace link: tracing ${esc(ls.tracing)}${ls.project_url ? "" : ", project URL not configured"})</span>`}</td></tr>`).join("")}</table></div>`
-      : `<div class="muted">No turns in this window.</div>`}`;
+      : `<div class="muted">${driverFilter ? "No turns for this driver in this window." : "No turns in this window."}</div>`}`;
 }
 
 async function loadThreads(more){

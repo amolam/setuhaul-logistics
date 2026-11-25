@@ -84,6 +84,11 @@ class TurnResult:
     turn_ref: str | None = None                                 # G.1: this turn's id = its LangSmith trace id
     ingest_correlation_id: str | None = None                    # G.1: the webhook request's id (API log lines)
     facility_id: str | None = None
+    # Driver traceability: internal ids only (format-gated at export: observability/identifiers.py). Never a phone,
+    # a name, a Telegram chat id or text. shipment_id is None until the conversation is bound to one shipment.
+    driver_id: str | None = None
+    shipment_id: str | None = None
+    channel: str | None = None
     tool_calls: list[dict] = field(default_factory=list)      # {"tool", "status", "ms"} only
     turn_ms: int = 0
     expired_pick: bool = False                                  # a pick of slots whose 5-minute offer has expired
@@ -176,6 +181,17 @@ class Orchestrator:
             self.svc.record_turn_metrics(res)                           # Phase G3: best effort, never fails the turn
         return res
 
+    CHANNELS = {"TELEGRAM": "telegram", "WHATSAPP": "whatsapp", "WEB": "web", "SMS": "sms", "CONSOLE": "console"}
+
+    def _channel(self, p, turn: int) -> str | None:
+        """The inbound message's channel as a fixed code (telegram, whatsapp, ...), or None. Never fails a turn."""
+        try:
+            fn = getattr(self.svc, "driver_message_channel", None)
+            return self.CHANNELS.get(fn(p, turn)) if fn else None
+        except Exception:                                               # noqa: BLE001 — a label, not a decision
+            log.warning("message channel not read for message %s", turn)
+            return None
+
     def _trace_meta(self, corr_id: str, turn_ref: str, event: dict) -> dict:
         from .models import DeferredModel
         m = self.model
@@ -215,6 +231,11 @@ class Orchestrator:
         bound = ctx.get("data", {}).get("thread_shipment_id")
         res.facility_id = next((x["facility_id"] for x in ctx.get("data", {}).get("live_shipments", [])
                                 if x["shipment_id"] == bound), None)
+        res.driver_id, res.shipment_id = p.driver_id, bound
+        res.channel = self._channel(p, turn)
+        # the root run is current here (tool spans have closed): label the trace with who and what, ids only
+        tracing.safe(lambda: tracing.current().set(driver_id=res.driver_id, shipment_id=res.shipment_id,
+                                                   facility_id=res.facility_id, channel=res.channel))
         if ctx["status"] == "REQUIRES_HUMAN":                       # a person owns the conversation: stay silent
             res.path.append("human-owns-thread")
             return res

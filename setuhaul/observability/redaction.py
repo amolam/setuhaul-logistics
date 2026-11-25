@@ -10,6 +10,9 @@
   * strings are cut to MAX_STR characters, lists to MAX_ITEMS, nesting to MAX_DEPTH;
   * anything that is not JSON-like becomes its type name.
 
+Internal ids (driver_id, shipment_id, facility_id; driver traceability) pass a strict format gate
+(observability/identifiers.py): a well-formed id is exported as is, anything else as "[INVALID_ID]".
+
 Driver message content is never exported by default. `content_allowed=True` (SETUHAUL_TRACE_CONTENT=on, synthetic data
 only) lets a message's text through, after the same scrub. tests/test_phase_g1_tracing.py pins every rule.
 """
@@ -20,6 +23,8 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
+from .identifiers import KEY_KIND, export_id
+
 MAX_STR, MAX_ITEMS, MAX_DEPTH = 300, 25, 6
 REDACTED = "[REDACTED]"
 
@@ -27,6 +32,7 @@ REDACTED = "[REDACTED]"
 DROP_KEYS = frozenset({
     "phone", "phone_e164", "driver_phone", "msisdn", "wa_id", "from", "to", "recipient", "recipient_ref",
     "driver_name", "name", "email", "address",
+    "chat_id", "telegram_chat_id", "telegram_user_id", "username", "lat", "lon", "latitude", "longitude", "geohash",
     "session", "session_token", "x_setuhaul_session", "token", "access_token", "id_token", "refresh_token",
     "authorization", "cookie", "set_cookie", "api_key", "apikey", "x_api_key", "secret", "secret_string",
     "client_secret", "password", "private_key", "aws_access_key_id", "aws_secret_access_key", "aws_session_token",
@@ -85,6 +91,9 @@ def redact(value, *, content_allowed: bool = False, _depth: int = 0):
         for k, v in list(value.items())[:50]:
             nk = _norm(k)
             if nk in DROP_KEYS or "secret" in nk or "password" in nk or nk.endswith("_token") or nk.endswith("_key"):
+                continue
+            if nk in KEY_KIND:                     # driver traceability: the id itself or [INVALID_ID], never a guess
+                out[str(k)] = export_id(KEY_KIND[nk], v)
                 continue
             if nk in CONTENT_KEYS and not content_allowed:
                 out[str(k)] = REDACTED

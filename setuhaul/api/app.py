@@ -571,10 +571,10 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
 
     @app.get("/console/observability")
     def observability(facility: str | None = Query(None, max_length=40), hours: int = Query(24, ge=1, le=744),
-                      p: Principal = Depends(staff)):
+                      driver: str | None = Query(None, max_length=48), p: Principal = Depends(staff)):
         """Phase G3, read only: operational, agent, optimizer, reliability and evaluation metrics in this person's
         facility scope. Every number is a persisted row or a measured timing; anything else is marked unavailable."""
-        return svc.observability(p, facility, hours)
+        return svc.observability(p, facility, hours, driver)
 
     @app.get("/console/escalations")
     def escalations(p: Principal = Depends(staff)):
