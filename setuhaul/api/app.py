@@ -59,6 +59,18 @@ class Settings:
     console_client_id: str | None = None
     # Phase G1: rank driver options with the slot optimizer (booking policy: the owner switches it on per environment)
     optimizer_ranking: bool = False
+    # Roadmap Phase 2: how long a shown option / dispatcher offer stays acceptable (SETUHAUL_OPTION_TTL_S, default 300)
+    option_ttl_s: int | None = None
+    # Roadmap Phase 5: Telegram webhook secret (setWebhook secret_token). Unset: the /webhooks/telegram route does not
+    # exist. In AWS it would come from Secrets Manager like the other secrets; NOT provisioned yet (owner approval).
+    telegram_webhook_secret: str | None = None
+    # Where webhook replies go (link results, button answers, cleared buttons): None = the in-process test sink. With
+    # SETUHAUL_TELEGRAM_DELIVERY=test_bot this is the allowlisted test bot, and `telegram_allowlist` makes the webhook
+    # ignore every account outside it (setuhaul.notify.telegram.telegram_from_env; fail closed).
+    telegram_replies: object | None = None
+    telegram_allowlist: frozenset | None = None
+    telegram_mode: str | None = None                  # SETUHAUL_TELEGRAM_DELIVERY as configured (shown by /health)
+    local_runner: bool = False                        # the local test-bot runner only (see /health); never from env
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -73,11 +85,24 @@ class Settings:
                    cognito_domain=os.environ.get("COGNITO_DOMAIN") or None,
                    console_client_id=os.environ.get("COGNITO_CONSOLE_CLIENT_ID") or None,
                    optimizer_ranking=os.environ.get("SETUHAUL_OPTIMIZER_RANKING", "off").lower() in ("on", "true", "1"),
+                   option_ttl_s=int(os.environ["SETUHAUL_OPTION_TTL_S"]) if os.environ.get("SETUHAUL_OPTION_TTL_S") else None,
+                   telegram_webhook_secret=os.environ.get("SETUHAUL_TELEGRAM_WEBHOOK_SECRET") or None,
+                   **_telegram_replies_from_env(),
                    deployment_id=os.environ.get("SETUHAUL_DEPLOYMENT_ID") or None,
                    deployment_manifest=os.environ.get("SETUHAUL_DEPLOYMENT_MANIFEST") or None,
                    manifest_source=os.environ.get("SETUHAUL_DEPLOYMENT_MANIFEST_SOURCE", "file"),
                    tools_route=(os.environ.get("SETUHAUL_TOOLS_ROUTE", "on").lower() not in ("off", "false", "0")
                                 and os.environ.get("SETUHAUL_ENV") not in ("staging", "pilot")))
+
+
+def _telegram_replies_from_env() -> dict:
+    """Only test_bot / live put a real transport behind webhook replies; anything else keeps the test sink."""
+    mode = os.environ.get("SETUHAUL_TELEGRAM_DELIVERY", "test_sink")
+    if mode not in ("test_bot", "live"):
+        return {"telegram_mode": mode}
+    from ..notify.telegram import telegram_from_env
+    transport, allow = telegram_from_env(dict(os.environ))       # raises on any missing piece: the app does not start
+    return {"telegram_replies": transport, "telegram_allowlist": allow, "telegram_mode": mode}
 
 
 class ToolCall(BaseModel):
@@ -163,6 +188,47 @@ class ScheduleStore(BaseModel):
     ttl_s: int = Field(default=600, ge=60, le=1800)
 
 
+class OfferIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    shipment_id: str = Field(min_length=3, max_length=80)
+    driver_id: str = Field(min_length=3, max_length=80)      # the assigned driver, or another one (reassignment)
+    vehicle_id: str = Field(min_length=3, max_length=80)     # confirmed; a vehicle change is refused in this scope
+    dock_code: str = Field(min_length=1, max_length=20)
+    start: AwareDatetime
+    idempotency_key: str = Field(min_length=16, max_length=128)
+
+
+class ReassignIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    shipment_id: str = Field(min_length=3, max_length=80)
+    driver_id: str = Field(min_length=3, max_length=80)
+    idempotency_key: str = Field(min_length=16, max_length=128)
+
+
+class CancelIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    reason_code: Literal["DRIVER_UNAVAILABLE", "VEHICLE_BREAKDOWN", "SHIPMENT_CANCELLED", "CUSTOMER_REQUEST",
+                         "OPERATIONS_DECISION"]
+    note: str = Field(min_length=3, max_length=500)
+    idempotency_key: str = Field(min_length=16, max_length=128)
+
+
+class CancelDecision(BaseModel):
+    model_config = {"extra": "forbid"}
+    decision: Literal["APPROVE", "REJECT"]
+    note: str | None = Field(default=None, max_length=500)
+
+
+class EscalationNote(BaseModel):
+    model_config = {"extra": "forbid"}
+    note: str | None = Field(default=None, max_length=300)
+
+
+class EscalationResolve(BaseModel):
+    model_config = {"extra": "forbid"}
+    resolution: str = Field(min_length=5, max_length=500)
+
+
 class Move(BaseModel):
     model_config = {"extra": "forbid"}
     proposal_id: uuid.UUID
@@ -203,7 +269,8 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
     from ..aws.data_api import make_db                     # SETUHAUL_DSN=rds-data: the Data API backend (E3)
     db = make_db(settings.dsn)
     svc = BookingService(db, clock or (lambda: datetime.now(timezone.utc)), settings.facilities,
-                         booking_enabled=settings.booking_enabled, optimizer_ranking=settings.optimizer_ranking)
+                         booking_enabled=settings.booking_enabled, optimizer_ranking=settings.optimizer_ranking,
+                         option_ttl_s=settings.option_ttl_s)
     verifier = CognitoVerifier(settings.cognito_issuer, settings.cognito_client_ids, settings.jwks)
     sessions = SessionTokens(settings.session_secret)
     # Inbound events for the agent orchestrator (B-WF-1). In AWS this is SQS FIFO (inbound.SqsFifoQueue: message group
@@ -258,7 +325,11 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
             database = "unreachable"
         gate = getattr(app.state, "booking_gate", None) or {"switch": False, "ok": False, "reason": None}
         body = {"status": "ok" if database == "ok" else "degraded", "database": database, "booking_enabled": False,
-                "booking_state": "off", "environment": settings.environment, "version": app.version}
+                "booking_state": "off", "environment": settings.environment, "version": app.version,
+                # Telegram delivery mode only (test_sink | test_bot | live | off): no token, chat or allowlist
+                "telegram": settings.telegram_mode or ("test_bot" if settings.telegram_allowlist is not None
+                                                       else "live" if settings.telegram_replies is not None
+                                                       else "test_sink")}
         if not gate["switch"]:
             return JSONResponse(body, status_code=200 if database == "ok" else 503)
         body["booking_switch"] = "on"
@@ -277,6 +348,12 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
             body.update(booking_state="unknown", booking_kill_switch="unknown")
             return JSONResponse(body, status_code=200)
         body["booking_kill_switch"] = "ENGAGED" if st.get("kill_switch") else "disengaged"
+        if settings.local_runner:
+            # the owner-run local test-bot runner (scripts/telegram_test_bot.py): bookings run on a local synthetic
+            # database WITHOUT the release gates (no deployment exists to authorize). booking_enabled stays false;
+            # the console labels it a local harness. Never set by Settings.from_env (no deployment can turn it on).
+            body["booking_state"] = "local_test_harness"
+            return JSONResponse(body, status_code=200)
         if gate["ok"]:
             if st.get("authorized") is True:
                 body.update(booking_enabled=True, booking_state="authorized")
@@ -357,6 +434,58 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
             return JSONResponse({"status": "retry"}, status_code=503)
         # Constant answer: reveals neither tokens nor whether a number is known.
         return {"status": "received"}
+
+    # ---------------------------------------------------------------- inbound Telegram (roadmap Phase 5, 0035)
+    if settings.telegram_webhook_secret:
+        from ..notify.telegram import REMOVE_KEYBOARD, TelegramGateway, secret_ok
+        # test sink (default): replies are logged and kept, never sent. test_bot: the allowlisted test bot.
+        app.state.telegram = TelegramGateway(settings.telegram_replies)
+        tg_allow = settings.telegram_allowlist
+        if len(settings.telegram_webhook_secret) < 32:
+            raise ValueError("SETUHAUL_TELEGRAM_WEBHOOK_SECRET must be at least 32 characters")
+
+        @app.post("/webhooks/telegram")
+        async def telegram(request: Request,
+                           x_telegram_bot_api_secret_token: str | None = Header(default=None)):
+            if not secret_ok(x_telegram_bot_api_secret_token, settings.telegram_webhook_secret):
+                raise HTTPException(401, "bad secret")
+            raw = await request.body()
+            if len(raw) > 64 * 1024:
+                raise HTTPException(413, "too large")
+            try:
+                update = json.loads(raw)
+            except ValueError:
+                return {"ok": True}
+            if tg_allow is not None:
+                # test_bot: an account outside the test allowlist is not processed at all (no link, no reply)
+                frm = ((update.get("message") or (update.get("callback_query") or {})) or {}).get("from") \
+                    if isinstance(update, dict) else None
+                if not (isinstance(frm, dict) and str(frm.get("id")) in tg_allow):
+                    return {"ok": True}
+            try:
+                out = await run_in_threadpool(svc.handle_telegram_update, update, sessions)
+            except Exception:
+                # not stored: answer 5xx so Telegram redelivers; the stored part is deduplicated on the retry
+                log.exception("could not handle a Telegram update; Telegram will retry")
+                return JSONResponse({"ok": False}, status_code=503)
+            if out.get("event"):
+                try:
+                    await run_in_threadpool(relay.publish, out["event"])
+                except Exception:
+                    log.exception("stored but not published; the recovery sweep will publish it")
+            cq_msg = (update.get("callback_query") or {}).get("message") or {}
+            chat = (update.get("message") or cq_msg or {}).get("chat", {})
+            cq_id = (update.get("callback_query") or {}).get("id")
+            if isinstance(cq_id, str):                    # stop the tapped button's spinner first
+                app.state.telegram.answer_callback(cq_id)
+            if out.get("clear_buttons") and isinstance(chat.get("id"), int) and isinstance(cq_msg.get("message_id"), int):
+                app.state.telegram.clear_buttons(str(chat["id"]), cq_msg["message_id"])
+            if isinstance(out.get("clear_message_id"), int) and isinstance(chat.get("id"), int):
+                app.state.telegram.clear_buttons(str(chat["id"]), out["clear_message_id"])   # typed yes / no (0038)
+            if out.get("reply") and isinstance(chat.get("id"), int):
+                app.state.telegram.reply(str(chat["id"]), out["reply"],
+                                         REMOVE_KEYBOARD if out.get("remove_keyboard") else None)
+            return {"ok": True}                         # constant: reveals nothing about links or drivers
 
     # ---------------------------------------------------------------- agent tools
     if settings.tools_route:
@@ -450,6 +579,81 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
     @app.get("/console/escalations")
     def escalations(p: Principal = Depends(staff)):
         return {"escalations": svc.list_escalations(p)}
+
+    # ---------------------------------------------------------------- dispatcher (roadmap Phase 1/2, 0035)
+    @app.get("/console/dispatch/shipments")
+    def dispatch_shipments(facility_id: str | None = Query(None, max_length=40), p: Principal = Depends(staff)):
+        return {"shipments": svc.list_dispatch_shipments(p, facility_id)}
+
+    @app.get("/console/dispatch/shipments/{shipment_id}/options")
+    def dispatch_options(shipment_id: str = Path(min_length=3, max_length=80, pattern=SHIPMENT_ID_PATTERN),
+                         p: Principal = Depends(staff)):
+        return svc.dispatch_options(p, shipment_id)
+
+    @app.post("/console/dispatch/offers")
+    def dispatch_offer(body: OfferIn, p: Principal = Depends(staff)):
+        return svc.create_offer(p, body.shipment_id, body.driver_id, body.vehicle_id, body.dock_code, body.start,
+                                body.idempotency_key)
+
+    @app.get("/console/dispatch/offers")
+    def dispatch_offers(facility_id: str | None = Query(None, max_length=40), limit: int = Query(50, ge=1, le=200),
+                        p: Principal = Depends(staff)):
+        return {"offers": svc.list_offers(p, facility_id, limit)}
+
+    @app.post("/console/drivers/{driver_id}/telegram-link-code")
+    def telegram_link_code(driver_id: str = Path(min_length=3, max_length=80), p: Principal = Depends(staff)):
+        return svc.issue_link_code(p, driver_id)
+
+    @app.post("/console/drivers/{driver_id}/telegram-link/revoke")
+    def telegram_link_revoke(body: Revoke, driver_id: str = Path(min_length=3, max_length=80),
+                             p: Principal = Depends(staff)):
+        return svc.revoke_link(p, driver_id, body.reason)
+
+    # ---------------------------------------------------------------- 0036: confirmed reassignment and cancellation
+    @app.post("/console/dispatch/reassignments")
+    def dispatch_reassign(body: ReassignIn, p: Principal = Depends(staff)):
+        return svc.reassign_confirmed(p, body.shipment_id, body.driver_id, body.idempotency_key)
+
+    @app.post("/console/appointments/{appointment_id}/cancellation-requests")
+    def cancellation_request(body: CancelIn, appointment_id: str = Path(min_length=1, max_length=80),
+                             p: Principal = Depends(staff)):
+        return svc.request_cancellation(p, appointment_id, body.reason_code, body.note, body.idempotency_key)
+
+    @app.get("/console/cancellation-requests")
+    def cancellation_requests(facility_id: str | None = Query(None, max_length=40), p: Principal = Depends(staff)):
+        return {"requests": svc.list_cancellations(p, facility_id)}
+
+    @app.post("/console/cancellation-requests/{request_id}/decision")
+    def cancellation_decision(body: CancelDecision, request_id: uuid.UUID, p: Principal = Depends(staff)):
+        return svc.decide_cancellation(p, str(request_id), body.decision, body.note)
+
+    # ---------------------------------------------------------------- planner schedule and operations health (read)
+    @app.get("/console/facilities/{facility_id}/schedule")
+    def facility_schedule(facility_id: str = Path(min_length=1, max_length=40), hours: int = Query(12, ge=1, le=48),
+                          p: Principal = Depends(staff)):
+        return svc.facility_schedule(p, facility_id, hours)
+
+    @app.get("/console/ops/notifications")
+    def ops_notifications(state: Literal["PENDING", "SENDING", "SENT", "DELIVERED", "RETRY", "FAILED", "UNKNOWN"] | None = None,
+                          limit: int = Query(100, ge=1, le=200), p: Principal = Depends(staff)):
+        return svc.ops_notifications(p, state, limit)
+
+    @app.get("/console/ops/audit")
+    def ops_audit(shipment_id: str | None = Query(None, max_length=80), limit: int = Query(100, ge=1, le=200),
+                  p: Principal = Depends(staff)):
+        return svc.ops_audit(p, shipment_id, limit)
+
+    @app.get("/console/ops/health")
+    def ops_health(p: Principal = Depends(staff)):
+        return svc.ops_health(p)
+
+    @app.post("/console/escalations/{escalation_id}/acknowledge")
+    def escalation_ack(body: EscalationNote, escalation_id: uuid.UUID, p: Principal = Depends(staff)):
+        return svc.acknowledge_escalation(p, str(escalation_id), body.note)
+
+    @app.post("/console/escalations/{escalation_id}/resolve")
+    def escalation_resolve(body: EscalationResolve, escalation_id: uuid.UUID, p: Principal = Depends(staff)):
+        return svc.resolve_escalation(p, str(escalation_id), body.resolution)
 
     @app.get("/console/me")
     def me(p: Principal = Depends(staff)):

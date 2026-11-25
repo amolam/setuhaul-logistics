@@ -326,6 +326,21 @@ def notification_provider(env: dict | None = None):
     raise RuntimeError(f"CONFIG: unknown SETUHAUL_NOTIFICATION_MODE {mode!r}")
 
 
+def telegram_transport(env: dict | None = None, client=None):
+    """The relay's Telegram transport, fail closed (roadmap Phase 4). `SETUHAUL_TELEGRAM_DELIVERY`:
+      test_sink (default)  linked drivers' messages go to the in-process Telegram sink; nothing leaves the process
+      off                  no Telegram routing (every driver is reached as before)
+      live                 the Bot API, ONLY with SETUHAUL_TELEGRAM_LIVE_AUTHORIZED=true (the owner's explicit
+                           authorization) and the token from Secrets Manager (SETUHAUL_TELEGRAM_BOT_SECRET_ID). The
+                           token is never read from a plain variable and never logged.
+      test_bot             a dedicated TEST bot, allowlisted chats only, SETUHAUL_ENV local/dev only (see
+                           setuhaul.notify.telegram.telegram_from_env); refused in the pilot.
+    Anything else is refused."""
+    from ..notify.telegram import telegram_from_env
+    env = dict(os.environ) if env is None else env
+    return telegram_from_env(env, client)[0]
+
+
 def outbound_handler(event, context):
     """Sends due notifications through `notification_provider()` (the test sink in the synthetic pilot). Outside a
     driver's 24-hour window a WhatsApp notice goes as a Meta-approved template (SETUHAUL_WA_APPROVED_TEMPLATES); with
@@ -335,7 +350,8 @@ def outbound_handler(event, context):
     provider = notification_provider()
     relay = OutboundRelay(app.state.service.db, provider,
                           approved_templates=ApprovedTemplates.parse(os.environ.get("SETUHAUL_WA_APPROVED_TEMPLATES")),
-                          window_margin_min=int(os.environ.get("SETUHAUL_WA_WINDOW_MARGIN_MIN", "30")))
+                          window_margin_min=int(os.environ.get("SETUHAUL_WA_WINDOW_MARGIN_MIN", "30")),
+                          telegram=telegram_transport())
     result = relay.run_once(limit=int(os.environ.get("SETUHAUL_OUTBOUND_BATCH", "50")))
     log.info("outbound %s", {k: v for k, v in result.items() if isinstance(v, (int, str))})
     return {k: v for k, v in result.items() if isinstance(v, (int, str, bool))}

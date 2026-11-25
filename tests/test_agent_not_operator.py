@@ -177,7 +177,13 @@ def test_ingest_role_allowlist(conn):
                      "record_delivery_status",   # 0017 (B-WF-3): provider receipts from the signed webhook
                      "booking_gate_snapshot",    # 0026: read-only start-up check of the booking switch (the api)
                      "booking_provisional_snapshot",  # 0032: the same check reads an open Option P window
-                     "booking_authorization_status"}  # 0033 (D4): /health reads the database's booking verdict now
+                     "booking_authorization_status",  # 0033 (D4): /health reads the database's booking verdict now
+                     # 0035 (roadmap Phases 1/4/5): the verified inbound path answers dispatcher offers, records a
+                     # shared location and links a Telegram account; every one checks the driver itself
+                     "dispatch_offer_for_driver", "request_offer_alternative", "driver_location_context",
+                     "record_driver_location", "redeem_driver_link_code", "driver_for_channel",
+                     "open_offer_for_driver",   # 0036: a typed Telegram reply answers the driver's own open offer
+                     "offer_telegram_message"}  # 0038: ...and clears that offer's buttons (read only, own offer)
 
 
 def test_feasibility_role_allowlist(conn):
