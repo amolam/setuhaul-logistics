@@ -825,3 +825,30 @@ def test_demo_fast_track_readiness_runs_before_the_deploy_in_provisional_mode():
     assert ready < deploy and activate.index("configure-aws-credentials") < ready
     step = activate[activate.rindex("- name:", 0, ready):ready]
     assert "if: env.MODE == 'provisional'" in step and "continue-on-error" not in step
+    # 25 Nov activation run: the deploy role cannot describe the stack (AccessDenied before any change). The step
+    # must hand readiness the read-only CDK lookup role's session, masked, as the gate collection does.
+    assert "cdk-hnb659fds-lookup-role-" in step and "export SETUHAUL_LOOKUP_SESSION=" in step
+    assert step.count("::add-mask::") == 2
+
+
+def test_readiness_describes_the_stack_through_the_lookup_session_when_given(monkeypatch):
+    import boto3
+    from setuhaul.ops import readiness
+    seen = {}
+
+    class Stop(Exception):
+        pass
+
+    class FakeSession:
+        def __init__(self, **kw):
+            seen["session_kw"] = kw
+
+        def client(self, name, region_name=None):
+            seen["client"] = name
+            raise Stop()
+    monkeypatch.setattr(boto3, "Session", FakeSession)
+    monkeypatch.setenv("SETUHAUL_LOOKUP_SESSION", json.dumps({"aws_access_key_id": "AKIAFAKE", "aws_secret_access_key": "x",
+                                                              "aws_session_token": "y", "region_name": "ap-southeast-2"}))
+    with pytest.raises(Stop):
+        readiness.collect("pilot-ap-southeast-2", "OWNER-APPROVAL-20261125-X1Y", "missing.json")
+    assert seen["client"] == "cloudformation" and seen["session_kw"]["aws_access_key_id"] == "AKIAFAKE"

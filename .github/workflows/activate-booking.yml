@@ -245,6 +245,12 @@ jobs:
       - name: Readiness before any change (provisional only; read-only; stops before roles and logins rotate)
         if: env.MODE == 'provisional'
         run: |
+          # the stack is described through the CDK lookup role (ReadOnlyAccess); the deploy role cannot describe it
+          ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+          CREDS=$(aws sts assume-role --role-arn "arn:aws:iam::${ACCOUNT}:role/cdk-hnb659fds-lookup-role-${ACCOUNT}-${AWS_REGION}"                     --role-session-name setuhaul-readiness-read --query Credentials --output json)
+          echo "::add-mask::$(echo "$CREDS" | jq -r .SecretAccessKey)"
+          echo "::add-mask::$(echo "$CREDS" | jq -r .SessionToken)"
+          export SETUHAUL_LOOKUP_SESSION=$(echo "$CREDS" | jq -c --arg r "$AWS_REGION"                     '{aws_access_key_id: .AccessKeyId, aws_secret_access_key: .SecretAccessKey, aws_session_token: .SessionToken, region_name: $r}')
           python -m setuhaul.ops.readiness --approval-ref "$APPROVAL_REF" --release-sha "$GITHUB_SHA"             --report docs/release/evidence/provisional_gates.json ${RECOVERY_OF:+--recovery}
       - name: Deploy the checked assembly (booking ON for api and agent; they refuse to start until the gates are recorded)
         run: npx --yes "$CDK_CLI" deploy SetuHaulPilot --app cdk.out --require-approval never --outputs-file outputs.json
