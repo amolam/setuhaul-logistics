@@ -249,3 +249,24 @@ def test_langsmith_down_never_stops_the_agent_or_the_evaluation(ready_env, capsy
     assert report["tracer_stats"]["export_errors"] > 0 and report["tracer_stats"]["exported"] == 0
     assert all(e["trace_ids"] == [] for e in report["examples"])     # no trace reported that was not stored
     assert "dataset sync failed" in out and "trace_url: not available" in out
+
+
+def test_the_deployed_agent_names_its_release_in_trace_metadata(monkeypatch):
+    """G.2: the agent's tracer carries the deployed code hash the app verified (metadata only; tracing stays off
+    unless its own switch is on)."""
+    from types import SimpleNamespace
+    from setuhaul.aws import lambdas
+    from setuhaul.observability import langsmith as ls
+    seen = {}
+    monkeypatch.setattr(ls, "tracer_from_env", lambda env: seen.setdefault("env", env) and tracing.Tracer())
+    from setuhaul.agent import models
+    monkeypatch.setattr(models, "model_for", lambda env=None, db=None: None)   # no model: only the tracer matters here
+    monkeypatch.delenv("SETUHAUL_AGENT_VERSION", raising=False)
+    db = SimpleNamespace(deployment={"code_sha256": "261da9ce3860" + "0" * 52})
+    app = SimpleNamespace(state=SimpleNamespace(service=SimpleNamespace(db=db), sessions=None))
+    old = tracing.tracer()
+    try:
+        lambdas._build_orchestrator(app)
+    finally:
+        tracing.install(old)
+    assert seen["env"]["SETUHAUL_AGENT_VERSION"] == "release-261da9ce3860"

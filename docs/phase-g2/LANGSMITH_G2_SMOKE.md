@@ -198,3 +198,34 @@ Report: `evals/results/g2_smoke_20261125_015757.json`.
 - **Agent traces per example:** C01 1, C03 1, C04 3, C06 3, C08 1, C12 1. T04, T05, T06 and A10 are direct calls with
   no agent turn.
 - **Cost:** model $0 (scripted). About 20 LangSmith traces.
+
+## 9. Synthetic-pilot tracing (deployed agent)
+
+The pilot uses the G.1 path that already existed and was never switched on. Only the way it is switched on is new.
+
+| Environment | LangSmith project | How it is configured |
+|---|---|---|
+| Development | `setuhaul-dev` | `LANGSMITH_*` in the developer's shell |
+| G.2 evaluation | `setuhaul-dev` | `python -m evals.langsmith.g2_smoke` with `LANGSMITH_PROJECT=setuhaul-dev` (the 25 Nov run) |
+| Synthetic pilot | `setuhaul-synthetic-pilot` | the `activate-booking.yml` input `langsmith=on`, which passes CDK context `langsmith_tracing=on` |
+| Production | disabled | there is no production stack, and the workflow refuses production |
+
+- **Enabling it.** Run `activate-booking.yml` with `-f langsmith=on`. Use the same value for the provisional run and the
+  renewal run of one release; otherwise the template changes between them.
+- **What that creates.** The secret `setuhaul/pilot/langsmith`, holding an empty placeholder (`{"api_key": ""}`). Only
+  the agent function can read it. The agent gets `SETUHAUL_LANGSMITH_PROJECT=setuhaul-synthetic-pilot` and
+  `SETUHAUL_TRACE_CONTENT=off`.
+- **Checks.** The workflow's template check refuses any other shape. `tests/test_infra.py::test_g2_…` runs that same
+  check on both templates.
+- **The key.** The owner puts the value into the secret after the deploy and before the first agent turn. The agent
+  reads the secret once per cold start, and an empty value means tracing stays off with `EMPTY_SECRET` in the log.
+  Fail-open, as in G.1.
+- **Region.** The endpoint stays the default US region, which matches the key used on 25 Nov.
+- **Trace metadata.**
+  - environment `pilot`;
+  - release ID: `agent_version = release-<deployed code hash, 12 hex>`, the deployment's own ID (new in G.2);
+  - `correlation_id` = `turn_ref`, which also appears in the CloudWatch agent log lines;
+  - `ingest_correlation_id`, `conversation_ref` and `facility_id`;
+  - tool spans with their redacted arguments, which carry the SYN- shipment ID.
+- **Turning it off.** An ordinary `ci.yml` deploy, or `langsmith=off`, removes the secret, the permission and the
+  variables.

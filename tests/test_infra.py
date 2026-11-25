@@ -692,3 +692,31 @@ def test_the_booking_logins_and_execution_roles_are_per_release(t, built):
         else:
             assert release not in role_id, (name, role_id)
     assert seen == {f"setuhaul-pilot-{f}" for f in RELEASE_FUNCTIONS}
+
+
+# ================================================================ Phase G.2: LangSmith opt-in through the activation workflow
+def test_g2_the_activation_workflow_passes_langsmith_only_on_request_and_its_check_pins_the_agent(tmp_path):
+    """activate-booking.yml: `langsmith` defaults to off; on adds langsmith_tracing=on to the SAME synth context as the
+    approval. The workflow's own template check (run here on both templates) accepts the key only on the agent, the
+    pilot project and content off, and refuses any LangSmith secret or variable when the input is off."""
+    import os
+    import subprocess
+    wf = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "activate-booking.yml").read_text(encoding="utf-8")
+    inputs = wf.split("\n    inputs:", 1)[1].split("\npermissions:", 1)[0]
+    assert '      langsmith:\n' in inputs and 'default: "off"' in inputs.split("langsmith:", 1)[1]
+    assert "{langsmith_tracing: \"on\"}" in wf and "ci.yml" not in inputs
+    check = wf.split("python - <<'PY'\n", 1)[1].split("\n          PY\n", 1)[0]
+    check = "\n".join(line[10:] for line in check.splitlines())
+    for ls in ("off", "on"):
+        app = cdk.App(outdir=str(tmp_path / f"o-{ls}"))
+        s = SetuHaulPilotStack(app, "SetuHaulPilot", lambda_asset=str(_zip(tmp_path / f"{ls}.zip")),
+                               booking_approval="OWNER-APPROVAL-20261125-test1", langsmith_tracing=ls if ls == "on" else "",
+                               env=cdk.Environment(account="000000000000", region="ap-southeast-2"))
+        tpl = Template.from_stack(s).to_json()
+        d = tmp_path / f"run-{ls}" / "cdk.out"
+        d.mkdir(parents=True)
+        (d / "SetuHaulPilot.template.json").write_text(json.dumps(tpl), encoding="utf-8")
+        for given in ("off", "on"):
+            r = subprocess.run([sys.executable, "-c", check], cwd=d.parent, capture_output=True, text=True,
+                               env=dict(os.environ, LANGSMITH=given))
+            assert (r.returncode == 0) == (given == ls), (ls, given, r.stdout, r.stderr[-300:])

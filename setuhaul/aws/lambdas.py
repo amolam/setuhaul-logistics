@@ -241,6 +241,10 @@ def _build_orchestrator(app):
                   model.error.category, model.error.detail)
     elif model.client is None:                                      # no model configured (provider none): as before
         model = None                                                # G.1 fix: never wrap "no model" in a client
+    # G.2: the trace's release id is the deployed code hash the app verified at start-up (metadata only)
+    dep = getattr(db, "deployment", None) or {}
+    if not env.get("SETUHAUL_AGENT_VERSION") and dep.get("code_sha256"):
+        env["SETUHAUL_AGENT_VERSION"] = f"release-{str(dep['code_sha256'])[:12]}"
     tracing.install(tracer_from_env(env))                           # off unless SETUHAUL_LANGSMITH_TRACING=on
     return Orchestrator(app.state.service, app.state.sessions, model, lease_s=lease)
 
