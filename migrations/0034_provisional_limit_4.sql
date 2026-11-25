@@ -1,12 +1,13 @@
--- 0034 · Synthetic-pilot provisional authorization limit: 2 -> 4 per rolling 24 hours (OWNER POLICY CHANGE).
+-- 0034 · Provisional authorization limit: 2 -> 4 per rolling 24 hours, every environment (OWNER POLICY CHANGE).
 --
 -- REQUIRES THE OWNER'S SEPARATE WRITTEN APPROVAL BEFORE IT IS MERGED OR DEPLOYED. It changes a booking-authorization
 -- safety control (Option P, 0032; Recovery Release A, 0033) and is outside every earlier deployment approval,
 -- including OWNER-APPROVAL-20261125-G2LS-7KQ4. Design: docs/booking-renewal/OPTION_P_PROVISIONAL_AUTHORIZATION_DESIGN.md.
 --
--- Forward-only and additive. One new function, provisional_rate_limit(environment), states the limit: 4 for an
--- environment of class 'pilot', 2 otherwise (the issuing function already refuses every environment that is not a
--- pilot, production included, so production policy is unchanged). issue_provisional_authorization (the 7-argument
+-- Forward-only and additive. One new function, provisional_rate_limit(environment), states the limit: 4 for every
+-- environment (owner direction, 25 Nov 2026: one global value). Production booking stays disabled independently:
+-- the issuing function refuses every environment that is not of class 'pilot' BEFORE the count, so no production
+-- authorization can be issued at any limit. issue_provisional_authorization (the 7-argument
 -- form, 0033) is replaced with the same signature and a body identical to 0033 except the rate check, which now
 -- reads that function. Everything else is unchanged and still enforced in the same transaction, under the same
 -- transaction-level advisory lock taken before the count:
@@ -20,7 +21,7 @@ SET search_path = setuhaul, public;
 
 CREATE FUNCTION provisional_rate_limit(p_environment text)
 RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER SET search_path = setuhaul, pg_catalog, pg_temp AS $$
-  SELECT CASE WHEN booking_environment_class(p_environment) = 'pilot' THEN 4 ELSE 2 END
+  SELECT 4                       -- per environment (the caller counts one environment); the same for every one
 $$;
 
 CREATE OR REPLACE FUNCTION issue_provisional_authorization(p_environment text, p_deployment text, p_release_sha text,
@@ -119,7 +120,7 @@ BEGIN
   END IF;
   SELECT count(*) INTO n FROM provisional_authorizations
    WHERE environment = p_environment AND issued_at > now_ - interval '24 hours';
-  IF n >= provisional_rate_limit(p_environment) THEN                       -- 0034: 4 for a pilot (was 2)
+  IF n >= provisional_rate_limit(p_environment) THEN                       -- 0034: 4 (was 2)
     RAISE EXCEPTION 'PROVISIONAL_RATE_LIMIT: % authorizations issued for % in the last 24 hours (maximum %)', n,
       p_environment, provisional_rate_limit(p_environment) USING ERRCODE = 'P0001';
   END IF;

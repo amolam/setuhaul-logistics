@@ -773,8 +773,8 @@ def test_the_collector_corroborates_owner_requests_only_from_the_stacks_own_api_
 
 def test_0034_applies_on_a_0033_database_and_changes_only_the_rate_limit(tmp_path):
     """0034 (owner policy change): forward-only on the live 0033 state; the 0033 file keeps the live pilot's
-    fingerprint and the authorization history is untouched; afterwards a pilot may hold four issuances in 24 h,
-    never a fifth, and the issuing function keeps its owner and grants."""
+    fingerprint and the authorization history is untouched; afterwards an environment may hold four issuances in
+    24 h, never a fifth, and the issuing function keeps its owner and grants."""
     if not _pg_available():
         pytest.skip("PostgreSQL not reachable at SETUHAUL_TEST_DSN")
     from setuhaul.db.migrate import migrate
@@ -804,7 +804,7 @@ def test_0034_applies_on_a_0033_database_and_changes_only_the_rate_limit(tmp_pat
             complete(cx, env)                                       # a fully evidenced predecessor (no chaining)
             d3 = new_release(cx, env)
             refused(lambda: issue(cx, d3), "PROVISIONAL_RATE_LIMIT")             # under 0033 two is the limit
-        assert migrate(d) == ["0034_pilot_provisional_limit_4"]
+        assert migrate(d) == ["0034_provisional_limit_4"]
         with psycopg.connect(d, autocommit=True) as cx:
             assert cx.execute("SELECT authorization_id, status, issued_at, closed_at FROM "
                               "setuhaul.provisional_authorizations ORDER BY 1").fetchall() == before
