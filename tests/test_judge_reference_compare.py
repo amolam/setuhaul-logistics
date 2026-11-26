@@ -51,11 +51,17 @@ def test_the_reference_names_its_provenance_dataset_and_that_it_is_not_human():
     assert len(REF["dataset_sha256"]) == 64 and "accepted" in REF["status"]
 
 
-def test_the_dataset_and_the_human_template_are_untouched():
+def test_the_dataset_is_untouched_and_the_human_scores_are_not_the_ai_reference():
     assert DATASET.read_bytes() == render(records())                        # the frozen calibration dataset
     h = json.loads((ROOT / "evals/judge/human_scores_v1.json").read_text(encoding="utf-8"))
-    assert all(v[d] is None for v in h["scores"].values() for d in R.DIMENSIONS)   # still empty: not filled with AI
+    # owner-scored on 26 Nov (one reviewer, not blind to the AI reference); a named human scorer, 1-5 or null
+    assert h["scorer"] and h["scored_on"] and h["dataset_version"] == REF["dataset_version"]
+    vals = [v[d] for v in h["scores"].values() for d in R.DIMENSIONS]
+    assert all(x is None or (isinstance(x, int) and 1 <= x <= 5) for x in vals)
     assert not (ROOT / "evals/judge/human_scores_v1.json").read_text(encoding="utf-8").count("ChatGPT")
+    # not a copy of the AI reference: the owner's scores differ from it on some ratings (53/60 equal)
+    same = sum(h["scores"][i][d] == REF["scores"][i][d] for i in h["scores"] for d in R.DIMENSIONS)
+    assert same < len(vals)
 
 
 @pytest.mark.parametrize("edit", [
@@ -161,7 +167,8 @@ def test_the_utility_makes_no_network_model_or_database_call():
 
 # ================================================================ always-5 baseline
 PROTECTED = {"ai_reference_scores_v1.json": "aa035e6a7009efacc676769584cdf11fdf4def92557ef7adda5302b2103a2cf3",
-             "human_scores_v1.json": "974e577a4545dcb09b04dc5dae429c0acc55ed73951d813d716568645eb95517"}
+             # owner's human scores, 26 Nov 2026 (was the empty template 974e577a…)
+             "human_scores_v1.json": "a7074215a56d5363be36326bca1058935f8e80888a40992a8462a1a9226605aa"}
 
 
 def test_the_always_5_baseline_uses_the_same_records_and_rules_and_is_labelled():

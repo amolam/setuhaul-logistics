@@ -9,7 +9,7 @@
 - **agreement threshold:** MET: 0.965 within ±1 vs required 0.8 (unchanged rule)
 - **outperforms always 5 baseline:** YES (rule approved by the owner, 25 Nov 2026: lower overall MAE and more negative-case target dimensions identified)
 - **negative case discrimination:** NOT DEMONSTRATED (rule approved by the owner, 25 Nov 2026: all 5 contrasts identified; 3/5 were)
-- **independent human calibration:** OUTSTANDING: human_scores_v1.json has no human scores
+- **independent human calibration:** OUTSTANDING: human scores exist; run judge_calibration.py (this AI comparison never completes it)
 
 ## Actual judge vs ALWAYS_5_BASELINE
 
