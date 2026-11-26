@@ -643,3 +643,97 @@ def test_a_successful_test_booking_is_still_category_b_and_a_genuine_operational
     verdicts, _ = R.attribute_executions(execs, recs, [SMOKE_OLD, FAILED_SMOKE, fresh_smoke()], OWNER, VERIFIED, ORIGIN)
     o = {x["approval_id"]: x for x in verdicts}[real]
     assert o["verdict"] == "UNRESOLVED" and o["category"] is None             # no evidence: never D by default
+
+
+# ------------------------------------------------------------------------------------------------ Category E
+E1, E2 = "453358af-04ae-4f8e-907e-543498da963c", "251b0c87-a097-4814-8690-e16d5ad88ede"
+DRIVERS = json.loads((EVID / "owner_test_drivers_20261126.json").read_text(encoding="utf-8"))
+
+
+def e_row(aid, **over):
+    return {**row(aid, shipment="SYN-SHP-TEST-1", appt="APT-" + aid[:8], kind="console_user",
+                  decided="2026-11-26T07:57:34+00:00"), "created_at": "2026-11-26T07:56:35+00:00", **over}
+
+
+def with_test_drivers(record=DRIVERS, rows_over=None):
+    execs, recs = with_failed_smoke_inputs()
+    for aid in (E1, E2):
+        execs.append(ex(aid, start="2026-11-26T07:56:35+00:00"))
+        recs[aid] = e_row(aid, **(rows_over or {}))
+    att = R.attribute_executions(execs, recs, [SMOKE_OLD, FAILED_SMOKE, fresh_smoke()], OWNER, VERIFIED, ORIGIN, record)
+    cfg = R.check_booking_config(fns(), HEALTH, MODE, REF)
+    g = R.booking_workflow_renewal(BASE, cfg, att, R.fresh_smoke_checks(fresh_smoke(), SHA, ART, NOW), fresh_smoke())
+    return g, {v["approval_id"]: v for v in att[0]}
+
+
+def with_failed_smoke_inputs():
+    execs, recs = live_shaped()
+    execs.append(ex(D_ID, start="2026-11-26T04:06:26+00:00"))
+    recs[D_ID] = row(D_ID, shipment="SYN-SHP-DDD13851", appt="APT-af0e9d8a19174cd7baf0ea7e7a39d139",
+                     kind="drill_staff", decided="2026-11-26T04:06:53+00:00")
+    return execs, recs
+
+
+def test_the_committed_test_driver_record_states_exactly_the_coded_rule():
+    ok, problems = R.load_test_driver_rule(DRIVERS)
+    assert ok and not problems
+    assert {e["approval_id"] for e in DRIVERS["confirmed_executions_at_record_time"]} == {E1, E2}
+
+
+def test_console_approved_test_driver_bookings_are_category_e_and_the_gate_passes():
+    g, v = with_test_drivers()
+    assert g["status"] == "PASS", g["diagnostics"]
+    assert v[E1]["category"] == v[E2]["category"] == "E"
+    assert g["evidence"]["attribution_summary"]["E"] == ["251b0c87", "453358af"]
+    assert g["checks"]["owner test-driver rule record is valid (category E)"]
+
+
+def test_without_the_owner_record_test_driver_bookings_stay_unresolved():
+    g, v = with_test_drivers(record=None)
+    assert g["status"] == "UNRESOLVED" and v[E1]["verdict"] == "UNRESOLVED"
+
+
+def test_category_e_never_satisfies_the_fresh_smoke_requirement():
+    execs = [ex(E1, start="2026-11-26T07:56:35+00:00")]
+    att = R.attribute_executions(execs, {E1: e_row(E1)}, [], None, None, None, DRIVERS)
+    cfg = R.check_booking_config(fns(), HEALTH, MODE, REF)
+    g = R.booking_workflow_renewal(BASE, cfg, att, R.fresh_smoke_checks(None, SHA, ART, NOW), None)
+    assert att[0][0]["category"] == "E" and g["status"] == "FAIL"
+    assert not g["checks"]["smoke: the fresh smoke's own executions are attributed to it (category B)"]
+
+
+@pytest.mark.parametrize("over, why", [
+    ({"status": "REJECTED", "appointment_status": "CANCELLED"}, "covers only APPROVED"),
+    ({"decider_kind": "drill_staff"}, "not the hosted console"),
+    ({"decided_by_role": "ops_lead"}, "not a human planner"),
+    ({"created_at": "2026-11-25T23:59:00+00:00"}, "before the owner's rule"),
+])
+def test_test_driver_bookings_outside_the_rule_are_not_category_e(over, why):
+    g, v = with_test_drivers(rows_over=over)
+    assert v[E1]["category"] is None and v[E1]["verdict"] in ("UNRESOLVED", "FAIL")
+    assert any(why in r for r in v[E1]["reasons"]), v[E1]["reasons"]
+    assert g["status"] != "PASS"
+
+
+def test_category_e_needs_a_test_driver_shipment_and_keeps_the_hard_checks():
+    g, v = with_test_drivers(rows_over={"shipment_id": "SYN-SHP-OPS00001"})
+    assert v[E1]["verdict"] == "UNRESOLVED"
+    g, v = with_test_drivers(rows_over={"facility_id": "FAC-BLR-09"})
+    assert v[E1]["verdict"] == "FAIL" and any("not a pilot facility" in r for r in v[E1]["reasons"])
+
+
+@pytest.mark.parametrize("mutate, why", [
+    (lambda o: o.pop("owner_confirmation"), "no owner confirmation"),
+    (lambda o: o.update(category="D"), "not category E"),
+    (lambda o: o.update(environment="production"), "not 'pilot"),
+    (lambda o: o["rule"].update(shipment_pattern="SYN-SHP-.*"), "shipment pattern"),
+    (lambda o: o["rule"].update(authorized_drivers=["SYN-DRV-TEST-1", "SYN-DRV-TEST-3"]), "driver allow-list"),
+    (lambda o: o["rule"].update(telegram_live_approval="OWNER-APPROVAL-20261126-OTHER"), "Telegram-live approval"),
+])
+def test_an_invalid_test_driver_record_attributes_nothing(mutate, why):
+    rec = copy.deepcopy(DRIVERS)
+    mutate(rec)
+    g, v = with_test_drivers(record=rec)
+    assert g["status"] == "FAIL" and v[E1]["category"] is None
+    assert not g["checks"]["owner test-driver rule record is valid (category E)"]
+    assert any(why in d for d in g["diagnostics"]), g["diagnostics"]
