@@ -171,6 +171,14 @@ class Pause(BaseModel):
     reason: str = Field(min_length=3, max_length=300)
 
 
+class ApprovalModeIn(BaseModel):
+    """0047: MANUAL (a planner approves every booking) or AUTO (eligible driver-selected slots confirm at once)."""
+    model_config = {"extra": "forbid"}
+    mode: Literal["MANUAL", "AUTO"]
+    expected_version: int = Field(ge=0)
+    reason: str = Field(min_length=3, max_length=300)
+
+
 class Block(BaseModel):
     model_config = {"extra": "forbid"}
     event_id: str = Field(min_length=3, max_length=64)
@@ -594,6 +602,16 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
     @app.post("/console/facilities/{facility_id}/pause")
     def pause(facility_id: str, body: Pause, p: Principal = Depends(staff)):
         return {"automation_paused": svc.pause(p, facility_id, body.paused, body.reason)}
+
+    @app.get("/console/facilities/{facility_id}/approval-mode")
+    def approval_mode(facility_id: str, p: Principal = Depends(staff)):
+        """0047: Planner settings: the facility's booking approval mode (MANUAL by default)."""
+        return svc.approval_mode(p, facility_id)
+
+    @app.put("/console/facilities/{facility_id}/approval-mode")
+    def set_approval_mode(facility_id: str, body: ApprovalModeIn, p: Principal = Depends(staff)):
+        """0047: planner or ops_lead; refused with 409 VERSION_CONFLICT when the setting changed meanwhile."""
+        return svc.set_approval_mode(p, facility_id, body.mode, body.expected_version, body.reason)
 
     @app.post("/console/docks/{dock_id}/blocks")
     def block(dock_id: str, b: Block, p: Principal = Depends(staff)):

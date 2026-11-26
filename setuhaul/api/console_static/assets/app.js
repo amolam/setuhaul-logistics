@@ -120,7 +120,8 @@ function showApp(){
     // A dispatcher-only account has no conversation list, so it starts on Dispatch.
     const need = {dispatch: "view_dispatch", schedule: "view_schedule", ops: "view_ops", threads: "list_requests",
                   requests: "list_requests", escalations: "list_requests", docks: "list_requests",
-                  optimizer: "view_recommendations", observability: "view_observability"};
+                  optimizer: "view_recommendations", observability: "view_observability",
+                  settings: "view_approval_mode"};   // 0047: planner settings
     document.querySelectorAll("#tabs button").forEach(b => {
       const p = need[b.dataset.t]; b.hidden = !!p && me.permissions[p] === false });
     if(need[tab] && me.permissions[need[tab]] === false){
@@ -136,7 +137,7 @@ function setTab(t){ tab = t; selected = null; nextBefore = null; threads = []; p
 async function render(){
   const titles = {threads:"Conversations", requests:"Requests waiting for a decision", escalations:"Escalations", docks:"Docks",
                   optimizer:"Slot optimizer (Phase G)", observability:"Observability (Phase G)", dispatch:"Dispatch",
-                  schedule:"Planner schedule", ops:"Operations health"};
+                  schedule:"Planner schedule", ops:"Operations health", settings:"Facility settings"};
   $("#lefttitle").textContent = titles[tab]; $("#more").hidden = true;
   const list = $("#list"), detail = $("#detail");
   try {
@@ -190,11 +191,50 @@ async function render(){
     else if(tab === "ops") await renderOps(list, detail);
     else if(tab === "optimizer") renderOptimizer(list, detail);
     else if(tab === "observability") await renderObservability(list, detail);
+    else if(tab === "settings") await renderSettings(list, detail);
   } catch(e){ if(e.message !== "signed out" && e.message !== "401"){
     list.innerHTML = `<div class="empty err">${e.status === 403 ? "Not permitted for your role: " : "Service failure: the server did not answer this view ("}${esc(e.message)}${e.status === 403 ? "" : "). Numbers are not shown rather than guessed."}</div>`;
     if(tab === "observability") detail.innerHTML = e.status === 403
       ? `<div class="empty">This view is for planners and ops leads; the server refused it for your role.</div>`
       : `<div class="empty err">Metrics unavailable because the request failed, not because nothing happened.</div>` } }
+}
+
+// ---------------------------------------------------------------- 0047: facility settings (booking approval mode)
+// The server stores the mode per facility and decides who may change it (planner or ops_lead, own facilities). AUTO
+// confirms only the driver-selected slots the database's rules mark eligible; mandatory approvals still go to a planner.
+const AX = {fac: null, facs: []};
+const MODE_TEXT = {MANUAL: "Manual: planner approval required for every booking",
+                   AUTO: "Automatic: automatically approve eligible driver-selected slots"};
+async function renderSettings(list, detail){
+  if(!AX.fac){ try { AX.facs = (await api("GET", "/console/me")).facilities || []; AX.fac = AX.facs[0] } catch { AX.fac = null } }
+  list.innerHTML = `<p class="muted">Choose a facility.</p>` + AX.facs.map(f =>
+    `<div class="item${f === AX.fac ? " sel" : ""}" data-afac="${esc(f)}"><b class="mono">${esc(f)}</b></div>`).join("");
+  list.querySelectorAll("[data-afac]").forEach(e => e.onclick = () => { AX.fac = e.dataset.afac; render() });
+  if(!AX.fac){ detail.innerHTML = `<div class="empty">No facility in your scope.</div>`; return }
+  const m = await api("GET", `/console/facilities/${encodeURIComponent(AX.fac)}/approval-mode`);
+  const opt = v => `<label style="display:flex;align-items:center;gap:8px;margin:6px 0"><input type="radio" name="amode"
+    value="${v}" style="width:auto;margin:0" ${m.approval_mode === v ? "checked" : ""} ${m.can_edit ? "" : "disabled"}>
+    ${esc(MODE_TEXT[v])}</label>`;
+  detail.innerHTML = `<h2>Booking approval mode · <span class="mono">${esc(m.facility_id)}</span></h2>
+    <p>Current setting: <b id="amodecur">${esc(m.approval_mode)}</b> <span class="muted">(version ${esc(m.version)}${m.set_by
+      ? ` · set by ${esc(m.set_by)} ${when(m.set_at)}` : " · default"})</span></p>
+    ${opt("MANUAL")}${opt("AUTO")}
+    <p class="muted">Automatic confirms a driver's selected slot only when no mandatory approval applies (after hours,
+      critical or reefer loads, moving earlier or into a busier time, dock downgrade, safety, dispatcher offers).
+      Those still go to a planner.</p>
+    ${m.can_edit ? `<div class="row"><input id="amreason" class="grow" maxlength="300" placeholder="Reason (required)">
+      <button id="amsave">Save</button></div>` : `<p class="muted">Read only for your role.</p>`}`;
+  const save = $("#amsave");
+  if(save) save.onclick = async () => {
+    const mode = (detail.querySelector('input[name="amode"]:checked') || {}).value;
+    if(mode === m.approval_mode){ toast("No change."); return }
+    save.disabled = true;
+    try { const r = await api("PUT", `/console/facilities/${encodeURIComponent(AX.fac)}/approval-mode`,
+            {mode, expected_version: m.version, reason: $("#amreason").value});
+      toast(`Approval mode is now ${r.approval_mode} (version ${r.version}).`) }
+    catch(e){ toast(e.status === 409 ? "Not saved: someone changed this setting meanwhile. Reloaded; please check and try again."
+                    : "Not saved: " + e.message) }
+    render() };
 }
 
 // ---------------------------------------------------------------- Phase G: optimizer and observability (read only)

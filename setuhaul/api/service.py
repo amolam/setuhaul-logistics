@@ -108,6 +108,12 @@ DISPATCH_PERMISSIONS: dict[str, frozenset] = {
     "view_ops":             frozenset({"operations", "ops_lead"}),
     "handle_escalation":    frozenset({"operations", "planner", "ops_lead"}),
 }
+# Migration 0047: the facility approval mode (MANUAL / AUTO). Planner settings: planners and ops leads read and change
+# it; the database checks the same roles and the facility scope itself (set_facility_approval_mode).
+APPROVAL_MODE_PERMISSIONS: dict[str, frozenset] = {
+    "view_approval_mode": frozenset({"planner", "ops_lead"}),
+    "set_approval_mode":  frozenset({"planner", "ops_lead"}),
+}
 
 
 def env(status: str = "OK", data: dict | None = None, missing: list | None = None, requires_human: dict | None = None,
@@ -1092,7 +1098,8 @@ class BookingService:
     @staticmethod
     def require(p: Principal, action: str):
         allowed = (PERMISSIONS.get(action) or SCHEDULE_PERMISSIONS.get(action) or PHASE_G_PERMISSIONS.get(action)
-                   or DISPATCH_PERMISSIONS.get(action) or KILL_SWITCH_PERMISSIONS[action])
+                   or DISPATCH_PERMISSIONS.get(action) or APPROVAL_MODE_PERMISSIONS.get(action)
+                   or KILL_SWITCH_PERMISSIONS[action])
         if not (p.roles & allowed):
             raise ServiceError(403, "FORBIDDEN", f"{action} needs one of: {', '.join(sorted(allowed))}")
 
@@ -1180,7 +1187,7 @@ class BookingService:
         verified Cognito token (groups -> roles, facility_scope claim), and which console actions that allows. Nothing
         the browser sends can change it; the database receives the same roles in begin_staff_context."""
         allowed = {**PERMISSIONS, **SCHEDULE_PERMISSIONS, **KILL_SWITCH_PERMISSIONS, **PHASE_G_PERMISSIONS,
-                   **DISPATCH_PERMISSIONS}
+                   **DISPATCH_PERMISSIONS, **APPROVAL_MODE_PERMISSIONS}
         return {"principal": f"staff:{p.sub}", "roles": sorted(p.roles), "facilities": list(p.facilities),
                 "permissions": {a: bool(p.roles & r) for a, r in sorted(allowed.items())}}
 
@@ -1334,6 +1341,27 @@ class BookingService:
         self.require(p, "pause")
         with self.db.tx("console", self._scope(p, facility), staff=self._staff(p)) as c:
             return c.execute("SELECT set_automation_paused(%s,%s,%s,%s)", (facility, paused, f"staff:{p.sub}", reason)).fetchone()[0]
+
+    def approval_mode(self, p: Principal, facility: str) -> dict:
+        """0047: the facility's approval mode as stored (MANUAL is the default), with who set it and its version."""
+        self.require(p, "view_approval_mode")
+        with self.db.tx("console", self._scope(p, facility), readonly=True) as c:
+            r = c.execute("""SELECT approval_mode, approval_mode_version, approval_mode_set_by, approval_mode_set_at
+                               FROM facilities WHERE facility_id = %s""", (facility,)).fetchone()
+        if r is None:
+            raise ServiceError(404, "FACILITY_UNKNOWN")
+        return {"facility_id": facility, "approval_mode": r[0], "version": r[1], "set_by": r[2],
+                "set_at": r[3].isoformat() if r[3] else None,
+                "can_edit": bool(p.roles & APPROVAL_MODE_PERMISSIONS["set_approval_mode"])}
+
+    def set_approval_mode(self, p: Principal, facility: str, mode: str, expected_version: int, reason: str) -> dict:
+        """0047: planner or ops_lead, in scope; optimistic concurrency on the version; audited by the database."""
+        self.require(p, "set_approval_mode")
+        self._scope(p, facility)
+        r = self._console_call(p, "SELECT set_facility_approval_mode(%s,%s,%s,%s,%s)",
+                               (facility, mode, expected_version, f"staff:{p.sub}", reason),
+                               conflict=("VERSION_CONFLICT",))
+        return {**r, "can_edit": True}
 
     def block_dock(self, p: Principal, dock_id: str, event_id: str, start: datetime, end: datetime, kind: str, reason: str) -> int:
         self.require(p, "block_dock")
