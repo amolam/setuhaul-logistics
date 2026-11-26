@@ -178,7 +178,7 @@ def provisional_report_problems(report: dict, predecessor_artifact: str | None, 
     the provisional authorization stands in for it until the release's own smoke and renewal close it.
 
     M-2: the running pilot's booking state is the one OBSERVED on its /health. Normally it is booking ON and
-    authorized. For a recovery (0033) the predecessor's window was revoked, so it can only be off or refused."""
+    authorized. For a recovery (0033/0045) the predecessor's window was revoked or expired, so it can only be off or refused."""
     from datetime import datetime, timezone
     from setuhaul.ops.renewal import ENVIRONMENT, REPORT_MAX_AGE, booking_observation_problems, parse_ts
     now = now or datetime.now(timezone.utc)
@@ -187,7 +187,7 @@ def provisional_report_problems(report: dict, predecessor_artifact: str | None, 
         p.append("a provisional release needs a renewal report from the running pilot")
     p += booking_observation_problems(
         report, ("off", "refused") if recovery else ("authorized",),
-        "a recovery follows a revoked window" if recovery else "a provisional release follows an authorized pilot")
+        "a recovery follows a revoked or expired window" if recovery else "a provisional release follows an authorized pilot")
     if report.get("environment") != ENVIRONMENT:
         p.append(f"the report is for {report.get('environment')!r}, not {ENVIRONMENT!r}")
     t = parse_ts(report.get("collected_utc"))
@@ -331,7 +331,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--pipeline-run", help="--provisional: the pipeline run id (audit)")
     ap.add_argument("--window-minutes", type=int, default=PROVISIONAL_MINUTES)
     ap.add_argument("--recovery-of", type=int, default=None,
-                    help="--provisional, Recovery Release A (0033): the REVOKED authorization of the previous release "
+                    help="--provisional, Recovery Release A (0033) / 0045: the REVOKED or owner-approved EXPIRED authorization of the previous release "
                          "that this release recovers from (owner-approved; the database checks every condition)")
     ap.add_argument("--revoke-provisional", metavar="REASON",
                     help="Option P: revoke the environment's open provisional authorization at once (pipeline)")

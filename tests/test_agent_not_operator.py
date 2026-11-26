@@ -145,7 +145,11 @@ def test_every_table_is_rls_forced_or_reasoned(conn):
              "provisional_authorizations", "provisional_authorization_events",
              # 0033 (Recovery Release A): owner-attested decider kinds (approval id, kind, provenance; no facility
              # data); append-only, no application role has any privilege, read only by approval_execution_evidence
-             "approval_decider_attestations"}
+             "approval_decider_attestations",
+             # 0045: the owner's recorded approvals to recover an EXPIRED provisional window (authorization id,
+             # deployment id, provenance; no facility data); append-only, no application role has any privilege,
+             # read only by issue_provisional_authorization (definer)
+             "provisional_expired_recovery_approvals"}
     bad = [r[0] for r in conn.execute("""SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
                                          WHERE n.nspname='setuhaul' AND c.relkind='r'
                                            AND NOT (c.relrowsecurity AND c.relforcerowsecurity)""") if r[0] not in allow]
