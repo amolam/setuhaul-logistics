@@ -43,9 +43,10 @@ Release `4b9ac56` (evidence head `e3c5bbe`); all data synthetic. Numbers come fr
 - **F:** "Why can't dispatchers approve?" → Separation of duties: the requester never decides (migration 0036).
 
 **A4. What business value is created?**
-- **S:** Fewer coordinator calls per delay, faster re-slotting, and no double bookings. The last is measured on synthetic data; the first two are expected but not measured.
+- **S:** Fewer coordinator calls per delay, faster re-slotting, and correct slot allocation under contention. Only the last has evidence, from synthetic concurrency tests; the first two are expected but not measured.
 - **D:**
-  - Measured (synthetic): 0 double bookings under 20 and 50 concurrent requests; 0 hard-gate violations in 64 live replays; reply delivery p95 cut from 58.6 s to 1.3 s.
+  - Measured (synthetic data): competing requests for one slot gave one winner and 0 overlapping claims (20 concurrent in the local proof, 50 in the suite, plus live smoke check 4); 0 hard-gate violations in 64 live replay scenarios.
+  - Preliminary (reported, uncommitted, 6 exchanges): reply → outbound p95 1.3 s against 58.6 s before.
   - Expected: coordinator time saved and faster rebooking. Those need a baseline from a real facility.
 - **E:** `INTEGRITY_PROOF.md`; `replay_v4_live_*.json`; commit `ff4076d`.
 - **F:** "Give me an ROI number." → I won't invent one; here is how I'd measure it (A5).
@@ -83,7 +84,7 @@ Release `4b9ac56` (evidence head `e3c5bbe`); all data synthetic. Numbers come fr
 - **F:** "Cold starts?" → Orchestrator import is about 0.73 s locally; the pilot turn latency is under investigation (J2).
 
 **B3. Why PostgreSQL?**
-- **S:** Because correctness lives in transactions, row locks, row-level security and exclusion constraints. A booking that can't be stored can't be double-booked.
+- **S:** Because correctness lives in transactions, row locks, row-level security and exclusion constraints. The exclusion constraint makes the database refuse an overlapping claim on the same dock, whoever writes it; the concurrency tests exercise exactly that.
 - **D:** `dock_occupancy` has an EXCLUDE constraint (`ex_one_truck_per_dock`). Holds take a per-dock lock. Approvals, evidence guard, kill switch and provisional authorization are tables plus definer functions. The usage ledger reserves model budget atomically. 46 forward-only migrations.
 - **E:** `migrations/0001_core_schema.sql`, `0023`, `0026`, `0030`, `0032`.
 - **F:** "Isn't putting logic in the DB hard to test?" → 2,080 tests run against PostgreSQL 17.9 in CI, plus a Data API emulator path.
@@ -102,23 +103,23 @@ Release `4b9ac56` (evidence head `e3c5bbe`); all data synthetic. Numbers come fr
 
 **B6. Why agents?**
 - **S:** Only as far as natural language needs it. The "agent" reads; it does not act on its own judgement.
-- **D:** A pure workflow can't read "tyre burst near Neemrana, 90 min late" or Hinglish variants. A free agent can't be trusted to book. On held-out data the model gets intent right 98% of the time against 61% for rules, and that is why the LLM is there.
+- **D:** A pure workflow can't read "tyre burst near Neemrana, 90 min late" or Hinglish variants. A free agent can't be trusted to book. On synthetic held-out data, on the deployed prompt p5, the model gets intent right on 167 of 167 turns against 61% for rules, and that is why the LLM is there.
 - **E:** `golden_h1_*`.
 - **F:** "When would you give it more autonomy?" → For low-risk, reversible actions, such as drafting a coordinator hand-off note, with a judge and human review.
 
 **B7. What would you redesign?**
 - **S:** Three things:
   - put per-stage spans in the agent turn from day one;
-  - make the judge budget a share of the shared cap, not an independent number;
+  - express the judge's budget explicitly as a share of the shared cap, so the configured judge figure ($0.50) cannot be mistaken for the operative limit;
   - plan for a direct database connection, rather than only the Data API, where latency matters.
-- **D:** The Data API was right for cost but is the likely latency culprit. The judge budget mismatch caused skipped judgements after the deploy. Missing early per-stage timing made the 8.5–11 s agent turn hard to explain.
+- **D:** The Data API was right for cost but is the likely latency culprit. After the deploy, the judge was skipped with `budget:shared_daily_cap`. The configured judge budget ($0.50) is not the binding limit: the judge only gets the shared cap's ($0.25) headroom above the agent reserve. The exact usage balance at the time is not available. Missing early per-stage timing made the 8.5–11 s agent turn hard to explain.
 - **E:** Cost Analysis §6; Gap Analysis.
 - **F:** "Anything you'd remove?" → The ten secrets could be fewer, but they buy least privilege; I'd keep them.
 
 ## C. LLM engineering
 
 **C1. Why use an LLM?**
-- **S:** Drivers write free text in three languages. Rules cover the common patterns, but the model is far better: 98% vs 61% intent, and 97.8% vs 69.2% ETA recall on held-out data.
+- **S:** Drivers write free text in three languages. Rules cover the common patterns, but the model is far better: 100% vs 61% intent, and 97.8% vs 69.2% ETA recall on synthetic held-out data (prompt p5).
 - **D:** The model's job is narrow, filling a typed form. That makes it measurable: golden sets, schema validity and field accuracy.
 - **E:** `golden_h1_model_20261118_0907.json`, `golden_h1_rules_…`.
 - **F:** "Why not fine-tune a small model?" → There's no real data yet, and Haiku at about a third of a cent per extraction is cheap enough. Revisit with real volume.
@@ -201,7 +202,7 @@ Release `4b9ac56` (evidence head `e3c5bbe`); all data synthetic. Numbers come fr
   - A repeated YES or decision changes nothing (smoke check 3).
   - A redelivered Telegram update is stored once.
 - **E:** migrations 0011–0013; smoke check 3; FULL_ACTIVATION_RUNBOOK §12 step 6.
-- **F:** "Exactly-once?" → Effectively once per business effect; delivery itself is at least once.
+- **F:** "Exactly-once?" → I don't claim exactly-once. Delivery is at least once; ordering is FIFO per driver; duplicates are de-duplicated and business effects are idempotent (a repeat changes nothing).
 
 **D6. How are retries handled?**
 - **S:** Retries are bounded and fenced.
@@ -298,11 +299,12 @@ Release `4b9ac56` (evidence head `e3c5bbe`); all data synthetic. Numbers come fr
 
 **F4. How do you prevent dataset leakage?**
 - **S:** The held-out set was generated separately, frozen, and used only for scoring, never for prompt tuning.
-- **D:** Prompt changes were tuned on v1–v4; h1 confirmed generalisation (98% intent). It's recorded by hash.
+- **D:** Prompt changes were tuned on v1–v4; h1, also synthetic, confirmed generalisation: 98% intent on p3 and 100% on the deployed p5, though option pick fell from 100% to 91.7% (one miss, BB05). It's recorded by hash.
 - **E:** h1 dataset hash `2e72cb40af0b106d`.
 - **F:** "But you've seen the h1 results now." → Yes. The next held-out set should come from real messages.
 
 **F5. How are evaluation cases versioned?**
+- **Note:** all model-backed runs were re-run on the deployed prompt p5 on 26 Nov: h1 158/167 all fields right (unchanged), v4 74/76, live replay 62/64 with 0 hard-gate violations. BB12 and AT02 fail on both p3 and p5; causes not established.
 - **S:** Dataset hash, prompt version, schema version and model id in every result file.
 - **D:** Decision T28: every model call records the prompt version, and a prompt change needs a golden run. LangSmith datasets are named by version.
 - **E:** result files `run` block.
@@ -324,7 +326,7 @@ Release `4b9ac56` (evidence head `e3c5bbe`); all data synthetic. Numbers come fr
 - **F:** "Who approved the criteria?" → The owner, recorded with dates.
 
 **F8. How do you know the reference answers are correct?**
-- **S:** The golden labels are hand-written and reviewed. The judge's references are model-generated and labelled as such, which is exactly why human calibration is outstanding.
+- **S:** The golden labels are hand-written and reviewed. The judge's AI references are model-generated and labelled as such, which is why I scored the 20 calibration cases myself. That calibration has one reviewer and isn't blind, so it's labelled that way too.
 - **D:** Native-speaker review covered the Hindi and Hinglish templates (S4-R2-08). The judge references were accepted by the owner but are not human scores.
 - **E:** `ai_reference_scores_v1.json` (label); `human_scores_v1.json` (empty).
 - **F:** "Inter-annotator agreement?" → Not measured; double-label 10% is a P1 action.
@@ -339,7 +341,7 @@ Release `4b9ac56` (evidence head `e3c5bbe`); all data synthetic. Numbers come fr
 
 **G2. How is the judge model selected?**
 - **S:** Haiku 4.5 on the same pinned, zero-retention route: no new vendor or data path, and cheap at $0.0033 per judgement.
-- **D:** The trade-off is self-preference bias. It's mitigated by the baseline, the planted defects and, still to come, human calibration.
+- **D:** The trade-off is self-preference bias. It's mitigated by the baseline, the planted defects and one non-blind human calibration; a blind second reviewer is the next step.
 - **E:** `judge_20261125_172110.json`.
 - **F:** "Why not a stronger model?" → Possible after calibration shows a need; it's a cost decision.
 
@@ -351,37 +353,41 @@ Release `4b9ac56` (evidence head `e3c5bbe`); all data synthetic. Numbers come fr
 
 **G4. How is judge agreement measured?**
 - **S:** The share of dimension ratings within ±1 of the reference, plus exact match, MAE and signed error per dimension.
-- **D:** p2 on 60 ratings: 95.0% within ±1, 76.7% exact, MAE 0.333, signed error −0.1 (no systematic bias). Per dimension: clarity 90%, tone 100%, language 95%.
+- **D:** Against my own scores (20 cases, 60 ratings, 26 Nov): 93.3% within ±1, 83.3% exact, average error 0.30, no systematic bias; clarity 90%, tone 95%, language 95%. Against the earlier AI reference it was 95.0%. My scores match that reference on 53 of 60, and I had seen it the day before, so this isn't blind.
 - **E:** `llm_judge_run2_report.md`.
-- **F:** "95% sounds high." → An always-5 baseline gets 88.3%, so agreement alone is weak; see G5.
+- **F:** "93% sounds high." → An always-5 baseline gets 88.3% against the same scores, so agreement alone is weak; see G5.
 
 **G5. How do you detect judge bias?**
 - **S:** With signed error per dimension, the always-5 baseline and planted negative cases.
-- **D:** The negative cases (J16–J20) each contain one deliberate defect. The judge must score the defective dimension lowest. p2 found 5/5; the baseline found 0/5.
+- **D:** The negative cases (J16–J20) each contain one deliberate defect. The judge must score the defective dimension lowest. p2 found 5/5; the baseline found 0/5. Against my scores, the judge still under-penalised two of them: J17 clarity and J20 tone (I gave 1, it gave 3).
 - **E:** `LLM_JUDGE.md` §7b.
-- **F:** "Self-preference?" → Not measurable without human scores; that's outstanding.
+- **F:** "Self-preference?" → Only partly: one non-blind human reviewer reduces the risk; a blind second reviewer would measure it.
 
 **G6. How do you handle false positives?**
 - **S:** The judge is advisory, so a false positive can't change an outcome. We look at large disagreements by hand.
-- **D:** Disagreements of 2+ points on p2: J13 language (−4), J14 clarity (−3), J17 clarity (−2). These are inspected, not acted on automatically.
+- **D:** Four disagreements of 2+ points against my scores: J13 language (I gave 5, judge 1) and J14 clarity (5, 2) are judge false positives; J17 and J20 are planted defects the judge partly missed. These are inspected, not acted on automatically.
 - **E:** run 2 report.
-- **F:** "False-negative rate?" → Not measurable without human labels.
+- **F:** "False-negative rate?" → Not stable with one reviewer and 20 cases. Against my scores the judge under-penalised J20 (tone: I gave 1, it gave 3).
 
 **G7. What happens when judge evaluation fails?**
 - **S:** A SKIPPED, ERROR or UNPARSEABLE row is written and logged. It never raises into the worker and is never retried.
-- **D:** After the deploy, judgements were skipped with `budget:shared_daily_cap` (reported) because the judge's $0.50 budget exceeds the $0.25 shared cap. That's a configuration finding.
+- **D:** After the deploy, judgements were skipped with reason `budget:shared_daily_cap` (reported). Two different numbers are involved:
+  - the configured judge budget, $0.50/day (stack output `LlmJudge`), which is the judge's own sub-cap;
+  - the shared application cap, $0.25/day. The judge may only use its headroom above the agent reserve, which defaults to half the cap; no override was found in the stack.
+
+  The skip reason means the shared-cap check refused the reservation. The exact usage balance at that moment is not available. Changing either budget is an owner decision; I don't recommend raising anything without that approval.
 - **E:** `online_judge.py`; stack output `LlmJudge`.
 - **F:** "So the judge isn't running?" → It runs when budget allows; 9 turns were scored earlier on 26 Nov (reported).
 
 **G8. Can the judge itself hallucinate?**
-- **S:** Yes. That's why it's advisory, validated strictly, and calibrated against baselines and (soon) humans.
+- **S:** Yes. That's why it's advisory, validated strictly, and calibrated against baselines and one human reviewer, not yet blind or multi-reviewer.
 - **D:** Evidence quotes are bounded. Malformed output is rejected. Scores never reach a decision path.
 - **E:** `judge_core.py`.
 - **F:** "Then why trust it at all?" → I trust it as a cheap trend signal, not as truth.
 
 **G9. How do you calibrate it?**
-- **S:** A person scores the same 30 cases, then `judge_calibration.py` compares the results. That hasn't been done yet.
-- **D:** The sheet and tooling exist (`calibration_sheet_v1.md`, `pilot_calibration.py`). AI-to-AI agreement never moves the calibration status.
+- **S:** A person scores the 20 calibration cases without the judge's output, then `judge_calibration.py` compares. I did it on 26 Nov: 93.3% within ±1, accepted for advisory use. One reviewer, and not blind to the AI reference.
+- **D:** The sheet and tooling exist (`calibration_sheet_v1.md`, `pilot_calibration.py`). AI-to-AI agreement never moves the calibration status. Still open: a blind second reviewer, and `pilot_calibration.py` on real pilot rows.
 - **E:** `evals/judge/*`.
 - **F:** "When?" → Before any decision uses judge scores; it's the first item on the AI roadmap.
 
@@ -407,7 +413,7 @@ Release `4b9ac56` (evidence head `e3c5bbe`); all data synthetic. Numbers come fr
 
 **H4. How do parent-child spans work?**
 - **S:** Each child run carries its parent's id and the trace id; the judge is created as a child of the turn it scores.
-- **D:** Since PR #33, `telegram_inbound`'s run id equals the turn's ingest correlation id, and all four components share `thread_id`.
+- **D:** Since PR #33, `telegram_inbound`'s run id equals the turn's ingest correlation id, and the main conversation path (inbound, agent turn, judge, outbound) shares `thread_id`. Four inbound runs for link codes and button callbacks do not yet.
 - **E:** commit `ff4076d`; `tests/test_demo_reliability.py`.
 - **F:** "Gaps?" → 4 inbound runs (link codes, button callbacks) lack `thread_id`.
 
@@ -505,7 +511,7 @@ Release `4b9ac56` (evidence head `e3c5bbe`); all data synthetic. Numbers come fr
 
 **J4. How does cost change with scale?**
 - **S:** Not linearly. Fixed AWS dominates at 100 a month (about $113 per 1,000 bookings); the LLM dominates at 100,000 a month (about $16.5 per 1,000 in total, upper estimate).
-- **D:** There are steps: once the pilot must stay awake, Aurora's floor (about $73 a month) applies. The $0.25/day cap supports only about 23–63 bookings a day and must be raised by decision.
+- **D:** There are steps: once the pilot must stay awake, Aurora's floor (about $73 a month) applies. By estimate, the $0.25/day cap alone supports about 20–42 bookings a day ($0.25 ÷ $0.0059–0.0128 per booking, including the judge); any change is an owner decision. The OpenRouter key's $10 limit never resets, so I don't derive monthly capacity from it. The 10k and 100k figures are projections, not demonstrated AWS capacity.
 - **E:** Cost Analysis §4.3–4.4.
 - **F:** "LangSmith at scale?" → Unknown cost; trace sampling is the mitigation.
 
@@ -519,16 +525,16 @@ Release `4b9ac56` (evidence head `e3c5bbe`); all data synthetic. Numbers come fr
 - **F:** "Is caching working?" → `cache_read` was 0 in the golden runs, so not realised via this route.
 
 **J6. Why use smaller models?**
-- **S:** The job is narrow extraction, where a small fast model is accurate enough (98% intent held-out) at a fraction of the cost and latency.
+- **S:** The job is narrow extraction, where a small fast model is accurate enough (100% intent on synthetic held-out data, prompt p5) at a fraction of the cost and latency.
 - **D:** Sonnet was used only offline. A larger model adds latency to an already slow turn.
 - **E:** golden results; `COSTS.md` price table.
 - **F:** "Smaller still?" → Worth testing on h1 (P3).
 
 **J7. What happens when the LLM budget is exhausted?**
 - **S:** No request is sent; the rules reader takes over; booking is unaffected. It's reserved atomically in PostgreSQL before each call.
-- **D:** The OpenRouter key limit is a second, independent safeguard, never retried. The judge can't starve the agent.
+- **D:** The OpenRouter key limit ($10 total, no reset) is a second, independent safeguard, never retried. The judge can't starve the agent.
 - **E:** migration 0023; `COSTS.md`; screenshot (BUDGET_EXCEEDED → rules-fallback, local).
-- **F:** "User impact?" → Lower understanding (61% vs 98% intent), so more clarifying questions.
+- **F:** "User impact?" → Lower understanding (61% vs 100% intent on synthetic held-out data), so more clarifying questions.
 
 **J8. How would you reduce AWS expenditure?**
 - **S:** It's already near the floor: no NAT, no proxy, scale to zero, schedules asleep when idle. Next: fewer secrets if least privilege allows, and AWS Budgets alarms.
@@ -538,9 +544,9 @@ Release `4b9ac56` (evidence head `e3c5bbe`); all data synthetic. Numbers come fr
 
 **J9. What is the impact of judge evaluation on operating cost?**
 - **S:** About $0.002 per booking at 20% sampling, roughly 15–35% of LLM cost per booking, and capped.
-- **D:** At $0.0033 per judgement × 0.6 judgements per booking. Sampling can drop to 5% once calibrated.
+- **D:** At $0.0033 per judgement × 0.6 judgements per booking. Sampling could drop to 5% after blind, multi-reviewer calibration.
 - **E:** Cost Analysis §4.2.
-- **F:** "Is it worth it?" → Only after human calibration; until then it's a monitoring experiment.
+- **F:** "Is it worth it?" → It's calibrated by one non-blind reviewer, so it's still a monitoring experiment, advisory only.
 
 ## K. Deployment and operations
 
@@ -573,7 +579,7 @@ Release `4b9ac56` (evidence head `e3c5bbe`); all data synthetic. Numbers come fr
   - real-data governance and consent;
   - WhatsApp/Meta approval;
   - PostgreSQL 18 and drift detection;
-  - judge calibration and an eval gate;
+  - blind, multi-reviewer judge calibration and an eval gate;
   - latency inside target;
   - an AWS load test;
   - a DR drill and on-call.
@@ -606,19 +612,19 @@ Release `4b9ac56` (evidence head `e3c5bbe`); all data synthetic. Numbers come fr
 - **F:** "One you got wrong?" → The phrasing model; OD-3 removed it after evaluation.
 
 **L2. How did you prioritise?**
-- **S:** Correctness first (no double booking), then safety and authority, then the language quality that drives value, then cost and latency.
+- **S:** Correctness first (one winner per contested slot), then safety and authority, then the language quality that drives value, then cost and latency.
 - **D:** The Phase 1 conclusion: spend engineering on concurrency, idempotency and escalation, not throughput.
 - **E:** `01_problem_definition_sheet.md` §2.
 - **F:** "What did you cut?" → The driver app, device ETA signals, and "talk to a person" (owner-deferred).
 
 **L3. What was the hardest engineering decision?**
 - **S:** Not letting the model write replies or choose tools, even though it looks less impressive.
-- **D:** It costs some fluency but makes every expensive mistake impossible by construction, makes replies testable, and shrinks the model surface to one call per turn.
+- **D:** It costs some fluency but keeps every expensive decision out of the model's reach by construction, makes replies testable, and shrinks the model surface to one call per turn.
 - **E:** OD-3; `orchestrator.py` docstring.
-- **F:** "Would a customer prefer a chattier bot?" → Then that's measurable, and the judge plus human calibration would tell us.
+- **F:** "Would a customer prefer a chattier bot?" → Then that's measurable, and the judge plus wider human calibration would tell us.
 
 **L4. What would you redesign?**
-- **S:** Per-stage spans in the agent turn from the start, a judge budget tied to the shared cap, and planning for lower-latency database access.
+- **S:** Per-stage spans in the agent turn from the start, a judge budget stated as a share of the shared cap, and planning for lower-latency database access.
 - **D:** See B7.
 - **E:** Cost Analysis §6.
 - **F:** –
@@ -662,9 +668,9 @@ Release `4b9ac56` (evidence head `e3c5bbe`); all data synthetic. Numbers come fr
 
 | Question | Answer |
 |---|---|
-| "So the AI barely does anything?" | "It does the one thing code can't, reading messy language at 98% intent accuracy, and nothing that can cost money when it's wrong." |
-| "Your latency target was missed." | "Yes: 15.0 s against < 15 s on six exchanges. Delivery is 45× faster than this morning, and the next bottleneck is identified." |
-| "Your judge agrees with another AI, so what?" | "Exactly. That's why it's advisory, tested against a dummy baseline and planted defects, and why human calibration is the next step." |
+| "So the AI barely does anything?" | "It does the one thing code can't, reading messy language (100% intent on 167 synthetic held-out turns), and nothing that can cost money when it's wrong." |
+| "Your latency target was missed." | "Yes: 15.0 s against < 15 s, on six reported exchanges that aren't committed evidence yet. Removing the one-minute wait is a preliminary improvement, not a service level, and the next bottleneck is identified." |
+| "Your judge agrees with another AI, so what?" | "Exactly. That's why it's advisory, tested against a dummy baseline and planted defects, and why I scored it myself: 93.3% within a point, one non-blind reviewer, so it stays advisory." |
 | "Is any of this in production?" | "No. It's a synthetic pilot with booking under an owner approval, and the system refuses production by design." |
-| "What does it cost?" | "About $3.37 of recorded model spend for development and evaluation. Pilot spend is capped at $0.25 a day; I didn't read its ledger. AWS idle is estimated at about $7 a month, and the bill isn't in my evidence, so I won't quote it." |
+| "What does it cost?" | "About $4.42 of recorded model spend for development and evaluation, including $1.05 for the 26 November re-runs on the deployed prompt; a crashed first attempt adds about 14 cents by estimate, and the key's own counter is authoritative. Current pilot LLM spend isn't available: it's capped at $0.25 a day and I didn't read its ledger. Nor are the AWS and LangSmith bills. AWS idle is estimated at about $7 a month, and the bill isn't in my evidence, so I won't quote it." |
 | "Why should a customer trust it?" | "Because every commitment is a database rule with an audit row, and a person approves every booking." |

@@ -46,7 +46,8 @@ def build_deck():
     text(s, 0.7, 1.1, 11.5, 0.9, "SetuHaul Logistics", size=44, bold=True, color=WHITE, font="Arial")
     text(s, 0.7, 1.95, 11.5, 0.6, "AI-Powered Logistics Operations Platform", size=26, color="CADCFC", font="Arial")
     text(s, 0.7, 2.85, 11.0, 0.9, "Drivers report delays in their own words. SetuHaul offers only dock slots that "
-         "really work, a planner approves, and no dock is ever double-booked.", size=18, color=WHITE)
+         "really work, and a planner approves. In concurrency tests, competing requests for one dock slot produced "
+         "exactly one booking.", size=18, color=WHITE)
     cards = [("Domain", "Inbound freight to 6 warehouses with 32 dock doors (India network; all data synthetic)"),
              ("Primary users", "Truck drivers · dispatchers · warehouse planners · operations · ops leads"),
              ("Core problem", "Late trucks miss dock slots; 5 coordinators juggle 20–35 messages in a spike"),
@@ -59,7 +60,9 @@ def build_deck():
     text(s, 0.7, 6.55, 12, 0.4, "Synthetic pilot on AWS Sydney · release 4b9ac56 (evidence head e3c5bbe) · "
          "26 Nov 2026 · production off", size=12, color="AEB8CC")
     notes(s, "Open with the one-line value proposition. SetuHaul is a driver-exception and dock re-scheduling "
-          "service. The AI reads messages; code and the database decide; planners approve. Everything you will see is "
+          "service. The AI reads messages; code and the database decide; planners approve. Say what was tested, not a "
+          "guarantee: 20 concurrent requests for one slot (local proof) and 50 in the suite produced one winner and "
+          "no overlap, and live smoke check 4 passed on the pilot. Everything you will see is "
           "synthetic data on a synthetic pilot in AWS Sydney; production is switched off by the system itself. "
           "(30 s)")
 
@@ -111,7 +114,7 @@ def build_deck():
             ["Never promise an infeasible or conflicting slot", "Feasibility in code; per-dock lock + EXCLUDE constraint",
              "Integrity proof 9/9; smoke check 4"],
             ["Drivers write English, Hindi, Hinglish", "LLM extraction + 3-language templates; rules fallback",
-             "Held-out h1: 98% intent; native-speaker review"],
+             "Held-out h1 (p5): 100% intent; native-speaker review"],
             ["People keep authority over bookings", "Planner approval in Step Functions; requester never decides",
              "Smoke checks 2a–2c, 5"],
             ["Safe to pilot on a tight budget", "Synthetic data only; $0.25/day LLM cap; kill switch; scale to zero",
@@ -119,7 +122,7 @@ def build_deck():
     table(s, 0.5, 3.45, 12.33, rows, [3.6, 4.83, 3.9], size=12, row_h=0.5)
     text(s, 0.5, 6.1, 12.33, 0.7, [[("Non-functional: ", {"bold": True, "color": NAVY}),
                                     ("correctness under contention over throughput · every decision audited · no "
-                                     "personal data in traces · Sydney region only · production refused until a "
+                                     "message text or direct identifiers in traces · Sydney region only · production refused until a "
                                      "separate decision.", {})]], size=12.5)
     notes(s, "As an FDE, the first deliverable was not code: it was decision rights. Who may decide what. "
           "The dispatcher role, for example, can request but never decide. Each requirement maps to a capability and "
@@ -144,7 +147,7 @@ def build_deck():
     dec = [("The database owns booking state", "46 forward-only migrations; booking, holds and approvals are "
             "PostgreSQL functions"),
            ("Scale to zero", "Lambda + Data API: no NAT, no proxy. Idle ≈ $7/month (estimate)"),
-           ("Ordered, exactly-once turns", "FIFO grouped per driver; a lease and fence per turn"),
+           ("Ordered, de-duplicated turns", "FIFO order per driver and dedup ids; lease + fence keep business effects idempotent"),
            ("Trade-off accepted", "Data API round trips add latency; a paused Aurora took 14.6 s to resume")]
     for i, (h, b) in enumerate(dec):
         y = 1.6 + i * 1.22
@@ -230,8 +233,8 @@ def build_deck():
     D.d_guardrails(s)
     qa = [("If the LLM ignores instructions?", "It can only fill a form: extra keys are rejected and code decides "
            "what happens next."),
-          ("If it returns invalid output?", "Rejected and not retried; the rules reader takes over or the agent asks "
-           "again."),
+          ("If it returns invalid output?", "Rejected and not retried; that turn falls back to the deterministic rules "
+           "reader."),
           ("If it 'attempts' an unauthorised operation?", "There is no path: the model has no tools, and the agent's "
            "database login cannot decide approvals.")]
     for i, (q, a) in enumerate(qa):
@@ -243,20 +246,22 @@ def build_deck():
     notes(s, "Layers 1 to 3 handle input and model output; 4 to 6 are code and the database; 7 is people and "
           "operations. The database layer is what makes the rest safe: per-role logins, row-level security by "
           "facility, definer functions, an exclusion constraint. The kill switch and provisional authorization are "
-          "database state, so a misconfigured Lambda cannot bypass them. Prompt injection: the prompt says the "
-          "driver's text is data, but nothing depends on the model obeying that. (90 s)")
+          "database state, so a misconfigured Lambda cannot bypass them. Layer 2, prompt and context hygiene, is non-authoritative: "
+          "it reduces errors but is not a security enforcement boundary. The prompt says the driver's text is "
+          "data, but nothing depends on the model obeying that. Invalid model output is not retried; that turn "
+          "uses the rules reader. (90 s)")
 
     # 9 ------------------------------------------------------------------------------------------------------------
     s = frame(p, 9, "AI quality is measured against versioned references, not demos",
-              "Golden sets drive prompt changes; the judge is advisory and still needs human calibration",
-              "evals/results/golden_*.json, replay_v4_*.json, g1_langsmith_eval_20261123_1426.json, "
-              "judge_20261125_172110.json, docs/evaluation/LLM_JUDGE.md")
+              "Synthetic sets, re-run on deployed prompt p5; the judge is advisory, calibrated by one human reviewer",
+              "evals/results/golden_*_model_20261126_*.json, replay_v4_live_20261126_2305.json, "
+              "judge_20261125_172110.json, evals/judge/human_scores_v1.json")
     D.d_eval_pipeline(s)
     D.c_eval_model_vs_rules(s)
-    stats = [("76 / 167", "turns in golden v4 / held-out h1 (hashed, versioned)"),
-             ("61 / 64", "live replay scenarios passed; 0 hard-gate violations"),
+    stats = [("76 / 167", "synthetic turns in golden v4 / held-out h1 (hashed)"),
+             ("62 / 64", "live replay scenarios passed on p5 (synthetic); 0 hard-gate violations"),
              ("111 / 111", "deterministic agent checks (scripted model, $0)"),
-             ("100%", "schema-valid extractions since prompt p2")]
+             ("91.7%", "h1 option pick on p5 (11/12; was 100% on p3)")]
     for i, (big, small) in enumerate(stats):
         y = 2.6 + i * 0.98
         text(s, 6.05, y, 3.1, 0.5, big, size=22, bold=True, color=NAVY, font="Arial")
@@ -264,22 +269,32 @@ def build_deck():
     box(s, 9.35, 2.6, 3.48, 3.9, "", fill=AI_FILL, line=AI_LINE, radius=0.05)
     text(s, 9.5, 2.68, 3.2, 0.4, "LLM-as-a-Judge (advisory)", size=13.5, bold=True, color=NAVY)
     text(s, 9.5, 3.1, 3.2, 3.3, [
-        {"t": "30 synthetic replies; clarity, tone, language", "bullet": True},
-        {"t": "95% of 60 ratings within ±1 of an AI reference", "bullet": True},
-        {"t": "5/5 planted defects found; always-5 baseline 0/5", "bullet": True},
-        {"t": "Prompt p1: 18/30 unparseable → p2: 0/30", "bullet": True},
-        {"t": "$0.098 for 30 judgements", "bullet": True},
+        {"t": "93.3% of 60 ratings within ±1 of the owner's scores; avg error 0.30", "bullet": True},
+        {"t": "Always-5 baseline: 88.3%, 0.517", "bullet": True},
+        {"t": "4 disagreements of 2+ points: J13, J14, J17, J20", "bullet": True},
+        {"t": "5/5 planted defects ranked lowest; 0/30 unparseable", "bullet": True},
         {"t": "Never gates a booking or any workflow", "bullet": True},
-        {"t": [("Human calibration: OUTSTANDING", {"bold": True, "color": RED})]}], size=11.5, space_after=4)
-    text(s, 0.5, 6.55, 12.33, 0.45, "Not available: judge–human agreement · per-field precision/recall beyond ETA · "
-         "an eval gate in CI (paid evals run manually with approval).", size=11, color=MUTED, italic=True)
-    notes(s, "Three layers of AI quality. Golden sets: versioned and hashed driver turns with expected fields; the "
-          "held-out set h1 was generated separately and never used for tuning. The model beats the rules reader "
-          "by 37 points on intent. Replay: whole conversations through the real pipeline; 61 of 64 live, with zero "
-          "hard-gate violations, meaning no unsafe booking. The judge only scores reply quality and never gates "
-          "anything. Its 95% agreement is against model-generated reference scores, so I treat it as model-to-model "
-          "agreement. An always-5 dummy scores 88%, which is why we added planted defects as an acceptance rule. "
-          "Human calibration is outstanding. (105 s)")
+        {"t": [("Human calibration: ACCEPTED", {"bold": True, "color": GREEN}),
+               (" (owner-scored, one reviewer, not blind to the AI reference)", {})]}], size=11, space_after=3)
+    text(s, 0.5, 6.5, 12.33, 0.5, [[("Prompt version: ", {"bold": True, "color": NAVY}),
+         ("all model-backed evals re-run on deployed p5 (26 Nov). Not every metric improved: option pick fell to 91.7% "
+          "(BB05). Replay BB12 and AT02 fail on both p3 and p5; causes not established. Not available: an eval "
+          "gate in CI.", {})]], size=10.5, color=MUTED, italic=True)
+    notes(s, "Three layers of AI quality, all on synthetic data, and all model-backed runs are now on the deployed "
+          "prompt p5. Golden sets: versioned and hashed driver turns with expected fields. The held-out set h1 was "
+          "generated separately and never used for tuning: on p5, intent 100% against 61% for the rules reader, "
+          "ETA recall 97.8%, all fields right 158 of 167, the same as p3. Not everything improved: option pick fell "
+          "from 100% to 91.7% because of one miss, BB05, where the model returned no option instead of option 1. "
+          "Golden v4: 74 of 76, all gates pass. Replay: 64 live replay scenarios through the real pipeline; 62 "
+          "passed, with zero hard-gate violations: no unauthorised or fabricated booking in that set. BB12, a "
+          "status question answered with slot options, and AT02, an unexpected no-feasible-slot escalation, failed "
+          "on p3 and p5 alike; I have not established why. BB09 failed on p3 and passes on p5. I keep these sets "
+          "separate; there is no combined score. The judge only scores reply quality and never gates anything. I "
+          "scored the 20 calibration cases myself on 26 Nov: the judge is within one point on 93.3% of 60 ratings, "
+          "average error 0.30, against 88.3% for an always-5 dummy, so the margin is real but modest. Two honest "
+          "limits: one reviewer, and I had seen the AI reference scores the day before, so it is not blind; my "
+          "scores match that reference on 53 of 60. Four disagreements of two or more points: J13 and J14 are "
+          "judge false positives; on J17 and J20, planted defects, the judge missed part of the defect. (120 s)")
 
     # 10 -----------------------------------------------------------------------------------------------------------
     s = frame(p, 10, "Live demo: two synthetic drivers, one planner, one trace",
@@ -288,7 +303,7 @@ def build_deck():
     steps = [("Ops lead", "Pilot status: booking authorized, kill switch disengaged", "Read-only state", "0:30"),
              ("Dispatcher", "Offers a dock slot to SYN-DRV-TEST-1 in Telegram", "Offer with expiry", "0:45"),
              ("Driver", "Taps Accept: a request, not a booking", "Acceptance is not confirmation", "0:30"),
-             ("Planner", "Approves; the driver is told in seconds", "Human approval boundary", "0:45"),
+             ("Planner", "Approves; the driver is notified", "Human approval boundary", "0:45"),
              ("Driver", "Reports a delay in Hinglish, says YES, picks a slot", "LLM reads; code finds slots", "1:30"),
              ("Engineer", "Opens the LangSmith thread", "Correlated trace", "1:00"),
              ("Exception", "Taps Accept on an expired offer", "Expired offer refused", "0:45")]
@@ -316,8 +331,8 @@ def build_deck():
           "(6 min)")
 
     # 11 -----------------------------------------------------------------------------------------------------------
-    s = frame(p, 11, "One LangSmith thread per conversation, no personal data",
-              "Traces answer \"what happened to this booking?\"; logs and metrics answer \"how often?\"",
+    s = frame(p, 11, "Main conversation path correlated in LangSmith; ids only",
+              "No message text, phone numbers or chat ids exported; 4 link-code and button-callback runs lack thread_id",
               "setuhaul/observability/tracing.py, identifiers.py, redaction.py, notify/telegram.py, commit ff4076d, "
               "PR #17")
     D.d_trace(s)
@@ -343,9 +358,11 @@ def build_deck():
                                    {"t": "No per-stage breakdown inside the 8.5–11 s agent turn yet", "bullet": True,
                                     "size": 11}],
         fill=RISK_FILL, line=RISK_LINE, align="l", anchor="t", margin=0.12)
-    notes(s, "Since the demo release, the inbound webhook, the agent turn, the judge and the outbound send share one "
-          "opaque thread id, so LangSmith groups a whole conversation. The judge is a child of the turn it scored. "
-          "Internal ids pass a strict format gate; message text, chat ids and phone numbers never leave the process. "
+    notes(s, "Since the demo release, the main conversation path (inbound webhook, agent turn, judge and outbound "
+          "send) shares one opaque thread id, so LangSmith groups it. It is not every run: four inbound runs for "
+          "link codes and button callbacks have no thread id yet. The judge is a child of the turn it scored. "
+          "Traces carry pseudonymous internal ids (synthetic driver, shipment and facility ids) after a strict format "
+          "gate; message text, chat ids and phone numbers are not exported. "
           "Gaps: four inbound runs (link codes and button callbacks) still have no thread id, and we do not alert on "
           "trace data. (75 s)")
 
@@ -365,15 +382,15 @@ def build_deck():
           "that CI is not the same as operational readiness. (60 s)")
 
     # 13 -----------------------------------------------------------------------------------------------------------
-    s = frame(p, 13, "End to end 4× faster; the agent turn is now the bottleneck",
-              "Both latency targets were missed narrowly, and I show them as missed",
+    s = frame(p, 13, "Event-driven delivery removed the one-minute wait (preliminary)",
+              "After-sample: 6 exchanges, reported and not yet committed. Both demo targets missed narrowly",
               "commit ff4076d (before), scripts/latency_report.py (after, 26 Nov, reported), "
               "docs/phase-g/PHASE_G_PERFORMANCE_REPORT.md, docs/release/10_EXPRESS_AURORA.md")
     D.c_latency(s)
     rows = [["Measure", "Target", "Achieved", "Status"],
             ["End to end p95 (pilot)", "< 15 s", "15.0 s", "Missed, narrowly"],
-            ["Queue → send p95", "< 2 s", "≈ 2.2 s", "Missed"],
-            ["Reply → outbound p95", "–", "1.3 s (was 58.6)", "Improved"],
+            ["Outbound queue → send p95", "< 2 s", "≈ 2.2 s", "Missed"],
+            ["Reply → outbound p95", "–", "1.3 s (was 58.6)", "Reported"],
             ["Agent turn incl. LLM (pilot)", "–", "8.5–11 s", "Bottleneck"],
             ["LLM extraction p50 (evals)", "–", "2.2–2.4 s", "Measured"],
             ["Local load: 544 requests", "–", "p95 0.69 s, 0 failures", "Local only"],
@@ -382,59 +399,71 @@ def build_deck():
                         (GREEN if r[3] == "Improved" else None)] for r in rows[1:]]
     table(s, 7.35, 1.6, 5.48, rows, [1.95, 0.75, 1.55, 1.23], size=10.5, row_h=0.47, colors=colors)
     text(s, 7.35, 5.5, 5.48, 1.3, [
-        {"t": "Pilot sample: 6 exchanges, so p95 ≈ the worst case and p99 is not available.", "bullet": True},
-        {"t": "Targets are the owner's demo targets. Model latency (~2 s) is a small part of workflow latency "
-              "(13 s).", "bullet": True}], size=11, color=MUTED, space_after=3)
+        {"t": "End to end and reply → outbound use the same timestamps before and after (latency_report.py, "
+              "ff4076d); samples are small and different (7 vs 6); neither raw output is committed.", "bullet": True},
+        {"t": "p95 ≈ worst case at n = 6; no p99; no service level is claimed. Targets are the owner's demo "
+              "targets.", "bullet": True}], size=10.5, color=MUTED, space_after=2)
     notes(s, "Before the demo release, a reply waited up to a minute for the sender's one-minute tick. Event-driven "
-          "delivery cut reply-to-outbound p95 from 58.6 to 1.3 seconds. End to end is now 13.1 s at p50 and 15.0 s "
-          "at p95 over six exchanges, so we missed the under-15 s target narrowly, and queue-to-send at about 2.2 s "
+          "delivery is the fix. The after-numbers are preliminary: six exchanges, reported from the 26 Nov run and not "
+          "yet committed as evidence. Before and after use the same stage timestamps (latency_report.py), but the "
+          "samples are small and different. On that sample reply-to-outbound p95 was 1.3 s against 58.6 s before, "
+          "and end to end was 13.1 s at p50 and 15.0 s at p95, so we missed the under-15 s target narrowly, and queue-to-send at about 2.2 s "
           "missed its 2 s target. The next bottleneck is the agent turn itself, 8.5 to 11 s on the pilot against "
-          "about 2 s locally: likely Data API round trips and cold starts, not yet broken down. (60 s)")
+          "about 2 s locally: Data API round trips and cold starts are hypotheses, not findings. I claim no service "
+          "level. (60 s)")
 
     # 14 -----------------------------------------------------------------------------------------------------------
     s = frame(p, 14, "Cents per booking, capped by design",
-              "Actual spend is tiny and measured; scale costs are projections with stated assumptions",
-              "docs/operations/COSTS.md, evals/results/*, judge_*.json, docs/release/09_LOW_COST_PILOT_PLAN.md, "
-              "CloudFormation output LlmJudge")
+              "Recorded dev/eval spend is known; pilot LLM, AWS and LangSmith bills are not. Scale figures are projections",
+              "docs/operations/COSTS.md, evals/results/*, judge_*.json, OpenRouter key endpoint (26 Nov), "
+              "docs/release/09_LOW_COST_PILOT_PLAN.md, CloudFormation output LlmJudge")
     ch = D.c_unit_cost(s)
     ch.plots[0].series[1].points[2].data_label.has_text_frame = True
     ch.plots[0].series[1].points[2].data_label.text_frame.text = ""
-    text(s, 0.5, 6.12, 6.2, 0.85, "Assumptions: 3 model-read turns per booking at $0.0036 (measured upper); judge on "
-         "20% at $0.0033; AWS from the low-cost plan estimates; LangSmith plan cost excluded (unknown).", size=10,
-         color=MUTED, italic=True)
-    rows = [["Actual spend", "USD", "Basis"],
-            ["OpenRouter, evals + dev to 18 Nov", "≈ 3.16", "key checkpoint"],
-            ["Offline judge runs (2 × 30)", "0.205", "usage ledger"],
+    text(s, 0.5, 6.12, 6.2, 0.85, "PROJECTION, not demonstrated AWS capacity: 10k and 100k/month were never run. "
+         "Assumes 3 model-read turns per booking at $0.0036, judge on 20% at $0.0033, AWS from plan estimates; "
+         "LangSmith excluded (unknown).", size=10, color=MUTED, italic=True)
+    rows = [["Cost item", "USD", "Status"],
+            ["OpenRouter, evals + dev to 18 Nov", "≈ 3.16", "recorded (key)"],
+            ["Offline judge runs (2 × 30)", "0.205", "recorded (ledger)"],
+            ["p5 eval re-runs, 26 Nov (3 runs)", "1.046", "recorded (results)"],
+            ["Aborted v4 attempt (≈ 38 calls)", "≈ 0.14", "estimate only"],
             ["Per golden extraction (Haiku 4.5)", "≈ 0.0036", "computed"],
             ["Per pilot judgement", "≈ 0.0033", "reported, 9 turns"],
-            ["AWS bill for the pilot", "not available", "Billing console"]]
-    table(s, 7.0, 1.6, 5.83, rows, [2.95, 1.25, 1.63], size=11, row_h=0.42)
-    text(s, 7.0, 4.3, 5.83, 0.35, "Controls against uncontrolled spend", size=13.5, bold=True, color=NAVY)
-    text(s, 7.0, 4.68, 5.83, 2.2, [
-        {"t": "$0.25/day app cap, reserved in PostgreSQL before each call; when spent → rules reader, booking "
+            ["Pilot LLM spend since 23 Nov", "not available", "≤ $0.25/day cap"],
+            ["AWS and LangSmith bills", "not available", "not in evidence"]]
+    table(s, 7.0, 1.6, 5.83, rows, [2.95, 1.25, 1.63], size=10.5, row_h=0.33)
+    text(s, 7.0, 4.68, 5.83, 0.35, "Current limits (by design)", size=13.5, bold=True, color=NAVY)
+    text(s, 7.0, 5.03, 5.83, 1.95, [
+        {"t": "$0.25/day app cap, reserved in PostgreSQL before each call; when reached → rules reader, booking "
               "unaffected", "bullet": True},
-        {"t": "$3/month OpenRouter key limit; no automatic top-up", "bullet": True},
-        {"t": "Judge: 20% sample, own sub-cap, no retries; cannot starve the agent", "bullet": True},
-        {"t": "Idle pilot: schedules asleep, Aurora at 0 ACU", "bullet": True}], size=11.5, space_after=3)
-    notes(s, "Separate actuals from projections. Actual model spend is a few dollars, with every figure traceable "
-          "to a result file, the usage ledger or a key checkpoint. The AWS bill is not in the repository; check the "
-          "Billing console before quoting it. The chart is a projection. At 100 bookings a month fixed AWS cost "
-          "dominates; at 100,000 the LLM dominates at about 1.3 cents per booking. At those volumes the $0.25/day "
-          "cap is deliberately too small and would have to be raised by decision, not by accident. When the budget "
+        {"t": "OpenRouter key: $10 total, no reset (not a monthly budget); $5.98 used at the 26 Nov check, "
+              "before the replay", "bullet": True},
+        {"t": "Cap alone ≈ 20–42 bookings/day (ESTIMATE: $0.25 ÷ $0.0059–0.0128 per booking incl. judge)",
+         "bullet": True},
+        {"t": "Judge: 20% sample, no retries, only the shared cap's headroom above the agent reserve",
+         "bullet": True}], size=10.5, space_after=1)
+    notes(s, "Separate actuals from projections. Recorded development and evaluation spend is a few dollars, traceable "
+          "to a result file, the usage ledger or a key checkpoint. Current pilot LLM spend, the AWS bill and the "
+          "LangSmith bill are not available in the evidence; do not quote them. The p5 re-runs on 26 Nov cost $1.046 across three runs, from their result files; a first v4 attempt crashed in the runner after about 38 paid calls, roughly 14 cents by estimate, and the key's own counter is the authoritative total. The chart is a projection, not "
+          "demonstrated AWS capacity: 10k and 100k bookings a month have never been run. At 100 bookings a month fixed AWS cost "
+          "dominates; at 100,000 the LLM dominates at about 1.3 cents per booking. Today the $0.25/day cap alone allows roughly 20 to 42 "
+          "bookings a day, an estimate from the per-booking cost including the judge. The OpenRouter key has a $10 "
+          "limit that never resets, so I do not turn it into a monthly capacity. Any change to those limits is an owner decision. When the budget "
           "is spent the agent switches to the rules reader; booking keeps working. (75 s)")
 
     # 15 -----------------------------------------------------------------------------------------------------------
     s = frame(p, 15, "Four hard problems, and what is still not solved",
               "Each fix came from evidence; the open issues are listed, not hidden",
-              "INTEGRITY_PROOF.md, PR #33 / commit ff4076d, LLM_JUDGE.md §7b, PRs #5 #6 #8 #35, "
-              "renewal_gates.json")
-    ch = [("No double booking under bursts", "20–35 messages in 30 min compete for 32 docks", "Let PostgreSQL "
-           "decide: per-dock lock + EXCLUDE constraint", "20 concurrent → 1 winner, 0 overlaps; live check 4"),
+              "INTEGRITY_PROOF.md, PR #33 / commit ff4076d, LLM_JUDGE.md §7b, human_scores_v1.json, "
+              "replay_v4_live_20261126_2305.json, renewal_gates.json")
+    ch = [("Competing requests for one slot", "20–35 messages in 30 min compete for 32 docks", "Let PostgreSQL "
+           "decide: per-dock lock + EXCLUDE constraint", "Tested: 20 concurrent → 1 winner, 0 overlaps; live check 4"),
           ("Telegram replies took a minute", "Replies waited for a 1-minute sender tick", "Event-driven send; tick "
-           "kept as fallback (0046)", "p95 58.6 s → 1.3 s; all 17 demo messages stored"),
+           "kept as fallback (0046)", "Preliminary: reply → outbound p95 1.3 s on 6 reported exchanges"),
           ("Can we trust the judge?", "An always-5 'judge' scores 88% agreement", "Baseline + planted defects as "
-           "acceptance rules; prompt p2", "0/30 unparseable, 5/5 defects; still advisory"),
-          ("Safe activation of real booking", "Evidence goes stale; app-only checks can drift", "DB-side evidence "
+           "acceptance rules; prompt p2", "0/30 unparseable, 5/5 defects; owner calibration 93.3% within ±1; advisory"),
+          ("Safe activation of synthetic-pilot booking", "Evidence goes stale; app-only checks can drift", "DB-side evidence "
            "guard; expiring authorization; weekly renewal", "Renewal run 45836951650 passed; categories A–E")]
     for i, (h, prob, dec, out) in enumerate(ch):
         x = 0.5 + (i % 2) * 4.15
@@ -451,12 +480,13 @@ def build_deck():
         {"t": "Console shows the read-back record and the agent reply as 2 identical rows (1 sent)", "bullet": True},
         {"t": "4 inbound runs lack thread_id", "bullet": True},
         {"t": "Latency targets missed (15.0 s; ≈ 2.2 s)", "bullet": True},
-        {"t": "Judge skipped after deploy: $0.50 judge budget vs $0.25 shared cap", "bullet": True},
-        {"t": "Judge human calibration outstanding", "bullet": True},
+        {"t": "Judge skipped after deploy (budget:shared_daily_cap); usage balance unavailable", "bullet": True},
+        {"t": "Replay BB12, AT02 fail on p3 and p5; new p5 pick miss BB05; causes not established", "bullet": True},
+        {"t": "Judge: 4 disagreements of 2+ points (J13, J14, J17, J20); one non-blind reviewer; pilot rows uncalibrated", "bullet": True},
         {"t": "WhatsApp/Meta deferred; outbound gate under an owner exception", "bullet": True},
-        {"t": "PostgreSQL 17.9 pilot exception; no live drift detection", "bullet": True}], size=12,
-        space_after=5)
-    notes(s, "Pick two of the four to tell in full, depending on the audience. For engineers: double booking. For AI "
+        {"t": "PostgreSQL 17.9 pilot exception; no live drift detection", "bullet": True}], size=11,
+        space_after=4)
+    notes(s, "Pick two of the four to tell in full, depending on the audience. For engineers: competing requests for one slot. For AI "
           "leaders: the judge. Then read the open issues without apologising; they are what a production plan "
           "has to close. (60 s)")
 
@@ -464,14 +494,15 @@ def build_deck():
     s = blank(p, bg=NAVY)
     text(s, 0.6, 0.35, 12, 0.6, "What it proves, and what production still needs", size=28, bold=True, color=WHITE,
          font="Arial")
-    cols = [("Measured (synthetic pilot)", "6FCF97",
-             ["0 double bookings: 20 and 50 concurrent drivers", "0 hard-gate violations in 64 live replays",
-              "Model reads drivers better: 98% vs 61% intent", "Reply delivery p95: 58.6 s → 1.3 s"]),
+    cols = [("Measured (synthetic data)", "6FCF97",
+             ["Concurrency tests: 1 winner, 0 overlapping claims (20 and 50 requests)",
+              "0 hard-gate violations in 64 live replay scenarios (62 passed)",
+              "Held-out intent (p5): 100% model vs 61% rules", "Live smoke on the deployed release: 11/11"]),
             ("Expected (not yet measured)", AMBER,
              ["Fewer coordinator calls per delay", "Faster re-slotting after a delay",
               "One queue of requests for planners", "Needs a real-pilot baseline first"]),
             ("Before production", "CADCFC",
-             ["Real data governance and DPDP consent; WhatsApp approval", "Human judge calibration; eval gate in CI",
+             ["Real data governance and DPDP consent; WhatsApp approval", "Blind, multi-reviewer judge calibration; eval gate in CI",
               "PostgreSQL 18, drift detection, alerting, DR drill", "p95 < 15 s; budget sized to volume"])]
     for i, (h, c, items) in enumerate(cols):
         x = 0.6 + i * 4.1
@@ -486,10 +517,12 @@ def build_deck():
     text(s, 0.6, 5.45, 12.1, 0.9, "\"I don't just build AI agents. I engineer business solutions that use AI "
          "responsibly, operate reliably, deliver measurable value and can scale economically.\"", size=16,
          color=WHITE, italic=True)
-    text(s, 0.6, 6.55, 10, 0.35, "All measured figures: synthetic pilot evidence, see SetuHaul_FDE_Evidence_Register.md",
+    text(s, 0.6, 6.55, 10, 0.35, "All measured figures are synthetic-data evidence; see SetuHaul_FDE_Evidence_Register.md",
          size=11, color="AEB8CC")
     text(s, 11.3, 7.02, 1.53, 0.3, f"SetuHaul FDE · 16/{TOTAL}", size=9.5, color="AEB8CC", align="r")
-    notes(s, "Separate what we measured from what we expect. The measured column is all synthetic-pilot evidence. "
+    notes(s, "Separate what we measured from what we expect. The measured column is synthetic-data evidence: the "
+          "concurrency proof (local and CI), the live replay, the held-out set and the pilot smoke test. The "
+          "latency improvement is preliminary and stays on slide 13. "
           "The expected column needs a real pilot baseline. Close on the chain and the one-sentence principle. "
           "Then invite questions. (60 s)")
 
