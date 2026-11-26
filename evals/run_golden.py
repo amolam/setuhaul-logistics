@@ -74,7 +74,9 @@ def run(extractor: str, version: str = "v4", limit: int | None = None, only: lis
                 from setuhaul.agent.models import ModelError
                 try:
                     raw, tr = model.extract(user_block(s, t))
-                    tokens.update(input=tr.input_tokens, output=tr.output_tokens, cache_read=tr.cache_read_tokens)
+                    # reported usage only: a count the provider did not report stays out of the totals (G.1)
+                    tokens.update({k: v for k, v in (("input", tr.input_tokens), ("output", tr.output_tokens),
+                                                     ("cache_read", tr.cache_read_tokens)) if v is not None})
                     row.update(latency_ms=tr.latency_ms, served_by=tr.region, raw=raw)
                 except BudgetExceeded as e:                      # stop the whole run: nothing more is sent
                     stopped = str(e)
