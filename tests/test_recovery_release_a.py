@@ -125,7 +125,8 @@ def test_only_a_revoked_window_of_the_previous_release_in_this_environment_quali
         c.execute("SET LOCAL ROLE setuhaul_deploy_evidence")
         c.execute("SELECT setuhaul.expire_provisional_authorizations()")
     e2 = new_release(c, env2)
-    refused(lambda: recover(c, e2, lapsed), "only a REVOKED window can be recovered")
+    # 0045: still refused without the owner's recorded approval for exactly this authorization
+    refused(lambda: recover(c, e2, lapsed), "recoverable only with the owner's recorded approval")
     assert a1 and d1
 
 

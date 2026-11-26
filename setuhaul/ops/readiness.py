@@ -65,6 +65,7 @@ class State:
     health: dict = field(default_factory=dict)
     report: dict | None = None
     report_error: str | None = None
+    recovery_target: dict | None = None                  # the named authorization of a recovery run (0033/0045)
 
 
 # ------------------------------------------------------------------------------------------------ assessment (pure)
@@ -112,11 +113,17 @@ def assess(s: State, approval_ref: str, release_sha: str, deploy_at: datetime | 
 
     # the running release: a normal provisional issuance needs it fully evidenced and authorized (no chaining)
     state = (s.booking or {}).get("booking_state")
-    if recovery:                                    # 0033: a recovery follows a REVOKED window (the database judges it)
+    if recovery:          # 0033/0045: a recovery follows a REVOKED or owner-approved EXPIRED window (the database judges)
         ok = state in ("off", "refused")
-        out.append(Check("running release after a revoked window (recovery)", ok,
+        out.append(Check("running release after a revoked or expired window (recovery)", ok,
                          f"deployment {str(s.running.get('deployment_id'))[:14]} state {state}",
-                         "" if ok else "a recovery applies only after a revoked window; use the normal path"))
+                         "" if ok else "a recovery applies only after a revoked or expired window; use the normal path"))
+        if s.recovery_target is not None:
+            why = recovery_target_problems(s.recovery_target, s.running, s.environment, s.now)
+            t = s.recovery_target
+            out.append(Check(f"recovery target authorization {t.get('authorization_id')}", not why,
+                             f"{t.get('status') or 'not found'}" + (f", expires {t.get('expires_at')}" if t.get('expires_at') else ""),
+                             "; ".join(why)))
     else:
         ok = state == "authorized"
         out.append(Check("running release authorized (no chaining)", ok,
@@ -156,8 +163,60 @@ def blockers(checks: list[Check]) -> list[Check]:
     return [c for c in checks if c.blocking and not c.ok]
 
 
+RECOVERY_DAYS = timedelta(days=7)
+
+
+def recovery_target_problems(t: dict, running: dict, environment: str, now: datetime) -> list[str]:
+    """Why the named authorization cannot be recovered (the database re-checks every condition at issuance)."""
+    if not t.get("found"):
+        return ["no such authorization"]
+    p = []
+    if t.get("environment") != environment or t.get("deployment_id") != running.get("deployment_id"):
+        p.append("it is not the running release's authorization")
+    if t.get("recovery_of") is not None:
+        p.append("it was itself a recovery (no second hop)")
+    if t.get("already_recovered"):
+        p.append("it has already been recovered once")
+    st, exp = t.get("status"), t.get("expires_at")
+    lapsed = st == "ISSUED" and exp is not None and _ts(exp) <= now       # swept to EXPIRED by the issuance itself
+    if st == "REVOKED":
+        if t.get("closed_at") is None or now - _ts(t["closed_at"]) > RECOVERY_DAYS:
+            p.append("revoked more than 7 days ago")
+        if t.get("events") != ["ISSUED", "REVOKED"]:
+            p.append(f"audit trail {t.get('events')}, expected ISSUED, REVOKED")
+    elif st == "EXPIRED" or lapsed:
+        if not t.get("owner_approved"):
+            p.append("an EXPIRED window needs the owner's recorded approval (0045) for this authorization")
+        if now - _ts(exp) > RECOVERY_DAYS:
+            p.append("expired more than 7 days ago")
+        if t.get("events") != (["ISSUED", "EXPIRED"] if st == "EXPIRED" else ["ISSUED"]):
+            p.append(f"audit trail {t.get('events')} is not that of an expired window")
+    else:
+        p.append(f"it is {st}: only a REVOKED or an owner-approved EXPIRED window can be recovered")
+    return p
+
+
 # ------------------------------------------------------------------------------------------------ database reads
 LIMIT_RX = re.compile(r"IF\s+n\s*>=\s*(\d+)\s+THEN\s+RAISE\s+EXCEPTION\s+'PROVISIONAL_RATE_LIMIT", re.I)
+
+
+def read_recovery_target(c, authorization_id: int) -> dict:
+    row = c.execute("SELECT authorization_id, environment, deployment_id, status, expires_at, closed_at, recovery_of "
+                    "FROM setuhaul.provisional_authorizations WHERE authorization_id = %s", (authorization_id,)).fetchone()
+    if not row:
+        return {"authorization_id": authorization_id, "found": False}
+    has_table = c.execute("SELECT to_regclass('setuhaul.provisional_expired_recovery_approvals') IS NOT NULL").fetchone()[0]
+    approved = bool(has_table and c.execute(
+        "SELECT EXISTS (SELECT 1 FROM setuhaul.provisional_expired_recovery_approvals WHERE authorization_id = %s "
+        "AND environment = %s AND deployment_id = %s)", (authorization_id, row[1], row[2])).fetchone()[0])
+    used = bool(c.execute("SELECT EXISTS (SELECT 1 FROM setuhaul.provisional_authorizations WHERE recovery_of = %s)",
+                          (authorization_id,)).fetchone()[0])
+    ev = [r[0] for r in c.execute("SELECT action FROM setuhaul.provisional_authorization_events "
+                                  "WHERE authorization_id = %s ORDER BY event_id", (authorization_id,)).fetchall()]
+    return {"authorization_id": row[0], "found": True, "environment": row[1], "deployment_id": row[2],
+            "status": row[3], "expires_at": str(row[4]) if row[4] else None,
+            "closed_at": str(row[5]) if row[5] else None, "recovery_of": row[6], "owner_approved": approved,
+            "already_recovered": used, "events": ev}
 
 
 def read_database(c, environment: str, approval_ref: str) -> dict:
@@ -223,7 +282,7 @@ def read_only_owner_connection():
 
 
 # ------------------------------------------------------------------------------------------------ collection
-def collect(environment: str, approval_ref: str, report_path: str) -> State:
+def collect(environment: str, approval_ref: str, report_path: str, recovery_of: int | None = None) -> State:
     import urllib.request
     import boto3
     # In the activation workflow the deploy role cannot describe the stack: it passes the read-only CDK lookup role's
@@ -237,6 +296,7 @@ def collect(environment: str, approval_ref: str, report_path: str) -> State:
     os.environ.setdefault("SETUHAUL_DB_OWNER_SECRET_ARN", outs["OwnerSecretArn"])
     with read_only_owner_connection() as c:
         db = read_database(c, environment, approval_ref)
+        target = read_recovery_target(c, recovery_of) if recovery_of is not None else None
     try:
         with urllib.request.urlopen(outs["ApiUrl"].rstrip("/") + "/health", timeout=10) as r:   # noqa: S310 (stack URL)
             health = json.loads(r.read())
@@ -253,7 +313,7 @@ def collect(environment: str, approval_ref: str, report_path: str) -> State:
                  running=db["running"], booking={"booking_state": health.get("booking_state"),
                                                  "kill_switch_engaged": db["kill_switch_engaged"]},
                  stack_status=stack["StackStatus"], health=health,
-                 report=report, report_error=err)
+                 report=report, report_error=err, recovery_target=target)
 
 
 def main(argv=None) -> int:
@@ -265,15 +325,17 @@ def main(argv=None) -> int:
     ap.add_argument("--report", default=REPORT)
     ap.add_argument("--deploy-at", help="judge capacity and report age at this UTC time (default: now)")
     ap.add_argument("--recovery", action="store_true", help="a Recovery Release (0033 recovery_of) run")
+    ap.add_argument("--recovery-of", type=int, default=None,
+                    help="the authorization a recovery run names (0033/0045); implies --recovery and checks it")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
     try:
-        s = collect(a.environment, a.approval_ref, a.report)
+        s = collect(a.environment, a.approval_ref, a.report, a.recovery_of)
     except Exception as e:                                         # noqa: BLE001
         print(f"READINESS: could not check ({type(e).__name__}: {str(e)[:200]}) - treat as BLOCKED")
         return 2
     at = _ts(a.deploy_at) if a.deploy_at else None
-    checks = assess(s, a.approval_ref, a.release_sha, at, recovery=a.recovery)
+    checks = assess(s, a.approval_ref, a.release_sha, at, recovery=a.recovery or a.recovery_of is not None)
     b = blockers(checks)
     if a.json:
         print(json.dumps({"ready": not b, "checks": [c.__dict__ for c in checks],

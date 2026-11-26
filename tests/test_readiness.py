@@ -137,3 +137,48 @@ def test_before_0034_the_limit_is_read_from_the_0033_function_source():
     assert sorted({int(m.group(1)) for m in rd.LIMIT_RX.finditer(src)}) == [2]
     src34 = (Path(__file__).resolve().parents[1] / "migrations" / "0034_provisional_limit_4.sql").read_text(encoding="utf-8")
     assert not list(rd.LIMIT_RX.finditer(src34))          # 0034 reads the function instead of a literal
+
+
+# ------------------------------------------------------------------------------------------------ 0045 recovery target
+RUN_DEP = "m-" + "b" * 40
+
+
+def target(**kw):
+    t = {"authorization_id": 68, "found": True, "environment": "pilot-ap-southeast-2", "deployment_id": RUN_DEP,
+         "status": "ISSUED", "expires_at": str(NOW - timedelta(hours=2)), "closed_at": None, "recovery_of": None,
+         "owner_approved": True, "already_recovered": False, "events": ["ISSUED"]}
+    t.update(kw)
+    return t
+
+
+def recovery_state(t):
+    return state(booking={"booking_state": "refused", "kill_switch_engaged": False}, recovery_target=t,
+                 report=good_report(booking_enabled=True, booking_observed={
+                     "booking_state": "refused", "booking_enabled": True, "source": "/health",
+                     "observed_utc": (NOW - timedelta(hours=1)).isoformat()}))
+
+
+@pytest.mark.parametrize("t", [target(), target(status="EXPIRED", events=["ISSUED", "EXPIRED"],
+                                              closed_at=str(NOW - timedelta(hours=1))),
+                               target(status="REVOKED", events=["ISSUED", "REVOKED"],
+                                      closed_at=str(NOW - timedelta(hours=1)), owner_approved=False)])
+def test_a_recoverable_target_passes(t):
+    checks = rd.assess(recovery_state(t), REF, SHA, recovery=True)
+    assert not rd.blockers(checks), [c.__dict__ for c in rd.blockers(checks)]
+    assert by(checks, "recovery target authorization 68").ok
+
+
+@pytest.mark.parametrize("t, why", [
+    (target(owner_approved=False), "needs the owner's recorded approval"),
+    (target(expires_at=str(NOW - timedelta(days=8))), "expired more than 7 days ago"),
+    (target(already_recovered=True), "already been recovered once"),
+    (target(recovery_of=34), "itself a recovery"),
+    (target(deployment_id="m-" + "c" * 40), "not the running release"),
+    (target(status="CONSUMED"), "only a REVOKED or an owner-approved EXPIRED"),
+    (target(status="ISSUED", expires_at=str(NOW + timedelta(minutes=30))), "only a REVOKED or an owner-approved EXPIRED"),
+    (target(status="EXPIRED", events=["EXPIRED"]), "audit trail"),
+    ({"authorization_id": 99, "found": False}, "no such authorization"),
+])
+def test_an_unrecoverable_target_blocks(t, why):
+    b = rd.blockers(rd.assess(recovery_state(t), REF, SHA, recovery=True))
+    assert any(c.name.startswith("recovery target") and why in c.action for c in b), [c.__dict__ for c in b]
