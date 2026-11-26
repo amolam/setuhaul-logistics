@@ -202,8 +202,8 @@ def d_tool_lifecycle(s, ox=0.5, oy=1.6, w=12.33, h=0.78):
 GUARD_LAYERS = [
     ("1  Input", "Webhook secret · Telegram allowlist (2 test chats) · one-time link codes · pydantic models with "
      "extra fields forbidden", EXT_FILL, EXT_LINE),
-    ("2  Prompt + context", "Driver text is data, not instructions · per-turn facts only · synthetic data class "
-     "required to start", AI_FILL, AI_LINE),
+    ("2  Prompt + context", "Hygiene only, NOT an enforcement boundary: driver text framed as data · per-turn "
+     "facts only", AI_FILL, AI_LINE),
     ("3  Output validation", "Forced tool + strict schema · safety-word net in code · \"confirmed\" only when the "
      "database says CONFIRMED", AI_FILL, AI_LINE),
     ("4  Tool execution", "Code chooses every tool · read-back + explicit YES before any hold · per-turn lease and "
@@ -213,7 +213,7 @@ GUARD_LAYERS = [
     ("6  Database", "Per-role logins · RLS by facility · definer functions · EXCLUDE constraint · idempotency keys",
      DET_FILL, DET_LINE),
     ("7  People + operations", "Planner approves (requester never decides own request) · kill switch · provisional "
-     "authorization with expiry · production refused", HUM_FILL, HUM_LINE),
+     "authorization with expiry · synthetic data only · production refused", HUM_FILL, HUM_LINE),
 ]
 
 
@@ -240,8 +240,8 @@ def d_eval_pipeline(s, ox=0.5, oy=1.6, w=12.33, h=0.72):
 
 def c_eval_model_vs_rules(s, x=0.5, y=2.6, w=5.3, h=3.9):
     return bar_chart(s, x, y, w, h, ["Intent accuracy", "ETA recall", "All fields right"],
-                     [("Haiku 4.5 extraction", (98.0, 97.8, 94.6)), ("Rules reader (fallback)", (61.2, 69.2, 59.3))],
-                     [AMBER, "8A94A6"], title="Held-out set h1: 167 driver turns, % (18 Nov)", number_format='0.0',
+                     [("Haiku 4.5 extraction, prompt p5", (100.0, 97.8, 94.6)), ("Rules reader (fallback)", (61.2, 69.2, 59.3))],
+                     [AMBER, "8A94A6"], title="Synthetic held-out set h1: 167 driver turns, % (prompt p5, 26 Nov)", number_format='0.0',
                      max_v=110, gap=70, overlap=-10)
 
 
@@ -265,24 +265,23 @@ def d_judge(s, ox=0.5, oy=1.6):
          color=NAVY)
     off = [("Frozen dataset: 30 synthetic replies (J01–J30)", DET_FILL, DET_LINE),
            ("Judge run (paid, capped, no retries)", AI_FILL, AI_LINE),
-           ("Compare: AI reference · ALWAYS_5 baseline · 5 planted defects", DET_FILL, DET_LINE),
+           ("Compare: owner scores · ALWAYS_5 baseline · 5 planted defects", DET_FILL, DET_LINE),
            ("Owner rules: beat baseline AND 5/5 defects", HUM_FILL, HUM_LINE),
-           ("Human calibration: OUTSTANDING", RISK_FILL, RISK_LINE)]
+           ("Human calibration: ACCEPTED (1 reviewer, not blind); advisory only", HUM_FILL, HUM_LINE)]
     cw2 = 12.33 / len(off)
     for i, (t, f, l) in enumerate(off):
         box(s, ox + i * cw2, oy + 2.85, cw2 - 0.25, 0.95, t, fill=f, line=l, size=11)
         if i:
             arrow(s, ox + i * cw2 - 0.25, oy + 3.32, ox + i * cw2, oy + 3.32)
-    text(s, ox, oy + 4.0, 12.33, 0.9, "Result, prompt judge-p2 (25 Nov): 95.0% of 60 ratings within ±1 of the AI "
-         "reference (baseline 88.3%), MAE 0.333 (baseline 0.55), 5/5 defects identified (baseline 0/5), 0/30 "
-         "unparseable, $0.098. Prompt judge-p1 had 18/30 unparseable and was NOT accepted. The reference scores are "
-         "model-generated, so agreement is model-to-model.", size=11.5, color=INK)
+    text(s, ox, oy + 4.0, 12.33, 0.9, "Human calibration (owner-scored, 26 Nov; one reviewer, not blind to the AI reference): judge-p2 within ±1 on "
+         "93.3% of 60 ratings, average error 0.30 (always-5: 88.3%, 0.517). 4 disagreements of 2+ points: J13, J14 "
+         "(judge false positives), J17, J20 (planted defects partly missed). 5/5 defects ranked lowest, 0/30 "
+         "unparseable, $0.098. Prompt judge-p1 had 18/30 unparseable and was NOT accepted.", size=11.5, color=INK)
 
 
 # 9. Observability: trace lifecycle --------------------------------------------------------------------------------
 def d_trace(s, ox=0.5, oy=1.6):
-    box(s, ox, oy, 6.7, 0.5, [[("thread_id", {"bold": True}), ("  opaque conversation ref (sha256, 16 hex), shared by "
-                                                              "every component", {})]],
+    box(s, ox, oy, 6.7, 0.5, [[("thread_id", {"bold": True}), ("  opaque conversation ref, shared by the main conversation path", {})]],
         fill=NAVY, line=NAVY, color=WHITE, size=11.5, align="l", margin=0.12)
     rows = [(1, "telegram_inbound", "run id = request correlation id", EXT_FILL, EXT_LINE),
             (1, "agent_turn", "driver_id · shipment_id · facility_id · channel · turn_ref · outcome", DET_FILL,
@@ -314,8 +313,9 @@ def d_trace(s, ox=0.5, oy=1.6):
         y += rh + gap
     arrow(s, spine1, oy + 0.5, spine1, last1, color=MUTED, width=1.25, head=False)
     arrow(s, spine2, agent_bottom, spine2, last2, color=MUTED, width=1.25, head=False)
-    text(s, ox, y + 0.02, 6.7, 0.5, "Never exported: message text, names, phone numbers, Telegram chat ids, "
-         "coordinates. Every id passes a format gate; a malformed one exports as [INVALID_ID].", size=10.5,
+    text(s, ox, y + 0.0, 6.7, 0.75, "Not exported: message text, names, phone numbers, Telegram chat ids, coordinates. "
+         "Exported: pseudonymous internal ids after a format gate (malformed → [INVALID_ID]). "
+         "4 link-code / button-callback inbound runs lack thread_id.", size=10.5,
          color=MUTED)
 
 
@@ -359,7 +359,7 @@ TEST_LAYERS = [
     ("Security + authorization", "roles, facility scope, evidence guard; live: agent / other-facility / no-identity "
      "decisions refused", DET_FILL, DET_LINE),
     ("Agent + tools (scripted model)", "Phase G / G1 suite 111/111 · scripted replay 64/64", AI_FILL, AI_LINE),
-    ("Model evals (paid, approved runs)", "golden v1–v4 + held-out h1 · live replay 61/64, 0 hard-gate violations",
+    ("Model evals (paid, approved runs)", "golden v1–v4 + held-out h1 on p5 · live replay 62/64, 0 hard-gate violations",
      AI_FILL, AI_LINE),
     ("Live pilot smoke + drills", "smoke 11/11 on 4b9ac56 · DLQ, lease-loss and approval drills", HUM_FILL,
      HUM_LINE),
@@ -377,7 +377,7 @@ def d_testing(s, ox=0.5, oy=1.6, w=6.0):
 # 12. Failure handling and recovery matrix --------------------------------------------------------------------------
 FAILURES = [
     ["Failure", "Detection", "Recovery", "Status"],
-    ["Invalid LLM output", "pydantic schema, extra=forbid", "not retried; rules reader or ask again", "CI-validated"],
+    ["Invalid LLM output", "pydantic schema, extra=forbid", "not retried; rules reader for that turn", "CI-validated"],
     ["Wrong tool arguments", "code builds args; DB function checks", "refused with a result code", "CI-validated"],
     ["Unauthorized action", "principal + DB role + RLS", "denied, audited", "Pilot-demonstrated (smoke 5)"],
     ["Worker dies mid-turn", "processing lease + fence", "redelivered; stale worker commits nothing",
@@ -426,7 +426,7 @@ def c_llm_spend(s, x=0.5, y=1.6, w=7.5, h=4.8):
 def c_unit_cost(s, x=0.5, y=1.6, w=6.2, h=4.5):
     return bar_chart(s, x, y, w, h, ["100 / month ($112.8)", "10k / month ($22.8)", "100k / month ($16.5)"],
                      [("LLM (extraction + judge)", (12.8, 12.8, 12.8)), ("AWS", (100.0, 10.0, 3.7))],
-                     [AMBER, BLUE], title="PROJECTION: cost per 1,000 bookings, USD (upper estimate)", stacked=True,
+                     [AMBER, BLUE], title="PROJECTION (not demonstrated capacity): cost per 1,000 bookings, USD", stacked=True,
                      number_format='$0.0', gap=60, overlap=100)
 
 
@@ -434,16 +434,16 @@ def c_unit_cost(s, x=0.5, y=1.6, w=6.2, h=4.5):
 def c_latency(s, x=0.5, y=1.6, w=6.6, h=4.7):
     return bar_chart(s, x, y, w, h, ["Reply → outbound p95", "End to end p50", "End to end p95"],
                      [("Before (7 exchanges, 26 Nov)", (58.6, 53.7, 72.6)),
-                      ("After demo release (6 exchanges)", (1.3, 13.1, 15.0))],
-                     ["8A94A6", GREEN], title="Telegram latency on the pilot, seconds", number_format='0.0',
+                      ("After (6 exchanges, reported, uncommitted)", (1.3, 13.1, 15.0))],
+                     ["8A94A6", GREEN], title="Telegram latency on the pilot, seconds (preliminary)", number_format='0.0',
                      max_v=85, gap=70, overlap=-10)
 
 
 def c_judge_vs_baseline(s, x=0.5, y=1.6, w=7.5, h=4.6):
-    return bar_chart(s, x, y, w, h, ["Within ±1 of reference (%)", "Exact match (%)", "Planted defects found (of 5)"],
-                     [("ALWAYS_5 baseline", (88.3, 0, 0)), ("Judge, prompt p2", (95.0, 76.7, 5))],
-                     ["8A94A6", AMBER], title="Judge vs always-5 baseline (60 ratings, AI reference; not human)",
-                     number_format='0.#', gap=70, overlap=-10)
+    return bar_chart(s, x, y, w, h, ["Within ±1 of owner scores (%)", "Exact match (%)", "Planted defects found (of 5)"],
+                     [("ALWAYS_5 baseline", (88.3, 80.0, 0)), ("Judge, prompt p2", (93.3, 83.3, 5))],
+                     ["8A94A6", AMBER], title="Judge vs always-5 baseline: 60 ratings, owner-scored (1 reviewer, not blind)",
+                     number_format='General', gap=70, overlap=-10)
 
 
 # 16. Future roadmap ------------------------------------------------------------------------------------------------
@@ -452,7 +452,7 @@ ROADMAP = [
      ["Booking ON under owner approval, renewed weekly", "Telegram for 2 synthetic test drivers",
       "LangSmith thread correlation; advisory judge", "2,080 tests in CI; smoke 11/11"]),
     ("Next: before production", AI_FILL, AI_LINE,
-     ["Human judge calibration; eval gate in CI", "WhatsApp/Meta approval; DPDP consent", "Latency: agent turn "
+     ["Blind, multi-reviewer judge calibration; eval gate in CI", "WhatsApp/Meta approval; DPDP consent", "Latency: agent turn "
       "breakdown; p95 < 15 s", "PostgreSQL 18, drift detection, alerting, DR drill"]),
     ("Later: scale", DET_FILL, DET_LINE,
      ["Real pilot with one facility and baseline KPIs", "Model routing: smaller model / batch for simple turns",

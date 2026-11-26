@@ -58,8 +58,8 @@ All 36 PRs are merged. None is open. The ones the demo rests on:
 - Booking: feasibility in code (12 hard constraints), per-dock lock plus an EXCLUDE constraint, holds, and requests. A planner approves through a Step Functions approval workflow. Kill switch and expiring provisional authorization are database state.
 - Telegram: live inbound and outbound for two synthetic test drivers only (allowlist). WhatsApp/Meta is deferred.
 - Staff console: served by the API Lambda, with Cognito MFA and four staff roles (planner, ops_lead, operations, dispatcher). It has Dispatch, Schedule, Ops, Optimizer and Observability tabs.
-- Observability: a custom LangSmith exporter, one `thread_id` per conversation across inbound, agent turn, judge and outbound. Ids pass a format gate and no personal data is exported.
-- Evaluation: golden sets v1–v4, held-out h1, live and scripted replay, the Phase G/G1/G2 deterministic suites, and the offline LLM judge accepted under the owner's two rules. Human calibration is outstanding.
+- Observability: a custom LangSmith exporter. One `thread_id` correlates the main conversation path (inbound, agent turn, judge, outbound); 4 link-code and button-callback inbound runs lack it. Pseudonymous internal ids pass a format gate. No message text, phone numbers or chat ids are exported.
+- Evaluation: golden sets v1–v4, held-out h1, live and scripted replay, the Phase G/G1/G2 deterministic suites, and the offline LLM judge accepted under the owner's two rules. Offline human calibration was completed on 26 Nov (owner-scored, one reviewer, not blind to the AI reference).
 
 **Corrections to the brief:**
 - **No LangChain** is used. The package is only named in LangSmith endpoint URLs; tracing uses the project's own REST exporter (`setuhaul/observability/langsmith.py`).
@@ -92,11 +92,11 @@ The brief's "about 544 tests" was the **targeted local** run in PR #33, not the 
 
 ### A6. Golden dataset and evaluation status
 
-Golden sets v1–v4 and held-out set h1 were run with the model on 18 Nov. Live replay v4 passed 61/64. The scripted Phase G/G1 suite passed 111/111. G2 LangSmith smoke passed 10/10 (scripted). The offline judge was run twice on 25 Nov; prompt judge-p2 is **ACCEPTED** under both owner rules. **Human calibration is outstanding.** Evals are **not** a CI gate: paid evals run manually with approval, and scripted suites run in tests.
+Golden sets v1–v4 and held-out set h1 were run with the model on 18 Nov (prompt p3); v4, h1 and live replay v4 were re-run on the deployed prompt p5 on 26 Nov. Live replay v4 passed 62/64 on p5 (61/64 on p3). The scripted Phase G/G1 suite passed 111/111. G2 LangSmith smoke passed 10/10 (scripted). The offline judge was run twice on 25 Nov; prompt judge-p2 is **ACCEPTED** under both owner rules, and the owner's human scores (26 Nov) put it within ±1 on 93.3% of 60 ratings: **ACCEPTED for advisory use** (one reviewer, not blind). Evals are **not** a CI gate: paid evals run manually with approval, and scripted suites run in tests.
 
 ### A7. Observability status
 
-LangSmith project `setuhaul-synthetic-pilot` is on. Since the demo release, there is thread correlation across 4 components and the judge runs as a child run. **Gaps:**
+LangSmith project `setuhaul-synthetic-pilot` is on. Since the demo release, the main conversation path is thread-correlated across 4 components and the judge runs as a child run. **Gaps:**
 - 4 inbound runs have no `thread_id` (link codes and button callbacks);
 - there is no trace-based alerting;
 - the agent turn has no per-stage breakdown.
@@ -118,7 +118,7 @@ LangSmith project `setuhaul-synthetic-pilot` is on. Since the demo release, ther
 
 1. Post-release latency figures and the "9 scored turns" are reported, not committed.
 2. There is no AWS billing data.
-3. There is no human judge calibration.
+3. Human judge calibration has one reviewer, who had seen the AI reference the day before; it is not blind and not multi-reviewer. The online pilot judge has not been calibrated on pilot rows (`pilot_calibration.py` not run).
 4. There is no current screenshot of Telegram, the conversation view or LangSmith. The screenshots in `screenshots/` are from Phase G/G1 (23 Nov).
 5. Authorization validity was not re-read.
 6. There is no production baseline for business outcomes.
@@ -183,12 +183,19 @@ LangSmith project `setuhaul-synthetic-pilot` is on. Since the demo release, ther
 
 | Claim | Evidence | File | Status | Confidence |
 |---|---|---|---|---|
-| Held-out h1, 167 turns, model: intent 98.0%, ETA recall 97.8%, ETA precision 100%, all fields right 158/167 (94.6%), schema-valid 100% | Result file | `evals/results/golden_h1_model_20261118_0907.json` | Tested (paid eval run) | High |
+| Held-out h1, 167 turns, model, **prompt p5** (26 Nov): intent 100%, ETA recall 97.8%, ETA precision 100%, option pick 91.7% (11/12), all fields right 158/167 (94.6%), schema-valid 100%, all gates PASS; $0.6125 | Result file | `evals/results/golden_h1_model_20261126_2242.json` | Tested (paid eval run) | High |
+| Held-out h1, model, prompt p3 (18 Nov): intent 98.0%, ETA recall 97.8%, option pick 100%, all fields right 158/167 | Result file | `evals/results/golden_h1_model_20261118_0907.json` | Tested (paid eval run) | High |
+| h1 p5 misses (9 turns): BB05 pick (expected option 1, got none; **new on p5**); earliest time ×3 (BB02, AT06 ×2); ETA ×2 (THR011); latest kind (BB10); exception kind (L08); language hi vs hi-Latn (H06). THR007 intent miss on p3 is fixed on p5. Causes not established | Result file `turns[].mismatches` | both h1 model files | Tested | High |
 | Held-out h1, rules reader: intent 61.2%, ETA recall 69.2%, all fields 99/167 (59.3%) | Result file | `golden_h1_rules_20261118_0907.json` | Tested | High |
-| Golden v4, 76 turns: model 73/76 all fields right, intent 100%, ETA recall 100% (gates PASS); rules 60/76 | Result files | `golden_v4_model_20261118_0910.json`, `golden_v4_rules_…` | Tested | High |
+| Golden v4, 76 turns, **prompt p5** (26 Nov): 74/76 all fields right, intent 100%, ETA recall 100%, all gates PASS; misses BB10 latest kind, AT06 earliest; $0.132 (36 paid, 40 cached) | Result file | `golden_v4_model_20261126_2234.json` | Tested (paid) | High |
+| Golden v4, 76 turns, prompt p3: model 73/76 all fields right, intent 100%, ETA recall 100% (gates PASS); rules 60/76 | Result files | `golden_v4_model_20261118_0910.json`, `golden_v4_rules_…` | Tested | High |
 | Golden v1 prompt history: p1 schema-valid 95.5% → p2 100% | Result files | `golden_v1_model_20261118_0228/0234/0237.json` | Tested | High |
+| All golden, held-out and replay datasets are synthetic | Dataset files; h1 generated by Sonnet | `evals/golden/*` | Fact | High |
+| All model-backed evals (golden v4, held-out h1, live replay v4) re-run on the deployed prompt p5 on 26 Nov | `prompt_version: p5-2026-11-21` in the result files | `golden_*_model_20261126_*.json`; `replay_v4_live_20261126_2305.json` | Tested | High |
 | Extraction latency p50 2.17–2.40 s (eval runs) | Result files `latency_ms_p50` | golden_* model files | Tested | High |
-| Live replay v4: 61/64 scenarios, 89/92 turns, 0 hard-gate violations, 0 errors | Result file | `evals/results/replay_v4_live_20261118_0803.json` | Tested (paid) | High |
+| Live replay v4, **prompt p5** (26 Nov, target date 27 Nov): 62/64 scenarios, 90/92 turns, 0 hard-gate violations, 0 errors, 3 skipped; $0.3017 | Result file | `evals/results/replay_v4_live_20261126_2305.json` | Tested (paid) | High |
+| Live replay v4, prompt p3 (18 Nov, target date 19 Nov): 61/64, 89/92, 0 hard-gate violations; failures BB09, BB12, AT02 | Result file | `evals/results/replay_v4_live_20261118_0803.json` | Tested (paid) | High |
+| Replay failures on p5: BB12 (status question answered with slot options; `get_booking_status` not called) and AT02 (escalated NO_FEASIBLE_SLOT where options were expected). Both also failed on p3, at a different target date, so they are persistent; root causes not established. BB09 failed on p3 and passes on p5 | Result files (`pass`, runner output) | both replay files | Tested; cause unknown | High |
 | Scripted replay v4: 64/64, 92/92 | Result file | `replay_v4_scripted_20261118_1020.json` | Tested | High |
 | G1 agent eval 111/111 (67 Phase G scenarios + 44 regression cases), scripted, $0 | Result file | `evals/results/g1_langsmith_eval_20261123_1426.json` | Tested | High |
 | Phase G eval 67/67: tool selection 41/41, parameters 18/18, intent 16/16, authorization 36/36, booking 20/20, privacy 22/22 | Result file | `evals/results/phase_g_eval_20261123_1425.json` | Tested | High |
@@ -196,17 +203,22 @@ LangSmith project `setuhaul-synthetic-pilot` is on. Since the demo release, ther
 | Judge dataset: 30 synthetic replies (J01–J30), 3 dimensions | Dataset | `evals/judge/dataset_v1.jsonl`; `docs/evaluation/LLM_JUDGE.md` | Implemented | High |
 | Judge p1: 18/30 unparseable, $0.106965, NOT accepted | Result plus report | `evals/results/judge_20261125_170901.json`; `LLM_JUDGE.md` | Tested | High |
 | Judge p2: 95.0% within ±1 on 60 ratings, exact 76.7%, MAE 0.333; baseline 88.3% / MAE 0.55; 5/5 negative cases vs 0/5; 0 unparseable; $0.098315; ACCEPTED under both owner rules | Result plus report | `judge_20261125_172110.json`; `docs/evaluation/llm_judge_run2_report.md`; `LLM_JUDGE.md` | Tested | High |
-| Judge reference scores are model-generated ("ChatGPT independent reference"); agreement is model-to-model | Label in the result file | same | Fact | High |
-| Human calibration OUTSTANDING | `human_scores_v1.json` has no human scores | `evals/judge/human_scores_v1.json`; online judge constant `HUMAN_CALIBRATION_OUTSTANDING` | Gap | High |
+| The 95.0% above is against model-generated reference scores ("ChatGPT independent reference"), so that figure is model-to-model agreement | Label in the result file | same | Fact | High |
+| **Human calibration (offline, 26 Nov):** 20 cases, 60 ratings, scorer Amol. Judge-p2 within ±1 on 93.3%, exact 83.3%, average error 0.30, bias −0.13; per dimension clarity 90% / tone 95% / language 95% within ±1. Verdict ACCEPTED (advisory scores). Always-5 baseline against the same scores: 88.3% within ±1, exact 80.0%, average error 0.517 | `judge_calibration` output (re-run locally, free, no file written) | `evals/judge/human_scores_v1.json` (uncommitted); `judge_20261125_172110.json` | Tested (one reviewer) | Medium |
+| Calibration limits: one reviewer; not blind (the reviewer had reviewed the AI reference on 25 Nov). The owner's scores equal the AI reference on 53/60 ratings (owner-score agreement with the reference, not judge agreement) | File comparison | `human_scores_v1.json` vs `ai_reference_scores_v1.json` | Fact | High |
+| 4 disagreements of 2+ points against the owner's scores: J13 language (owner 5, judge 1) and J14 clarity (5, 2) are judge false positives; J17 clarity (5, 2) and J20 tone (1, 3) are planted-defect cases where the judge missed part of the defect | `disagreements_2plus` | same | Tested | High |
+| Online pilot judge rows still record `HUMAN_CALIBRATION_OUTSTANDING`; calibration on pilot rows (`pilot_calibration.py`) not run | Code constant | `setuhaul/agent/online_judge.py` | Gap | High |
 | Online judge: advisory, 20% deterministic sampling, run cap, judge sub-cap inside the shared cap, one attempt, never raises | Code | `setuhaul/agent/online_judge.py` | Deployed | High |
-| After deploy, judge skipped with `budget:shared_daily_cap` | Reported observation | – | Reported | Low |
+| After deploy, judge skipped with `budget:shared_daily_cap`; exact usage balance not available | Reported observation | – | Reported | Low |
+| Configured judge budget $0.50/day is the judge's own sub-cap; judge reservations are also checked against the shared $0.25/day cap minus the agent reserve (default half the cap; no override in the stack) | Code and stack output | `setuhaul/agent/online_judge.py` (`JudgeLedger.reserve`, `agent_reserve_usd`); stack output `LlmJudge`; `infra/setuhaul_stack.py` | Deployed | High |
+| Invalid model output is not retried; that turn falls back to the rules reader (no separate re-ask path) | Code | `setuhaul/agent/orchestrator.py` `_extract_inner` | CI-validated | High |
 | 9 turns scored earlier on 26 Nov (`quality:clarity/tone/language_match`) at ≈ $0.0033 each | Reported observation | – | Reported | Low |
 
 ### B5. Observability
 
 | Claim | Evidence | File / commit | Status | Confidence |
 |---|---|---|---|---|
-| One `thread_id` (sha256, 16 hex) across `telegram_inbound`, `agent_turn`, `llm_judge`, `telegram_outbound` | Commit message plus tests | `ff4076d`; `tests/test_demo_reliability.py` | CI-validated; pilot-demonstrated (reported) | High (code) / Medium (pilot) |
+| One `thread_id` (sha256, 16 hex) across `telegram_inbound`, `agent_turn`, `llm_judge`, `telegram_outbound` on the main conversation path (not the 4 link-code/callback inbound runs) | Commit message plus tests | `ff4076d`; `tests/test_demo_reliability.py` | CI-validated; pilot-demonstrated (reported) | High (code) / Medium (pilot) |
 | `llm_judge` is a child run of `agent_turn`; `quality:*` feedback stays on the turn | same | same | CI-validated | High |
 | Driver, shipment and facility ids plus channel on traces, CloudWatch `agent.turn` lines and the Ops metrics row; malformed id → `[INVALID_ID]` | PR #17 | `setuhaul/observability/identifiers.py`; `tests/test_driver_traceability.py` | CI-validated | High |
 | LLM span carries model, input/output tokens, `cost_usd` | Code | `orchestrator.py` ~line 418 | Implemented | High |
@@ -219,7 +231,8 @@ LangSmith project `setuhaul-synthetic-pilot` is on. Since the demo release, ther
 | Claim | Evidence | Source | Status | Confidence |
 |---|---|---|---|---|
 | Before: received→queued p50 1.2 s; queued→agent reply 8.3 s (p50); reply→notification p50 43.9 s / p95 58.6 s; send 2.0 s; end to end p50 53.7 s / p95 72.6 s (7 exchanges) | Commit message | `ff4076d`; PR #33 body | Pilot-demonstrated | High |
-| After: end to end p50 13.1 s / p95 15.0 s; reply→outbound p95 1.3 s; queue→send p95 ≈ 2.2 s; agent turn ("LLM reply") 8.5–11 s; 6 exchanges | latency_report output | `scripts/latency_report.py` (output not committed) | Reported | Low |
+| After: end to end p50 13.1 s / p95 15.0 s; reply→outbound p95 1.3 s; queue→send p95 ≈ 2.2 s; agent turn ("LLM reply") 8.5–11 s; 6 exchanges. **Preliminary** | latency_report output | `scripts/latency_report.py` (output not committed) | Reported | Low |
+| Before/after comparability: the script and the before numbers come from the same commit (`ff4076d`) with matching stage names. End to end and reply→outbound use the same timestamps. "send" vs "queue-to-send" cannot be mapped with certainty. Samples are small and different (7 vs 6). No speed-up multiple or service level is claimed | Script source + commit message | `scripts/latency_report.py`; `ff4076d` | Analysis | Medium |
 | Targets < 15 s end to end and < 2 s outbound | Owner's demo targets | not in repo | Reported | Low |
 | Two drivers booked, English and Hinglish; 17 messages stored, none lost | Reported observation | – | Reported | Low |
 | Local Locust: 544 requests, 0 failures, p50 400 ms, p95 690 ms; agent turn p95 2,279 ms; optimizer p95 39 ms; 0 overlapping bookings | Perf report | `docs/phase-g/PHASE_G_PERFORMANCE_REPORT.md` | Tested (local only) | Medium (raw file not reviewed here) |
@@ -235,7 +248,10 @@ LangSmith project `setuhaul-synthetic-pilot` is on. Since the demo release, ther
 | Offline judge runs $0.205280 (ledger) | Result files | `judge_*.json` `actual.charged_usd_by_ledger` | Actual | High |
 | Per extraction ≈ $0.0036 measured (h1: 326,797 in / 55,289 out tokens for 167 turns at $1/$5 per M → $0.603) | Computed from result file | `golden_h1_model_20261118_0907.json` | Computed | High |
 | Per extraction typical ≈ $0.0013 (900 in / 80 out) | Design estimate | `COSTS.md` | Estimate | Medium |
-| App cap $0.25/day; OpenRouter key limit $3/month; no auto top-up | Owner approval 21 Nov | `COSTS.md` | Deployed (config) | High |
+| App cap $0.25/day | Owner approval 21 Nov | `COSTS.md` | Deployed (config) | High |
+| OpenRouter key limit $10 total, no reset (read from the key endpoint, 26 Nov); not a monthly budget; $5.98 used and $4.02 remaining at the 26 Nov check, taken after the two golden re-runs and before the live replay. (`COSTS.md` still records $3/month: superseded) | Owner-run read of `/api/v1/key` | – | Reported | Medium |
+| p5 re-runs, 26 Nov: $1.0462 across the three successful paid runs (v4 $0.1320, h1 $0.6125, replay $0.3017). Calibration was free | `cost.spent_usd` in the result files | three 26 Nov result files | Computed | High |
+| A first v4 attempt crashed in the runner (unreported token count) after ≈ 38 paid calls: ≈ $0.14 ESTIMATE ($0.0036 per call), in no result file; the key counter is authoritative | Cache entries; runner traceback | `evals/cache/model_calls.jsonl` | Estimate | Low |
 | Judge configured $0.50/day but bounded by the shared cap | Stack output plus code | `LlmJudge` output; `online_judge.py` | Deployed | High |
 | AWS idle ≈ $6.50–6.90/month; a few hours a week ≈ $8–10; always-on with WAF ≈ $85–100 | Estimates | `docs/release/09_LOW_COST_PILOT_PLAN.md` | Estimate | Medium |
 | Unit economics and scale scenarios | Projection | `SetuHaul_FDE_Cost_Analysis.md` | Projection | – |
@@ -254,9 +270,20 @@ LangSmith project `setuhaul-synthetic-pilot` is on. Since the demo release, ther
 
 - Production readiness, production deployment or production verification of anything.
 - Measured business impact (coordinator time, rebooking speed, cost savings). There is no baseline.
-- Human-calibrated judge quality, or the judge as "accurate". Agreement is with model-generated references.
+- The judge as "accurate", "validated", "blind-calibrated" or multi-reviewer agreed. Say: human calibration completed, owner-scored, one reviewer, not blind to the AI reference; advisory only.
+- The 53/60 figure as judge agreement. It is the owner's scores matching the AI reference.
+- That every metric improved on p5. Option pick fell from 100% to 91.7% (BB05); BB12 and AT02 still fail.
+- A combined score across golden, held-out and replay sets.
+- A $3/month key limit, or any monthly capacity derived from the $10 non-resetting key limit.
+- The ≈ $0.14 aborted-attempt figure as a verified cost.
 - LangChain usage, Vercel hosting, multi-agent orchestration, or the LLM choosing tools.
 - WhatsApp delivery to real phones.
 - The latency targets as met.
 - An AWS cost figure as billed.
 - Any count of "tests" other than 2,080 passed / 1 skipped (full suite, CI on `e3c5bbe`).
+- Absolute guarantees such as "no dock is ever double-booked". State the tested evidence: 20 concurrent (local proof) and 50 (suite) gave one winner and no overlap, plus live smoke check 4.
+- "Exactly-once" processing. Delivery is at least once; FIFO ordering per driver, de-duplication and idempotent business effects.
+- A latency speed-up multiple ("4×", "45×") or any service level; the after-sample is preliminary and uncommitted.
+- "No personal data" in general. Say: no message text, phone numbers or chat ids are exported; pseudonymous internal ids are.
+- That p5 results from 26 Nov apply to any later prompt version without a re-run.
+- That the judge budget should be raised. Any budget change is an owner decision.

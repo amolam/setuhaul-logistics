@@ -21,6 +21,9 @@ A projection is never actual spend.
 |---|---|---|---|
 | OpenRouter, evals + development to 18 Nov | ACTUAL (key checkpoint) | ≈ $3.16 | `docs/operations/COSTS.md` |
 | Offline LLM-judge runs, 25 Nov (2 × 30 judgements) | ACTUAL (usage ledger) | $0.205280 | `evals/results/judge_20261125_*.json` |
+| p5 eval re-runs, 26 Nov (golden v4, held-out h1, live replay v4) | COMPUTED (result files) | $1.0462 | three `*_20261126_*.json` result files |
+| Aborted first v4 attempt, 26 Nov (≈ 38 calls) | **ESTIMATE** | ≈ $0.14 | cache entries; not in any result file |
+| OpenRouter key limit and counter | REPORTED (owner-run key endpoint read, 26 Nov, before the replay) | $10 limit, no reset; $5.98 used, $4.02 remaining | – |
 | Pilot model spend since 23 Nov (agent extraction and online judge) | **NOT AVAILABLE** | In the pilot's `model_usage` / `model_budget_day` tables. Not read: reading them would resume the paused Aurora cluster. Bounded above by the $0.25/day cap | `COSTS.md` "How to inspect usage" |
 | Pilot judge cost per judgement | REPORTED | ≈ $0.0033 (9 turns scored on 26 Nov) | previous session |
 | AWS bill | **NOT AVAILABLE** | Owner to read Billing → Bills (free) before quoting | – |
@@ -55,7 +58,14 @@ A projection is never actual spend.
 | **Subtotal to 18 Nov** | | **≈ 3.16** | key checkpoint ($4.59 − $1.43) |
 | Offline judge run 1 (prompt judge-p1) | 30 | 0.106965 | ACTUAL (ledger) |
 | Offline judge run 2 (prompt judge-p2) | 30 | 0.098315 | ACTUAL (ledger) |
-| **Total recorded** | | **≈ 3.37** | |
+| p5 re-run: golden v4 (26 Nov) | 36 paid + 40 cached | 0.1320 | COMPUTED (`golden_v4_model_20261126_2234.json`) |
+| p5 re-run: held-out h1 (26 Nov) | 167 | 0.6125 | COMPUTED (`golden_h1_model_20261126_2242.json`) |
+| p5 re-run: live replay v4 (26 Nov) | 82 paid + 8 cached | 0.3017 | COMPUTED (`replay_v4_live_20261126_2305.json`) |
+| Human judge calibration (26 Nov) | 0 | 0 | local comparison, no model call |
+| **Total recorded** | | **≈ 4.42** (3.37 + 1.0462) | |
+| Aborted first v4 attempt (26 Nov; runner crashed on an unreported token count) | ≈ 38 | ≈ 0.14 | **ESTIMATE** ($0.0036 per call); in no result file |
+
+The OpenRouter key's own counter is authoritative: at the 26 Nov check (after the two golden re-runs, before the replay) it showed $5.98 used and $4.02 remaining of a **$10 limit with no reset** (REPORTED, owner-run read of the key endpoint).
 
 About $1.50 of the $3.16 went on full-set reruns after fixes that touched only a few scenarios. Decision T42 fixed this: estimates first, a refusal over $0.10 without approval, and a response cache. A full G3 v4 or h1 rerun with prompt p3 now costs $0.00 (`evals/cache/model_calls.jsonl`).
 
@@ -80,8 +90,12 @@ About $1.50 of the $3.16 went on full-set reruns after fixes that touched only a
 1. Before each attempt, `reserve_model_call` (migration 0023) atomically reserves the upper-bound cost in PostgreSQL for the UTC day.
 2. If the reservation would exceed `SETUHAUL_LLM_DAILY_BUDGET_USD` ($0.25), no request is sent (`budget_exhausted`, $0).
 3. The orchestrator uses the rules reader. Booking, approval and outbound are unaffected. The driver is understood less well: on held-out h1, intent accuracy is 61.2% for the rules reader against 98.0% for the model.
-4. Independently, the OpenRouter key limit ($3/month, no auto top-up) makes OpenRouter answer 402/403, which is never retried.
-5. The online judge has its own sub-cap and keeps `SETUHAUL_LLM_JUDGE_AGENT_RESERVE_USD` for the agent, so **the judge cannot starve the agent**. The converse happened after the deploy: the judge was skipped (`budget:shared_daily_cap`, REPORTED), because the configured judge budget ($0.50) exceeds the shared cap ($0.25). This is a configuration finding (see `SetuHaul_FDE_Gap_Analysis.md`).
+4. Independently, the OpenRouter key limit ($10 total, **no reset**, no auto top-up) makes OpenRouter answer 402/403 once spent, which is never retried. It is a lifetime ceiling, not a monthly budget. (`COSTS.md` still records an earlier $3/month figure; the key endpoint on 26 Nov shows $10 with no reset.)
+5. The online judge is limited twice (`setuhaul/agent/online_judge.py`):
+   - **Configured judge budget, $0.50/day** (`SETUHAUL_LLM_JUDGE_DAILY_BUDGET_USD`; stack output `LlmJudge`). This is the judge's own sub-cap (refusal reason `judge_daily_cap`).
+   - **Shared application cap, $0.25/day** (`SETUHAUL_LLM_DAILY_BUDGET_USD`). The judge's reservations are checked against the shared cap minus `SETUHAUL_LLM_JUDGE_AGENT_RESERVE_USD`. That reserve defaults to half the shared cap; no override was found in `infra/setuhaul_stack.py`. Refusal reason: `shared_daily_cap`.
+
+   So the agent's reserve is protected, and the $0.50 figure is never the binding limit while the shared cap is $0.25. After the deploy the observed skip reason was `budget:shared_daily_cap` (REPORTED). The exact usage balance at that moment is **not available**: it lives in the pilot's ledger, which was not read. Any change to either budget is an owner decision; this analysis does not recommend raising either.
 
 ## 3. Infrastructure cost (AWS, Sydney)
 
@@ -145,7 +159,12 @@ Idle cost control is implemented: `python -m setuhaul.ops.pilot_mode sleep` (ver
 
 Cost per *successful* booking needs the success rate. On the 23 Nov local load test, 40 requests were submitted for 56 holds, with 26 confirmed and 1 pending, so the share of flows that end in a booking is well below 1. Real-pilot data is **not available**. A conservative multiplier of 1.5–2× gives an LLM cost per *successful* booking of roughly **$0.009–0.026** (PROJECTION).
 
-### 4.3 Monthly scenarios
+### 4.3 Monthly scenarios (PROJECTION, not demonstrated AWS capacity)
+
+None of these volumes has been run on AWS. Today the pilot is limited by design:
+- the $0.25/day app cap;
+- the $10 OpenRouter key limit, which never resets (a lifetime ceiling, so no monthly capacity is derived from it);
+- the daily cap alone allows ≈ 20–42 bookings/day (ESTIMATE: $0.25 ÷ $0.0059–0.0128 LLM cost per booking including the judge, §4.2).
 
 | Bookings / month | ≈ per day | LLM / month | AWS / month (assumption) | Total / month | Per 1,000 bookings |
 |---|---|---|---|---|---|
@@ -164,8 +183,8 @@ The slide 14 chart plots the **upper** values per 1,000 bookings: $112.8, $22.8 
 
 | Constraint | Today | Breaks at |
 |---|---|---|
-| App LLM cap $0.25/day | ≈ 70–190 extractions/day ≈ **23–63 bookings/day** | ≈ 700–1,900 bookings/month. Raising it is an owner decision |
-| OpenRouter key limit $3/month | ≈ 830–2,300 extractions/month | below 10,000 bookings/month |
+| App LLM cap $0.25/day | ≈ 20–42 bookings/day (ESTIMATE: $0.25 ÷ $0.0059–0.0128 LLM cost per booking including the judge, §4.2). Method: daily cap ÷ LLM cost per booking (3 extraction turns + 0.6 judgements). The judge shares the cap, and at most the headroom above the agent reserve | above ≈ 600–1,300 bookings/month (ESTIMATE). Raising it is an owner decision |
+| OpenRouter key limit $10, no reset | $4.02 remaining at the 26 Nov check (before the $0.30 replay) | a lifetime ceiling: when spent, model calls stop until the owner raises it; no monthly capacity is derived |
 | Aurora max 2 ACU | sized for the pilot | must rise before 100,000/month; not load-tested on AWS |
 | Agent turn latency 8.5–11 s on the pilot (REPORTED) | fine for 2 drivers | the 20–35-message spike in the brief has **not** been tested on AWS |
 | Telegram Bot API rate limits; OpenRouter rate limits | not measured | unknown |
@@ -177,7 +196,7 @@ The slide 14 chart plots the **upper** values per 1,000 bookings: $112.8, $22.8 
 |---|---|
 | One model call per turn; templates for every reply (no phrasing model) | Implemented (OD-3) |
 | Rules reader instead of a fallback model | Implemented |
-| Daily budget reserved atomically in PostgreSQL; key limit; no auto top-up | Implemented |
+| Daily budget reserved atomically in PostgreSQL; $10 non-resetting key limit; no auto top-up | Implemented |
 | Judge sampling 20%, own sub-cap, no retry, cannot starve the agent | Implemented |
 | Eval cache; estimate first; refusal over $0.10 without approval | Implemented (T42) |
 | Static prompt first so it can be cached (prompt caching) | Designed in `prompts.py`. `cache_read` tokens were 0 in the golden runs, so **not realised** through this route |
@@ -191,15 +210,17 @@ The slide 14 chart plots the **upper** values per 1,000 bookings: $112.8, $22.8 
 
 ### 6.1 Pilot Telegram latency
 
-| Stage | Before demo release (7 exchanges, 26 Nov, COMMITTED in `ff4076d`) | After (6 exchanges, 26 Nov, REPORTED) | Target (owner) |
+| Stage | Before demo release (7 exchanges, 26 Nov, recorded in commit `ff4076d` message) | After (6 exchanges, 26 Nov, REPORTED, not committed) | Target (owner) |
 |---|---|---|---|
 | received → queued | p50 1.2 s | – | – |
 | queued → agent reply (agent turn incl. LLM) | p50 8.3 s | 8.5–11 s | – |
 | reply → outbound | p50 43.9 s, p95 58.6 s | p95 1.3 s | – |
-| outbound queue → sent | 2.0 s | p95 ≈ 2.2 s | < 2 s (**missed**) |
+| outbound queue → send (see note) | 2.0 s ("send") | p95 ≈ 2.2 s ("queue-to-send") | < 2 s (**missed**) |
 | **end to end** | p50 53.7 s, p95 72.6 s | **p50 13.1 s, p95 15.0 s** | < 15 s (**missed narrowly**) |
 
-- **p99 is not available.** With n = 6, p95 is effectively the worst case. These numbers indicate direction; they are not a service level.
+- **Preliminary.** The after column is a reported six-exchange sample, not committed evidence. Save the `latency_report.py` output to make it evidence.
+- **Comparability.** `scripts/latency_report.py` was added in the same commit (`ff4076d`) whose message records the before numbers. The stage names match: received→queued, queued→reply, reply→outbound, end to end received→sent. So the **end to end** and **reply → outbound** boundaries are the same timestamps before and after. The outbound-to-send row is less certain: the before "send" and after "queue-to-send" figures cannot be mapped with certainty to the script's `outbound->sending` or `sending->sent` stage. The samples also differ (7 vs 6 exchanges, different conversations, warm or cold state unknown).
+- **p99 is not available.** With n = 6, p95 is effectively the worst case. These numbers indicate direction; they are not a service level, and no speed-up multiple is claimed.
 - **Model vs workflow latency.** The extraction call takes about 2.2–2.4 s at p50 (golden runs). The workflow takes 13 s end to end. The gap is queueing, the agent's database round trips over the Data API (each tool is one to three transactions), Lambda cold starts and delivery.
 - **Agent turn: pilot vs local.** It takes 8.5–11 s on the pilot against about 1.9 s locally (Phase G, rules reader). This has **not been broken down** yet. The hypotheses are Data API round trips, cold starts, and secrets and identity lookups on cold invocations.
 
