@@ -1,11 +1,11 @@
 {
- "collected_utc": "2026-11-26T14:13:58+00:00",
+ "collected_utc": "2026-11-26T21:20:57+00:00",
  "stack": "SetuHaulPilot",
  "region": "ap-southeast-2",
  "booking_enabled": true,
  "booking_observed": {
   "source": "https://w8ptr7w960.execute-api.ap-southeast-2.amazonaws.com/pilot/health",
-  "observed_utc": "2026-11-26T14:13:56+00:00",
+  "observed_utc": "2026-11-26T21:20:56+00:00",
   "http_status": 200,
   "booking_state": "authorized",
   "booking_enabled": true,
@@ -13,7 +13,7 @@
   "format": "D4 (the database's verdict)",
   "booking_switch": "on",
   "booking_kill_switch": "disengaged",
-  "booking_provisional_until": "2026-11-26T20:35:47.840306+05:30",
+  "booking_provisional_until": "2026-11-27T03:43:55.786139+05:30",
   "version": "0.2.0"
  },
  "deployment_evidence_rows_written": 0,
@@ -21,10 +21,10 @@
   "WORKLOAD_IDENTITY": {
    "evidence": {
     "login_to_group_roles": {
-     "setuhaul_login_agent_aeda2e74f488": [
+     "setuhaul_login_agent_090f95bda669": [
       "setuhaul_agent"
      ],
-     "setuhaul_login_console_aeda2e74f488": [
+     "setuhaul_login_console_090f95bda669": [
       "setuhaul_console"
      ],
      "setuhaul_login_deploy_evidence": [
@@ -116,7 +116,7 @@
     },
     "reach": [
      {
-      "login": "setuhaul_login_agent_aeda2e74f488",
+      "login": "setuhaul_login_agent_090f95bda669",
       "can_use_console": false,
       "can_use_rpc": false,
       "superuser": false,
@@ -124,7 +124,7 @@
       "can_use_db_owner": false
      },
      {
-      "login": "setuhaul_login_console_aeda2e74f488",
+      "login": "setuhaul_login_console_090f95bda669",
       "can_use_console": true,
       "can_use_rpc": false,
       "superuser": false,
@@ -273,8 +273,8 @@
    "evidence": {
     "engine": "aurora-postgresql 17.9",
     "server_version": "17.9",
-    "migrations_live": 46,
-    "migrations_in_repo": 46,
+    "migrations_live": 47,
+    "migrations_in_repo": 47,
     "hash_mismatches": [],
     "repo_only_migrations": [],
     "evidence_triggers": {
@@ -480,8 +480,8 @@
      ]
     },
     "last_48h": {
-     "messages_sent": 67,
-     "messages_deleted": 67,
+     "messages_sent": 73,
+     "messages_deleted": 73,
      "dlq_messages_sent": 0
     },
     "dlq_drill": {
@@ -568,10 +568,10 @@
       "ingest",
       "system"
      ],
-     "code_sha256": "rtoudPSIh0hQ25OwGwxaIDFSpf8mhXjTayqlnmPEhto="
+     "code_sha256": "CQ+VvaZpNKpWMlE1G77feRG5mEOyhOi8Nh3bjfV6hBo="
     },
-    "recovery_invocations_last_3_days": 837,
-    "last_invocation_utc": "2026-11-26T14:12:09.885000+00:00",
+    "recovery_invocations_last_3_days": 863,
+    "last_invocation_utc": "2026-11-26T21:19:08.521000+00:00",
     "lease_loss_drill": {
      "checks": {
       "clean start: empty queue, no other unprocessed receipt, all data synthetic": true,
@@ -709,11 +709,80 @@
       ],
       "version": "0.2.0"
      },
-     "deployed_booking_mode": "ON (OWNER-APPROVAL-20261126-SYNTHETIC-PILOT-DEMO-01)",
-     "deployed_approval_ref": "OWNER-APPROVAL-20261126-SYNTHETIC-PILOT-DEMO-01",
-     "renewal_approval_ref": "OWNER-APPROVAL-20261126-SYNTHETIC-PILOT-DEMO-01"
+     "deployed_booking_mode": "ON (OWNER-APPROVAL-20261127-FACILITY-APPROVAL-01)",
+     "deployed_approval_ref": "OWNER-APPROVAL-20261127-FACILITY-APPROVAL-01",
+     "renewal_approval_ref": "OWNER-APPROVAL-20261127-FACILITY-APPROVAL-01"
     },
     "approval_executions": [
+     {
+      "approval_id": "94d01eed-f947-4fe2-9a90-006a6ccfd68e",
+      "execution": "94d01eed",
+      "execution_status": "SUCCEEDED",
+      "started": "2026-11-27T02:46:25.762000+05:30",
+      "category": "B",
+      "verdict": "ATTRIBUTED",
+      "reasons": [
+       "smoke test SMOKE-20261126T211448Z-c35b920a on release 61b1f3dd4b47"
+      ],
+      "record": {
+       "kind": "STANDARD",
+       "facility_id": "FAC-JAI-01",
+       "shipment_id": "SYN-SHP-5D76A122",
+       "appointment_id": "APT-3ac2677cd59442cf8c22c752c86a29ff",
+       "appointment_status": "CONFIRMED",
+       "status": "APPROVED",
+       "decided_by_type": "HUMAN",
+       "decider_kind": "drill_staff",
+       "created_at": "2026-11-26 21:16:12.800302+00:00",
+       "decided_at": "2026-11-26 21:16:51.435650+00:00"
+      }
+     },
+     {
+      "approval_id": "3e1786bf-67d1-4d3e-9fff-ae5a10ec85df",
+      "execution": "3e1786bf",
+      "execution_status": "SUCCEEDED",
+      "started": "2026-11-26T20:01:47.521000+05:30",
+      "category": "E",
+      "verdict": "ATTRIBUTED",
+      "reasons": [
+       "owner-authorised Telegram test-driver booking (SYN-SHP-TEST-2), approved by a planner in the hosted console (never smoke evidence)"
+      ],
+      "record": {
+       "kind": "STANDARD",
+       "facility_id": "FAC-JAI-01",
+       "shipment_id": "SYN-SHP-TEST-2",
+       "appointment_id": "APT-12211e413bee40628be4a81afe44d4b2",
+       "appointment_status": "CONFIRMED",
+       "status": "APPROVED",
+       "decided_by_type": "HUMAN",
+       "decider_kind": "console_user",
+       "created_at": "2026-11-26 14:30:51.701918+00:00",
+       "decided_at": "2026-11-26 14:31:00.668203+00:00"
+      }
+     },
+     {
+      "approval_id": "7c539fb9-94ea-4fbe-9d6e-2ff0224552b8",
+      "execution": "7c539fb9",
+      "execution_status": "SUCCEEDED",
+      "started": "2026-11-26T19:58:47.540000+05:30",
+      "category": "E",
+      "verdict": "ATTRIBUTED",
+      "reasons": [
+       "owner-authorised Telegram test-driver booking (SYN-SHP-TEST-2), approved by a planner in the hosted console (never smoke evidence)"
+      ],
+      "record": {
+       "kind": "PLANNER_REVIEW",
+       "facility_id": "FAC-JAI-01",
+       "shipment_id": "SYN-SHP-TEST-2",
+       "appointment_id": "APT-cefdc2f7c2f14d689f20bb72134724f5",
+       "appointment_status": "CANCELLED",
+       "status": "APPROVED",
+       "decided_by_type": "HUMAN",
+       "decider_kind": "console_user",
+       "created_at": "2026-11-26 14:28:15.903385+00:00",
+       "decided_at": "2026-11-26 14:28:54.151962+00:00"
+      }
+     },
      {
       "approval_id": "4db1b3ec-87da-479e-8c96-6a2f8363256e",
       "execution": "4db1b3ec",
@@ -1142,6 +1211,7 @@
       "48cb850c",
       "4db1b3ec",
       "73cac501",
+      "94d01eed",
       "9ed447a4",
       "bb952e8f",
       "cdc497bd",
@@ -1156,24 +1226,26 @@
      ],
      "E": [
       "251b0c87",
-      "453358af"
+      "3e1786bf",
+      "453358af",
+      "7c539fb9"
      ],
      "unresolved": [],
      "failed": []
     },
     "fresh_smoke": {
-     "smoke_id": "SMOKE-20261126T140743Z-ef024aa6",
-     "release_sha": "4b9ac565a6c65102d1fe8a002d4189bae970b31b",
+     "smoke_id": "SMOKE-20261126T211448Z-c35b920a",
+     "release_sha": "61b1f3dd4b472a584334b49a90c50b9f433cfd0e",
      "environment": "pilot-ap-southeast-2",
-     "collected_utc": "2026-11-26T14:12:19+00:00",
-     "deployed_code_sha256": "aeda2e74f488874850db93b01b0c5a203152a5ff268578d36b2aa59e63c486da",
+     "collected_utc": "2026-11-26T21:19:17+00:00",
+     "deployed_code_sha256": "090f95bda66934aa563251351bbedf7911b99843b284e8bc361ddb8df57a841a",
      "all_pass": true,
      "executions": [
       {
-       "approval_id": "4db1b3ec-87da-479e-8c96-6a2f8363256e",
-       "execution_arn": "arn:aws:states:ap-southeast-2:************:execution:setuhaul-pilot-approval:4db1b3ec-87da-479e-8c96-6a2f8363256e",
-       "shipment_id": "SYN-SHP-93F72171",
-       "appointment_id": "APT-154a148450184bf4873fed4e413bff89",
+       "approval_id": "94d01eed-f947-4fe2-9a90-006a6ccfd68e",
+       "execution_arn": "arn:aws:states:ap-southeast-2:************:execution:setuhaul-pilot-approval:94d01eed-f947-4fe2-9a90-006a6ccfd68e",
+       "shipment_id": "SYN-SHP-5D76A122",
+       "appointment_id": "APT-3ac2677cd59442cf8c22c752c86a29ff",
        "facility_id": "FAC-JAI-01"
       }
      ]
@@ -1184,7 +1256,7 @@
      "live_definition_sha256": "d5d970c03393afa647027e6f43c5c37dbfcb46cea9731b4b3b9b67181c45f908",
      "repo_definition_sha256": "d5d970c03393afa647027e6f43c5c37dbfcb46cea9731b4b3b9b67181c45f908"
     },
-    "executions_total": 18,
+    "executions_total": 21,
     "api_log_corroboration": {
      "87915a37-918e-46b5-8872-8ecaa4fc7a24": {
       "status": "verified",
@@ -1256,9 +1328,9 @@
  },
  "mode": "renewal",
  "environment": "pilot-ap-southeast-2",
- "release_sha": "4b9ac565a6c65102d1fe8a002d4189bae970b31b",
- "approval_ref": "OWNER-APPROVAL-20261126-SYNTHETIC-PILOT-DEMO-01",
- "artifact_sha256": "aeda2e74f488874850db93b01b0c5a203152a5ff268578d36b2aa59e63c486da",
+ "release_sha": "61b1f3dd4b472a584334b49a90c50b9f433cfd0e",
+ "approval_ref": "OWNER-APPROVAL-20261127-FACILITY-APPROVAL-01",
+ "artifact_sha256": "090f95bda66934aa563251351bbedf7911b99843b284e8bc361ddb8df57a841a",
  "expected_kill_switch": "disengaged",
  "approved_exceptions": [
   "AURORA (T33-P)",
