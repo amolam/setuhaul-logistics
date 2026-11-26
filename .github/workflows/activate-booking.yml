@@ -35,7 +35,7 @@ on:
         type: choice
         options: [activation, renewal, provisional]
       recovery_of:
-        description: "provisional only, Recovery Release A (0033): the REVOKED authorization id of the previous release to recover from (owner-approved; empty = the normal no-chaining rule)"
+        description: "provisional only, Recovery Release A (0033) / 0045: the REVOKED, or owner-approved EXPIRED, authorization id of the previous release to recover from (owner-approved; empty = the normal no-chaining rule)"
         required: false
         default: ""
       langsmith:
@@ -251,7 +251,7 @@ jobs:
           echo "::add-mask::$(echo "$CREDS" | jq -r .SecretAccessKey)"
           echo "::add-mask::$(echo "$CREDS" | jq -r .SessionToken)"
           export SETUHAUL_LOOKUP_SESSION=$(echo "$CREDS" | jq -c --arg r "$AWS_REGION"                     '{aws_access_key_id: .AccessKeyId, aws_secret_access_key: .SecretAccessKey, aws_session_token: .SessionToken, region_name: $r}')
-          python -m setuhaul.ops.readiness --approval-ref "$APPROVAL_REF" --release-sha "$GITHUB_SHA"             --report docs/release/evidence/provisional_gates.json ${RECOVERY_OF:+--recovery}
+          python -m setuhaul.ops.readiness --approval-ref "$APPROVAL_REF" --release-sha "$GITHUB_SHA"             --report docs/release/evidence/provisional_gates.json ${RECOVERY_OF:+--recovery-of "$RECOVERY_OF"}
       - name: Deploy the checked assembly (booking ON for api and agent; they refuse to start until the gates are recorded)
         run: npx --yes "$CDK_CLI" deploy SetuHaulPilot --app cdk.out --require-approval never --outputs-file outputs.json
       - name: Migrations over the Data API
