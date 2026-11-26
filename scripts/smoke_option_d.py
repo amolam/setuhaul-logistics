@@ -90,6 +90,34 @@ def conversation_to_yes(p: Pilot, d: dict, eta_text: str = "Traffic on the highw
     return turns
 
 
+APPROVAL_REF = re.compile(r"OWNER-APPROVAL-\d{8}-[A-Z0-9][A-Z0-9-]*")
+
+
+def telegram_live_allowlist(env: dict) -> tuple[str | None, frozenset]:
+    """(approval reference, allowlisted recipient refs) when the deployed sender has an owner-approved Telegram-live
+    configuration; (None, empty) otherwise. Anything short of the full configuration allows nothing."""
+    ref = env.get("SETUHAUL_TELEGRAM_LIVE_APPROVAL") or ""
+    if not (env.get("SETUHAUL_TELEGRAM_DELIVERY") == "live" and env.get("SETUHAUL_TELEGRAM_LIVE_AUTHORIZED") == "true"
+            and APPROVAL_REF.fullmatch(ref)):
+        return None, frozenset()
+    drivers = [d.strip() for d in (env.get("SETUHAUL_TELEGRAM_AUTHORIZED_DRIVERS") or "").split(",") if d.strip()]
+    return ref, frozenset(f"driver:{d}" for d in drivers)
+
+
+def classify_deliveries(rows, env: dict) -> tuple[int, int]:
+    """Split the deliveries that did not go to the test sink, given as (provider prefix, recipient_ref, count), into
+    (approved Telegram deliveries, everything else). Approved means a Telegram message ('tg' provider id) to a driver
+    on the owner-approved allowlist of the deployed sender; every other delivery fails the isolation check."""
+    _, allowed = telegram_live_allowlist(env)
+    approved = real = 0
+    for prefix, recipient, n in rows:
+        if prefix == "tg" and recipient in allowed:
+            approved += int(n)
+        else:
+            real += int(n)
+    return approved, real
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--release-sha", required=True, help="the git commit the deployed pilot runs (40 hex)")
@@ -265,10 +293,17 @@ def main() -> int:
 
         # ---- 7. isolation
         bad = p.db.query(VIOLATIONS)
-        real = p.rows("""SELECT count(*) FROM setuhaul.notifications WHERE provider_message_id IS NOT NULL
-                          AND provider_message_id NOT LIKE 'testsink.%'""")[0][0]
-        ev["isolation"] = {"non_synthetic_rows": len(bad), "non_test_sink_deliveries": real}
-        checks["7 isolation: only synthetic identities; no delivery outside the test sink"] = not bad and real == 0
+        sent = p.rows("""SELECT split_part(provider_message_id, '.', 1), recipient_ref, count(*)
+                           FROM setuhaul.notifications WHERE provider_message_id IS NOT NULL
+                           AND provider_message_id NOT LIKE 'testsink.%' GROUP BY 1, 2""")
+        tg_env = lam.get_function_configuration(FunctionName="setuhaul-pilot-outbound").get(
+            "Environment", {}).get("Variables", {})
+        approved, real = classify_deliveries(sent, tg_env)
+        ev["isolation"] = {"non_synthetic_rows": len(bad), "approved_telegram_deliveries": approved,
+                           "non_test_sink_deliveries": real,
+                           "telegram_live_approval": telegram_live_allowlist(tg_env)[0]}
+        checks["7 isolation: only synthetic identities; no delivery outside the test sink "
+               "or the owner-approved Telegram allowlist"] = not bad and real == 0
     finally:
         try:                                   # never leave the switch engaged by accident... unless the run failed
             ks = kill_status(p.db)             # before the drill: then it was never engaged here
