@@ -184,6 +184,49 @@ class Tracer:
                 self.stats["tracing_errors"] += 1
 
     @contextmanager
+    def child(self, parent: dict | None, run_id: str, name: str, metadata: dict | None = None):
+        """A run attached AFTER its parent's turn ended (the advisory judge runs once the turn is final): same trace,
+        parent_run_id = the parent root, dotted order under it. `parent` = parent_ref(root) of a traced turn; with no
+        parent (the turn was not traced or sampled out) it is a no-op, so the child follows its parent's sampling.
+        Spans opened inside nest under it. Exported as its own batch; never raises."""
+        if not self.enabled or not parent or not parent.get("trace_id") or not parent.get("dotted_order"):
+            yield NULL_RUN
+            return
+        try:
+            rid, start = str(uuid.UUID(str(run_id))), _now()
+            run = Run(id=rid, trace_id=str(parent["trace_id"]), name=name[:60], run_type="chain", start_time=start,
+                      parent_run_id=str(parent["id"]), dotted_order=f"{parent['dotted_order']}.{_dotted(start, rid)}",
+                      metadata={"environment": self.config.environment, "agent_version": self.config.agent_version,
+                                "release_commit": self.config.release_commit, **(metadata or {})},
+                      tags=["setuhaul", self.config.environment])
+            buf = [run]
+            tok_b, tok_r = _buffer.set(buf), _current.set(run)
+        except Exception:                                   # noqa: BLE001
+            self.stats["tracing_errors"] += 1
+            yield NULL_RUN
+            return
+        try:
+            yield run
+        except BaseException as e:
+            run.error = f"{type(e).__name__}"
+            raise
+        finally:
+            try:
+                run.end_time = _now()
+                _current.reset(tok_r)
+                _buffer.reset(tok_b)
+                self._enqueue(buf)
+            except Exception:                               # noqa: BLE001
+                self.stats["tracing_errors"] += 1
+
+    @staticmethod
+    def parent_ref(run) -> dict | None:
+        """What child() needs from a traced root run (None for the no-op run)."""
+        if run is None or isinstance(run, _NullRun) or not getattr(run, "dotted_order", ""):
+            return None
+        return {"trace_id": run.trace_id, "id": run.id, "dotted_order": run.dotted_order}
+
+    @contextmanager
     def span(self, name: str, run_type: str = "chain", inputs: dict | None = None, metadata: dict | None = None):
         """A child of the current run. Outside a traced turn (or with tracing off) it is a no-op."""
         parent, buf = _current.get(), _buffer.get()
@@ -300,6 +343,14 @@ def trace_url(ui_url: str | None, trace_id: str | None) -> str | None:
         return None
     base = ui_url.rstrip("/")
     return f"{base}/r/{tid}?trace_id={tid}"
+
+
+def ref(v) -> str | None:
+    """A non-reversible 16-hex reference to an internal id (a conversation, a message): never the id itself. The same
+    function as the agent's conversation_ref, so every component names one conversation the same way; LangSmith
+    groups traces on it as `thread_id`."""
+    import hashlib
+    return hashlib.sha256(f"setuhaul-ref:{v}".encode()).hexdigest()[:16] if v else None
 
 
 def safe(fn, *a, **kw) -> Any:

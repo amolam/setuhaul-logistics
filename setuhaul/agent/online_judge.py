@@ -204,8 +204,17 @@ class OnlineJudge:
         meta = {"turn_ref": res.turn_ref, "parent_trace_id": res.turn_ref, "correlation_id": res.correlation_id,
                 "driver_id": res.driver_id, "shipment_id": res.shipment_id, "facility_id": res.facility_id,
                 "prompt_version": JC.JUDGE_PROMPT_VERSION, "eval_version": EVAL_VERSION, "advisory": True,
-                "calibration_status": CALIBRATION, "component": "llm_judge"}
-        ctx = self.tracer.turn(trace_id, "llm_judge", metadata=meta) if self.tracer is not None else nullcontext(None)
+                "calibration_status": CALIBRATION, "component": "llm_judge",
+                "thread_id": getattr(res, "conversation_ref", None)}
+        # a child of its agent_turn when that turn was traced (same trace, follows the turn's sampling); a root run
+        # of its own otherwise (tracer without child(), as before)
+        parent = getattr(res, "trace_parent", None)
+        if self.tracer is None:
+            ctx = nullcontext(None)
+        elif parent and hasattr(self.tracer, "child"):
+            ctx = self.tracer.child(parent, trace_id, "llm_judge", metadata=meta)
+        else:
+            ctx = self.tracer.turn(trace_id, "llm_judge", metadata=meta)
         ledger = JudgeLedger(self.db, self.cfg, res.turn_ref)
         t0 = time.monotonic()
         with ctx as run:

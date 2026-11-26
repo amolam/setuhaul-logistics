@@ -279,6 +279,10 @@ log = logging.getLogger("setuhaul.api")
 SHIPMENT_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_-]{2,79}$"
 
 
+def _utcnow_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+
+
 def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, queue=None) -> FastAPI:
     app = FastAPI(title="SetuHaul exception service", version="0.2.0", docs_url=None, redoc_url=None)
     from .console_site import mount_console
@@ -507,8 +511,11 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
             try:
                 # Full Activation: one telegram_inbound trace per verified update (driver id set by the service once
                 # identified; never the chat id, the user id, the text or the secret). No-op when tracing is off.
-                with tr.turn(str(uuid.uuid4()), "telegram_inbound",
-                             metadata={"channel": "TELEGRAM", "component": "telegram_inbound", "update_kind": kind}):
+                # its run id IS the request's correlation id, which the queue event carries to the agent as the
+                # turn's ingest_correlation_id: the agent_turn trace names this inbound trace (Demo release)
+                with tr.turn(CORRELATION_ID.get() or str(uuid.uuid4()), "telegram_inbound",
+                             metadata={"channel": "TELEGRAM", "component": "telegram_inbound", "update_kind": kind,
+                                       "webhook_received_at": _utcnow_iso()}):
                     out = await run_in_threadpool(svc.handle_telegram_update, update, sessions)
             except Exception:
                 # not stored: answer 5xx so Telegram redelivers; the stored part is deduplicated on the retry
@@ -549,7 +556,10 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
 
     @app.post("/console/requests/{appointment_id}/decision")
     def decide(appointment_id: str, d: Decision, p: Principal = Depends(staff)):
-        return svc.decide(p, appointment_id, d.decision, d.note, d.idempotency_key)
+        out = svc.decide(p, appointment_id, d.decision, d.note, d.idempotency_key)
+        from ..notify.kick import kick_outbound
+        kick_outbound("decision")                   # the driver's notice goes out now, not on the next tick
+        return out
 
     @app.post("/console/requests/{appointment_id}/withdraw")
     def withdraw(appointment_id: str, w: Withdraw, p: Principal = Depends(staff)):

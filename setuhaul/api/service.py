@@ -1429,6 +1429,10 @@ class BookingService:
                 row = c.execute("SELECT destination_facility_id FROM shipments WHERE shipment_id=%s", (th[1],)).fetchone()
                 fac = row[0] if row else None
         status, enqueued = rec if rec else ("PENDING", False)
+        # Demo release: the inbound trace names its conversation (opaque ref) and the stored message, so LangSmith
+        # threads it with the agent turn and the outbound send. Ids only: never the text or the chat.
+        tracing.safe(lambda: tracing.current().set(thread_id=tracing.ref(th[0]), message_ref=tracing.ref(mid),
+                                                   duplicate=duplicate))
         recovered = False
         if not duplicate:
             status = self._attest(drv, th[0], mid, masked)
@@ -1946,6 +1950,28 @@ class BookingService:
         tracing.safe(lambda: tracing.current().set(driver_id=drv, linked=drv is not None, update_kind=ev.kind))
         if drv is None or not tg.driver_authorized(drv):          # unlinked, or not on the pilot-driver list
             return {"reply": tg.TEXT_NOT_LINKED, "event": None}
+        out = self._telegram_for_driver(ev, drv, sessions)
+        if isinstance(out.get("reply"), str) and out["reply"]:
+            self._record_bot_reply(drv, ev.external_id, out["reply"])
+        return out
+
+    def _record_bot_reply(self, drv: str, external_id: str, text: str) -> None:
+        """Demo release (0046): the reply the webhook sends at once is stored in the driver's open conversation (SYSTEM,
+        TELEGRAM), so the planner sees what the driver received. Idempotent on the update (a webhook retry stores it
+        once). Best effort AFTER the driver's own message is durably stored: a failure is logged, never hidden, and
+        never fails the update (the driver's message and its action are already committed)."""
+        if not external_id:
+            return
+        try:
+            with self.db.tx("ingest", driver=drv) as c:
+                c.execute("SELECT record_bot_reply(%s, %s, %s)", (drv, f"tgr:{external_id}"[:94], text))
+        except Exception as e:                                   # noqa: BLE001 — visible, never fatal
+            log.warning("ALERT bot reply not stored in the conversation (%s)", type(e).__name__)
+
+    def _telegram_for_driver(self, ev, drv: str, sessions) -> dict:
+        """The update of a linked, authorized driver (handle_telegram_update has identified them)."""
+        from ..domain.location import LocationReport
+        from ..notify import telegram as tg
         if ev.kind == "start":
             return {"reply": tg.TEXT_ALREADY_LINKED, "event": None}
         if ev.kind == "callback":
