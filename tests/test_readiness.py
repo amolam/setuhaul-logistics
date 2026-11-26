@@ -182,3 +182,16 @@ def test_a_recoverable_target_passes(t):
 def test_an_unrecoverable_target_blocks(t, why):
     b = rd.blockers(rd.assess(recovery_state(t), REF, SHA, recovery=True))
     assert any(c.name.startswith("recovery target") and why in c.action for c in b), [c.__dict__ for c in b]
+
+
+def test_before_0045_is_applied_the_release_migration_must_record_exactly_this_approval(tmp_path):
+    """Readiness runs before the release's migrations: the approval counts only if 0045 records it for exactly this
+    authorization, release and approval reference (the database re-checks the written row at issuance)."""
+    s68, r68 = "24c388c1d73a2f07654f2f0a31307e99aef01f80", "OWNER-APPROVAL-20261126-SYNTHETIC-PILOT-PATCH-01"
+    assert rd.release_records_expired_approval(68, s68, r68)
+    for args in ((69, s68, r68), (6, s68, r68), (68, "b" * 40, r68), (68, s68, "OWNER-APPROVAL-20261126-OTHER-01"),
+                 (68, None, r68), (68, s68, None)):
+        assert not rd.release_records_expired_approval(*args), args
+    assert not rd.release_records_expired_approval(68, s68, r68, migrations_dir=tmp_path)      # no 0045 at all
+    ok = rd.assess(recovery_state(target(owner_approved=rd.PENDING)), REF, SHA, recovery=True)
+    assert not rd.blockers(ok) and "recorded by this release's migration 0045" in by(ok, "recovery target").detail
