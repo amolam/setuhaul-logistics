@@ -34,7 +34,7 @@ CREATE TRIGGER provisional_expired_recovery_approvals_append_only
   BEFORE UPDATE OR DELETE OR TRUNCATE ON provisional_expired_recovery_approvals
   FOR EACH STATEMENT EXECUTE FUNCTION trg_activation_append_only();
 REVOKE ALL ON provisional_expired_recovery_approvals FROM PUBLIC;
-GRANT SELECT ON provisional_expired_recovery_approvals TO setuhaul_rpc, setuhaul_deploy_evidence;
+GRANT SELECT ON provisional_expired_recovery_approvals TO setuhaul_rpc;       -- read only by the issuer (definer)
 
 -- BEGIN owner-approved-expired-recovery (tests/test_recover_expired_0045.py runs this block on its own)
 INSERT INTO provisional_expired_recovery_approvals (authorization_id, environment, deployment_id, basis, evidence_ref)
