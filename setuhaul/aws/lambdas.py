@@ -337,6 +337,12 @@ def _flush_traces() -> None:
         log.warning("trace flush failed (%s)", type(e).__name__)
 
 
+def _kick(reason: str) -> None:
+    """Demo release: the outbound worker runs now (asynchronous; the one-minute tick stays the fallback)."""
+    from ..notify.kick import kick_outbound
+    kick_outbound(reason)
+
+
 def agent_handler(event, context, sqs=None):
     """One SQS FIFO record per invocation (batch size 1 keeps one driver's messages in order). While the turn runs,
     the orchestrator's heartbeat extends the message's visibility, so the queue does not hand it to another worker.
@@ -361,6 +367,7 @@ def agent_handler(event, context, sqs=None):
                 r = orch.svc.continue_accepted_offer(body)
                 log.info("offer continuation message=%s offer=%s result=%s", rec.get("messageId"),
                          body.get("offer_id"), r.get("result"))
+                _kick("offer_continuation")                         # its reply goes out now, not on the next tick
                 continue
             res = orch.handle(body)
             log.info("agent turn message=%s path=%s extractor=%s fallback=%s correlation_id=%s turn_ref=%s "
@@ -369,6 +376,8 @@ def agent_handler(event, context, sqs=None):
                      getattr(res, "extractor", None), getattr(res, "fallback_reason", None),
                      getattr(res, "correlation_id", None), getattr(res, "turn_ref", None),
                      getattr(res, "ingest_correlation_id", None))
+            if res is not None and res.reply:
+                _kick("agent_reply")                               # the committed reply goes out now (Demo release)
             _judge_after_turn(res)                                 # advisory; never fails the record
         except Exception:                                          # logged with its type; redelivered by SQS
             log.exception("agent turn failed for SQS message %s", rec.get("messageId"))

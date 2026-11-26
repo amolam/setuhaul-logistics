@@ -190,7 +190,10 @@ def test_ingest_role_allowlist(conn):
                      "dispatch_offer_for_driver", "request_offer_alternative", "driver_location_context",
                      "record_driver_location", "redeem_driver_link_code", "driver_for_channel",
                      "open_offer_for_driver",   # 0036: a typed Telegram reply answers the driver's own open offer
-                     "offer_telegram_message"}  # 0038: ...and clears that offer's buttons (read only, own offer)
+                     "offer_telegram_message",  # 0038: ...and clears that offer's buttons (read only, own offer)
+                     # 0046 (Demo release): the bot's immediate reply is stored in the driver's OWN open conversation
+                     # as a SYSTEM message (never AGENT: it cannot enter the outbox), once per update
+                     "record_bot_reply"}
 
 
 def test_feasibility_role_allowlist(conn):

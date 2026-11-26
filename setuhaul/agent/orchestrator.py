@@ -91,7 +91,9 @@ class TurnResult:
     channel: str | None = None
     tool_calls: list[dict] = field(default_factory=list)      # {"tool", "status", "ms"} only
     turn_ms: int = 0
-    expired_pick: bool = False                                  # a pick of slots whose 5-minute offer has expired
+    trace_parent: dict | None = None                            # the traced root (trace id, run id, dotted order)
+    conversation_ref: str | None = None                         # opaque conversation ref (LangSmith thread_id)
+    expired_pick: bool = False                                 # a pick of slots whose 5-minute offer has expired
     # Online judge (advisory, after the turn): the reply language and the driver's message, IN MEMORY ONLY. Never
     # exported, logged or stored by the turn; the judge sends them on the same ZDR route as the extraction call.
     language: str | None = None
@@ -173,6 +175,9 @@ class Orchestrator:
                                  error_category=res.fallback_reason))
             if res is not None:                                       # a turn with nothing to do returns None
                 res.turn_ms = int((time.perf_counter() - t0) * 1000)
+                # the judge attaches its run under this root once the turn is final (None: not traced)
+                res.trace_parent = tracing.safe(lambda: tracing.Tracer.parent_ref(root))
+                res.conversation_ref = _ref(event.get("thread_id"))
             if not self.svc.finish_turn(p, mid, owner, gen):            # R2.0 S4-R2-01: not a successful turn
                 raise TurnLeaseLost(f"message {mid}: the lease was lost before the turn finished; it will be redelivered")
         except BaseException:
@@ -205,7 +210,11 @@ class Orchestrator:
         from .models import DeferredModel
         m = self.model
         inner = (m.client or m) if isinstance(m, DeferredModel) else m  # DeferredModel wraps the real client
-        return {"correlation_id": turn_ref, "ingest_correlation_id": corr_id, "turn_ref": turn_ref, "conversation_ref": _ref(event.get("thread_id")),
+        conv = _ref(event.get("thread_id"))
+        # thread_id: LangSmith groups every trace of one conversation (inbound, turn, judge, outbound) in its Threads
+        # view; it is the same opaque conversation reference, never the internal thread id itself
+        return {"correlation_id": turn_ref, "ingest_correlation_id": corr_id, "turn_ref": turn_ref, "conversation_ref": conv,
+                "thread_id": conv, "message_ref": _ref(event.get("message_id")),
                 "provider": getattr(inner, "provider", None) or (type(inner).__name__ if inner else "none"),
                 "model": getattr(inner, "extract_model", None)}
 
