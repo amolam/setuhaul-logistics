@@ -122,7 +122,8 @@ def assess(s: State, approval_ref: str, release_sha: str, deploy_at: datetime | 
             why = recovery_target_problems(s.recovery_target, s.running, s.environment, s.now)
             t = s.recovery_target
             out.append(Check(f"recovery target authorization {t.get('authorization_id')}", not why,
-                             f"{t.get('status') or 'not found'}" + (f", expires {t.get('expires_at')}" if t.get('expires_at') else ""),
+                             f"{t.get('status') or 'not found'}" + (f", expires {t.get('expires_at')}" if t.get('expires_at') else "")
+                             + (f"; owner approval {t['owner_approved']}" if t.get("owner_approved") == PENDING else ""),
                              "; ".join(why)))
     else:
         ok = state == "authorized"
@@ -187,6 +188,8 @@ def recovery_target_problems(t: dict, running: dict, environment: str, now: date
     elif st == "EXPIRED" or lapsed:
         if not t.get("owner_approved"):
             p.append("an EXPIRED window needs the owner's recorded approval (0045) for this authorization")
+        elif t.get("owner_approved") == PENDING:
+            pass                                       # 0045 writes it before issuance; the database checks the row
         if now - _ts(exp) > RECOVERY_DAYS:
             p.append("expired more than 7 days ago")
         if t.get("events") != (["ISSUED", "EXPIRED"] if st == "EXPIRED" else ["ISSUED"]):
@@ -200,15 +203,39 @@ def recovery_target_problems(t: dict, running: dict, environment: str, now: date
 LIMIT_RX = re.compile(r"IF\s+n\s*>=\s*(\d+)\s+THEN\s+RAISE\s+EXCEPTION\s+'PROVISIONAL_RATE_LIMIT", re.I)
 
 
+PENDING = "recorded by this release's migration 0045"
+MIGRATION_0045 = "0045_recover_expired_provisional.sql"
+
+
+def release_records_expired_approval(authorization_id: int, release_sha: str | None, approval_ref: str | None,
+                                     migrations_dir=None) -> bool:
+    """Before 0045 is applied (readiness runs before the release's migrations): does this release's 0045 record the
+    owner's approval for exactly this authorization, release and approval reference? The database re-checks the
+    recorded row at issuance, so this only predicts what the migration will write."""
+    from pathlib import Path
+    d = Path(migrations_dir) if migrations_dir else Path(__file__).resolve().parents[2] / "migrations"
+    try:
+        src = (d / MIGRATION_0045).read_text(encoding="utf-8")
+        block = src[src.index("-- BEGIN owner-approved-expired-recovery"):src.index("-- END owner-approved-expired-recovery")]
+    except (OSError, ValueError):
+        return False
+    return bool(release_sha and approval_ref) and all(
+        x in block for x in (f"a.authorization_id = {int(authorization_id)}\n", f"'{release_sha}'", f"'{approval_ref}'"))
+
+
 def read_recovery_target(c, authorization_id: int) -> dict:
-    row = c.execute("SELECT authorization_id, environment, deployment_id, status, expires_at, closed_at, recovery_of "
-                    "FROM setuhaul.provisional_authorizations WHERE authorization_id = %s", (authorization_id,)).fetchone()
+    row = c.execute("SELECT authorization_id, environment, deployment_id, status, expires_at, closed_at, recovery_of, "
+                    "release_sha, approval_ref FROM setuhaul.provisional_authorizations WHERE authorization_id = %s",
+                    (authorization_id,)).fetchone()
     if not row:
         return {"authorization_id": authorization_id, "found": False}
     has_table = c.execute("SELECT to_regclass('setuhaul.provisional_expired_recovery_approvals') IS NOT NULL").fetchone()[0]
-    approved = bool(has_table and c.execute(
-        "SELECT EXISTS (SELECT 1 FROM setuhaul.provisional_expired_recovery_approvals WHERE authorization_id = %s "
-        "AND environment = %s AND deployment_id = %s)", (authorization_id, row[1], row[2])).fetchone()[0])
+    if has_table:
+        approved = bool(c.execute(
+            "SELECT EXISTS (SELECT 1 FROM setuhaul.provisional_expired_recovery_approvals WHERE authorization_id = %s "
+            "AND environment = %s AND deployment_id = %s)", (authorization_id, row[1], row[2])).fetchone()[0])
+    else:   # readiness runs before this release's migrations: 0045 itself must record exactly this approval
+        approved = PENDING if release_records_expired_approval(authorization_id, row[7], row[8]) else False
     used = bool(c.execute("SELECT EXISTS (SELECT 1 FROM setuhaul.provisional_authorizations WHERE recovery_of = %s)",
                           (authorization_id,)).fetchone()[0])
     ev = [r[0] for r in c.execute("SELECT action FROM setuhaul.provisional_authorization_events "
