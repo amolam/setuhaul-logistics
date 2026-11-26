@@ -1,11 +1,11 @@
 {
- "collected_utc": "2026-11-25T21:08:51+00:00",
+ "collected_utc": "2026-11-26T06:56:25+00:00",
  "stack": "SetuHaulPilot",
  "region": "ap-southeast-2",
  "booking_enabled": true,
  "booking_observed": {
   "source": "https://w8ptr7w960.execute-api.ap-southeast-2.amazonaws.com/pilot/health",
-  "observed_utc": "2026-11-25T21:08:50+00:00",
+  "observed_utc": "2026-11-26T06:56:24+00:00",
   "http_status": 200,
   "booking_state": "authorized",
   "booking_enabled": true,
@@ -13,7 +13,7 @@
   "format": "D4 (the database's verdict)",
   "booking_switch": "on",
   "booking_kill_switch": "disengaged",
-  "booking_provisional_until": "2026-11-26T03:30:15.092821+05:30",
+  "booking_provisional_until": "2026-11-26T13:18:36.588868+05:30",
   "version": "0.2.0"
  },
  "deployment_evidence_rows_written": 0,
@@ -21,10 +21,10 @@
   "WORKLOAD_IDENTITY": {
    "evidence": {
     "login_to_group_roles": {
-     "setuhaul_login_agent_9e8a66d6db6c": [
+     "setuhaul_login_agent_905cc7c2c663": [
       "setuhaul_agent"
      ],
-     "setuhaul_login_console_9e8a66d6db6c": [
+     "setuhaul_login_console_905cc7c2c663": [
       "setuhaul_console"
      ],
      "setuhaul_login_deploy_evidence": [
@@ -116,7 +116,7 @@
     },
     "reach": [
      {
-      "login": "setuhaul_login_agent_9e8a66d6db6c",
+      "login": "setuhaul_login_agent_905cc7c2c663",
       "can_use_console": false,
       "can_use_rpc": false,
       "superuser": false,
@@ -124,7 +124,7 @@
       "can_use_db_owner": false
      },
      {
-      "login": "setuhaul_login_console_9e8a66d6db6c",
+      "login": "setuhaul_login_console_905cc7c2c663",
       "can_use_console": true,
       "can_use_rpc": false,
       "superuser": false,
@@ -273,8 +273,8 @@
    "evidence": {
     "engine": "aurora-postgresql 17.9",
     "server_version": "17.9",
-    "migrations_live": 43,
-    "migrations_in_repo": 43,
+    "migrations_live": 45,
+    "migrations_in_repo": 45,
     "hash_mismatches": [],
     "repo_only_migrations": [],
     "evidence_triggers": {
@@ -376,7 +376,7 @@
     },
     "evidence_trigger_problems": [],
     "tables_with_forced_rls": 34,
-    "tables": 57,
+    "tables": 58,
     "t33": {
      "production_requirement": "PostgreSQL 18.3+ (T33, unchanged)",
      "engine_major": 17
@@ -480,8 +480,8 @@
      ]
     },
     "last_48h": {
-     "messages_sent": 24,
-     "messages_deleted": 24,
+     "messages_sent": 48,
+     "messages_deleted": 48,
      "dlq_messages_sent": 0
     },
     "dlq_drill": {
@@ -568,10 +568,10 @@
       "ingest",
       "system"
      ],
-     "code_sha256": "nopm1ttsyxly7pgwTlSlPHbJftT+OHWAP87645O1amE="
+     "code_sha256": "kFzHwsZjQydmDh0MOPew2gYjyByOL7L/fRaIFDdkrhE="
     },
-    "recovery_invocations_last_3_days": 112,
-    "last_invocation_utc": "2026-11-25T21:07:15.031000+00:00",
+    "recovery_invocations_last_3_days": 505,
+    "last_invocation_utc": "2026-11-26T06:54:33.921000+00:00",
     "lease_loss_drill": {
      "checks": {
       "clean start: empty queue, no other unprocessed receipt, all data synthetic": true,
@@ -625,8 +625,9 @@
     "smoke: the smoke is fresh (at most 24 h old)": true,
     "smoke: the fresh smoke's own executions are attributed to it (category B)": true,
     "owner attribution record is valid and limited to the two confirmed executions": true,
+    "owner test-origin record is valid and limited to its confirmed executions (category D)": true,
     "no approval execution contradicts its evidence": true,
-    "every approval execution is attributed (A drill, B smoke, C owner-confirmed)": true
+    "every approval execution is attributed (A drill, B smoke, C owner-confirmed, D owner-confirmed test origin)": true
    },
    "not_shown": [],
    "diagnostics": [],
@@ -707,11 +708,80 @@
       ],
       "version": "0.2.0"
      },
-     "deployed_booking_mode": "ON (OWNER-APPROVAL-20261125-SYNTHETIC-PILOT-RELEASE-01)",
-     "deployed_approval_ref": "OWNER-APPROVAL-20261125-SYNTHETIC-PILOT-RELEASE-01",
-     "renewal_approval_ref": "OWNER-APPROVAL-20261125-SYNTHETIC-PILOT-RELEASE-01"
+     "deployed_booking_mode": "ON (OWNER-APPROVAL-20261126-SYNTHETIC-PILOT-PATCH-02)",
+     "deployed_approval_ref": "OWNER-APPROVAL-20261126-SYNTHETIC-PILOT-PATCH-02",
+     "renewal_approval_ref": "OWNER-APPROVAL-20261126-SYNTHETIC-PILOT-PATCH-02"
     },
     "approval_executions": [
+     {
+      "approval_id": "cdc497bd-e045-4296-a89f-0f40de61b91a",
+      "execution": "cdc497bd",
+      "execution_status": "SUCCEEDED",
+      "started": "2026-11-26T12:21:34.976000+05:30",
+      "category": "B",
+      "verdict": "ATTRIBUTED",
+      "reasons": [
+       "smoke test SMOKE-20261126T065003Z-39aea7ea on release 232a7b1eca42"
+      ],
+      "record": {
+       "kind": "STANDARD",
+       "facility_id": "FAC-JAI-01",
+       "shipment_id": "SYN-SHP-A53FED66",
+       "appointment_id": "APT-7626c283a0814f118841dbdc4c75ecd1",
+       "appointment_status": "CONFIRMED",
+       "status": "APPROVED",
+       "decided_by_type": "HUMAN",
+       "decider_kind": "drill_staff",
+       "created_at": "2026-11-26 06:51:22.171328+00:00",
+       "decided_at": "2026-11-26 06:52:00.908804+00:00"
+      }
+     },
+     {
+      "approval_id": "48cb850c-7fc1-45de-abe9-44673c5d3103",
+      "execution": "48cb850c",
+      "execution_status": "SUCCEEDED",
+      "started": "2026-11-26T10:08:59.799000+05:30",
+      "category": "B",
+      "verdict": "ATTRIBUTED",
+      "reasons": [
+       "smoke test SMOKE-20261126T043729Z-380653d5 on release 24c388c1d73a"
+      ],
+      "record": {
+       "kind": "STANDARD",
+       "facility_id": "FAC-JAI-01",
+       "shipment_id": "SYN-SHP-FC78D8F3",
+       "appointment_id": "APT-4cdacdcd0d0c4ec98a54cd889b2ceef2",
+       "appointment_status": "CONFIRMED",
+       "status": "APPROVED",
+       "decided_by_type": "HUMAN",
+       "decider_kind": "drill_staff",
+       "created_at": "2026-11-26 04:38:46.312752+00:00",
+       "decided_at": "2026-11-26 04:39:25.476407+00:00"
+      }
+     },
+     {
+      "approval_id": "3c3ff424-5d40-4033-bfd2-28f1837fa7c5",
+      "execution": "3c3ff424",
+      "execution_status": "SUCCEEDED",
+      "started": "2026-11-26T09:36:26.342000+05:30",
+      "category": "D",
+      "verdict": "ATTRIBUTED",
+      "reasons": [
+       "owner-confirmed test origin: failed smoke SMOKE-20261126T040451Z-8d8f951d on release 24c388c1d73a (smoke outcome FAIL; never smoke evidence)"
+      ],
+      "record": {
+       "kind": "STANDARD",
+       "facility_id": "FAC-JAI-01",
+       "shipment_id": "SYN-SHP-DDD13851",
+       "appointment_id": "APT-af0e9d8a19174cd7baf0ea7e7a39d139",
+       "appointment_status": "CONFIRMED",
+       "status": "APPROVED",
+       "decided_by_type": "HUMAN",
+       "decider_kind": "drill_staff",
+       "created_at": "2026-11-26 04:06:13.592534+00:00",
+       "decided_at": "2026-11-26 04:06:53.055483+00:00"
+      }
+     },
      {
       "approval_id": "bb952e8f-2ce2-4748-8a3b-87e2b5967127",
       "execution": "bb952e8f",
@@ -999,31 +1069,36 @@
       "f0f94898"
      ],
      "B": [
+      "48cb850c",
       "73cac501",
       "9ed447a4",
       "bb952e8f",
+      "cdc497bd",
       "e95e30a0"
      ],
      "C": [
       "29ffac03",
       "87915a37"
      ],
+     "D": [
+      "3c3ff424"
+     ],
      "unresolved": [],
      "failed": []
     },
     "fresh_smoke": {
-     "smoke_id": "SMOKE-20261125T210115Z-9d4d8bc0",
-     "release_sha": "66e22c2231b15ca791b685cd67ea0fdfa93d9277",
+     "smoke_id": "SMOKE-20261126T065003Z-39aea7ea",
+     "release_sha": "232a7b1eca42feba33f4b52a6d26e4e1dc16e2c7",
      "environment": "pilot-ap-southeast-2",
-     "collected_utc": "2026-11-25T21:07:26+00:00",
-     "deployed_code_sha256": "9e8a66d6db6ccb1972ee98304e54a53c76c97ed4fe3875803fcefae393b56a61",
+     "collected_utc": "2026-11-26T06:54:54+00:00",
+     "deployed_code_sha256": "905cc7c2c6634327660e1d0c38f7b0da0623c81c8e2fb2ff7d1688143764ae11",
      "all_pass": true,
      "executions": [
       {
-       "approval_id": "bb952e8f-2ce2-4748-8a3b-87e2b5967127",
-       "execution_arn": "arn:aws:states:ap-southeast-2:************:execution:setuhaul-pilot-approval:bb952e8f-2ce2-4748-8a3b-87e2b5967127",
-       "shipment_id": "SYN-SHP-446452C7",
-       "appointment_id": "APT-4fccf7e5809a456f9ea778722f65c48f",
+       "approval_id": "cdc497bd-e045-4296-a89f-0f40de61b91a",
+       "execution_arn": "arn:aws:states:ap-southeast-2:************:execution:setuhaul-pilot-approval:cdc497bd-e045-4296-a89f-0f40de61b91a",
+       "shipment_id": "SYN-SHP-A53FED66",
+       "appointment_id": "APT-7626c283a0814f118841dbdc4c75ecd1",
        "facility_id": "FAC-JAI-01"
       }
      ]
@@ -1034,7 +1109,7 @@
      "live_definition_sha256": "d5d970c03393afa647027e6f43c5c37dbfcb46cea9731b4b3b9b67181c45f908",
      "repo_definition_sha256": "d5d970c03393afa647027e6f43c5c37dbfcb46cea9731b4b3b9b67181c45f908"
     },
-    "executions_total": 12,
+    "executions_total": 15,
     "api_log_corroboration": {
      "87915a37-918e-46b5-8872-8ecaa4fc7a24": {
       "status": "verified",
@@ -1106,9 +1181,9 @@
  },
  "mode": "renewal",
  "environment": "pilot-ap-southeast-2",
- "release_sha": "66e22c2231b15ca791b685cd67ea0fdfa93d9277",
- "approval_ref": "OWNER-APPROVAL-20261125-SYNTHETIC-PILOT-RELEASE-01",
- "artifact_sha256": "9e8a66d6db6ccb1972ee98304e54a53c76c97ed4fe3875803fcefae393b56a61",
+ "release_sha": "232a7b1eca42feba33f4b52a6d26e4e1dc16e2c7",
+ "approval_ref": "OWNER-APPROVAL-20261126-SYNTHETIC-PILOT-PATCH-02",
+ "artifact_sha256": "905cc7c2c6634327660e1d0c38f7b0da0623c81c8e2fb2ff7d1688143764ae11",
  "expected_kill_switch": "disengaged",
  "approved_exceptions": [
   "AURORA (T33-P)",
