@@ -62,9 +62,13 @@ least $0.001) and settles it to OpenRouter's reported `usage.cost`.
 | Limit | Where | Approved | Resets | Role |
 |---|---|---|---|---|
 | Application daily budget | `SETUHAUL_LLM_DAILY_BUDGET_USD` (environment of the worker) | **$0.25/day** | 00:00 UTC | Authoritative for the application: reserved atomically in PostgreSQL before every attempt |
-| OpenRouter key credit limit | OpenRouter dashboard → Keys → the pilot key → credit limit | **$3.00/month** | monthly (OpenRouter's key limit reset) | Independent external safeguard, also covers anything the ledger cannot see (a crashed process, a mis-set cap) |
+| OpenRouter key credit limit | OpenRouter dashboard → Keys → the pilot key → credit limit | **$3.00/month** approved 21 Nov; **current setting $10.00 total, no reset** (see below) | approved: monthly; current: none, a lifetime ceiling | Independent external safeguard, also covers anything the ledger cannot see (a crashed process, a mis-set cap) |
 | Automatic top-ups | OpenRouter dashboard → Credits | **disabled** wherever available | — | No silent spend beyond the purchased credit |
 | OpenRouter privacy (recommended) | OpenRouter dashboard → Settings → Privacy | ZDR-only routing for Anthropic models, safety-retention endpoints off | — | Second layer behind the per-request `zdr: true` |
+
+**Key limit update (26 Nov 2026).** The owner read the key endpoint (`GET /api/v1/key`) on 26 Nov: limit **$10.00**, `limit_reset` empty (**no reset**), $5.98 used and $4.02 remaining, read after the p5 golden re-runs and before the p5 live replay. The owner confirmed that the pilot and the local evaluation runs use the **same key**. The $3/month approval of 21 Nov is therefore no longer the setting in force. Because the $10 never resets, it is a lifetime ceiling, not a monthly budget: when it is spent, model calls stop (402/403, the rules reader takes over) until the owner raises it. Evaluation runs and the pilot draw on the same $10.
+
+**p5 re-runs, 26 Nov 2026.** Golden v4 $0.1320 (36 paid, 40 cached), held-out h1 $0.6125, live replay v4 $0.3017: $1.0462 in total, from `cost.spent_usd` in the three result files. A first v4 attempt crashed in the runner after about 38 paid calls (an unreported token count; fixed in `evals/run_golden.py`); about $0.14 by ESTIMATE, in no result file. The key counter is authoritative. Human judge calibration made no model call.
 
 **What $0.25/day allows.** A typical extraction reserves about $0.006 (a 6 KB request plus 600 output tokens, +20 %),
 so up to about 41 attempts can be in flight at once, and actual spend is about $0.0013–0.0035 per extraction: roughly
