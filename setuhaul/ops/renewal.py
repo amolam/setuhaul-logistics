@@ -20,6 +20,15 @@ Attribution categories (an execution must be in exactly one, or the gate does no
                          docs/release/evidence/owner_attribution_20261123.json, and only when the database record
                          matches what the owner's record says happened. Never equivalent to B: it never satisfies the
                          fresh-smoke requirement and cannot be extended to another execution without a code change.
+  D  owner-confirmed     ONLY the executions in OWNER_TEST_ORIGIN_IDS, from docs/release/evidence/owner_test_origin_*.json:
+     test origin         an execution started by an authorised smoke run that FAILED. Needs all of: the owner's record
+     (failed smoke)      names the execution and the smoke id; that smoke record is committed, in the renewal format
+                         (smoke id, release SHA, deployed code hash), for this environment, names the execution and did
+                         NOT pass; shipment, facility and appointment agree across the owner record, the smoke record
+                         and the database. D accounts for the execution's origin only: it is never a passing smoke, it
+                         never satisfies the fresh-smoke requirement, the failed smoke record stays as it is, and the
+                         hard checks (synthetic, pilot facility, execution status, transitions) still apply. Extending
+                         it to another execution is a code change, like C.
 Otherwise: UNRESOLVED (no visible record, or no evidence) or FAIL (evidence contradicts the record, a non-synthetic or
 out-of-pilot record, a failed execution, or the same execution claimed twice).
 """
@@ -36,6 +45,10 @@ PILOT_FACILITIES = ("FAC-JAI-01", "FAC-GGN-01")
 APPROVAL_REF = re.compile(r"OWNER-APPROVAL-20\d{6}-[A-Za-z0-9-]{3,40}")
 # The owner's confirmation (23 Nov 2026) covers exactly these two executions. Adding one is a code change and a review.
 OWNER_CONFIRMED_IDS = frozenset({"87915a37-918e-46b5-8872-8ecaa4fc7a24", "29ffac03-d8bd-4dac-b35c-66b0f8ebf24b"})
+# Category D: the owner's confirmation (26 Nov 2026) of the test origin of the execution started by the failed smoke
+# SMOKE-20261126T040450Z (check 7 defect, fixed in a1d34f8). Adding one is a code change and a review.
+OWNER_TEST_ORIGIN_IDS = frozenset({"3c3ff424-5d40-4033-bfd2-28f1837fa7c5"})
+TEST_ORIGIN_PROBLEM = "test-origin record: "
 REPORT_MAX_AGE = timedelta(hours=24)          # a renewal report older than this is refused when evidence is written
 SMOKE_MAX_AGE = timedelta(hours=24)           # the fresh smoke must be at most this old when the report is collected
 
@@ -158,6 +171,51 @@ def load_owner_attributions(record: dict | None) -> tuple[dict[str, dict], list[
     return ({} if problems else out), problems
 
 
+def load_test_origin(record: dict | None) -> tuple[dict[str, dict], list[str]]:
+    """The Category D record, validated: owner confirmation present, category D, this environment, every named
+    execution inside OWNER_TEST_ORIGIN_IDS with its smoke id, shipment, facility and appointment, none twice.
+    Returns ({approval_id: entry}, problems, each prefixed TEST_ORIGIN_PROBLEM). Any problem rejects the whole record."""
+    if not record:
+        return {}, []
+    problems = []
+    if record.get("category") != "D":
+        problems.append("it is not category D")
+    conf = record.get("owner_confirmation") or {}
+    if not (conf.get("confirmed_by") == "owner" and conf.get("statement")):
+        problems.append("it has no owner confirmation")
+    if record.get("environment") != ENVIRONMENT:
+        problems.append(f"it is for {record.get('environment')!r}, not {ENVIRONMENT!r}")
+    out: dict[str, dict] = {}
+    for e in record.get("executions") or []:
+        aid = str(e.get("approval_id"))
+        if aid not in OWNER_TEST_ORIGIN_IDS:
+            problems.append(f"it names {short(aid)}, which is outside the executions the owner confirmed")
+        elif aid in out:
+            problems.append(f"it names {short(aid)} twice")
+        elif not all(e.get(k) for k in ("smoke_id", "shipment_id", "facility_id", "appointment_id")):
+            problems.append(f"its entry for {short(aid)} lacks the smoke id, shipment, facility or appointment")
+        else:
+            out[aid] = e
+    return ({} if problems else out), [TEST_ORIGIN_PROBLEM + p for p in problems]
+
+
+def _test_origin_problems(entry: dict, smoke: dict, claim: dict, row: dict) -> list[str]:
+    """Why a failed smoke's claim on an execution is NOT accountable as Category D ([] when it is)."""
+    bad = []
+    if smoke.get("smoke_id") != entry.get("smoke_id"):
+        bad.append(f"the smoke record {smoke.get('smoke_id')} is not the one the owner named ({entry.get('smoke_id')})")
+    if not (smoke.get("smoke_id") and smoke.get("release_sha") and smoke.get("deployed_code_sha256")):
+        bad.append("the failed smoke record is not in the renewal format (smoke id, release SHA, deployed code hash)")
+    if smoke.get("environment") != ENVIRONMENT:
+        bad.append(f"the failed smoke record is for {smoke.get('environment')!r}")
+    for k, label in (("shipment_id", "shipment"), ("facility_id", "facility"), ("appointment_id", "appointment")):
+        if entry.get(k) != row.get(k):
+            bad.append(f"the owner's {label} {entry.get(k)} is not the database's {row.get(k)}")
+        if claim.get(k) and claim[k] != row.get(k):
+            bad.append(f"the smoke record's {label} {claim[k]} is not the database's {row.get(k)}")
+    return bad
+
+
 # ------------------------------------------------------------------------------------------------ smoke records
 def smoke_claims(smoke_records: list[dict]) -> dict[str, list[dict]]:
     """approval_id -> the smoke records that name it. Renewal format: record["executions"]; the 23 Nov format: the one
@@ -167,7 +225,8 @@ def smoke_claims(smoke_records: list[dict]) -> dict[str, list[dict]]:
         named = []
         for x in s.get("executions") or []:
             named.append({"approval_id": str(x.get("approval_id")), "shipment_id": x.get("shipment_id"),
-                          "facility_id": x.get("facility_id"), "execution_arn": x.get("execution_arn")})
+                          "facility_id": x.get("facility_id"), "appointment_id": x.get("appointment_id"),
+                          "execution_arn": x.get("execution_arn")})
         ev = s.get("evidence") or {}
         req, arn = (ev.get("booking") or {}).get("request") or [], (ev.get("workflow") or {}).get("execution_arn")
         if not s.get("executions") and req and arn:
@@ -260,8 +319,8 @@ API_LOG_ACCEPTED = ("verified", "previously_verified")
 
 
 def attribute_executions(executions: list[dict], records: dict[str, dict], smoke_records: list[dict],
-                         owner_record: dict | None, api_log: dict[str, dict] | None = None
-                         ) -> tuple[list[dict], list[str]]:
+                         owner_record: dict | None, api_log: dict[str, dict] | None = None,
+                         test_origin_record: dict | None = None) -> tuple[list[dict], list[str]]:
     """executions: [{"name" (= approval id), "status", "start", "arn"}] from Step Functions.
     records: approval_id -> the row from approval_execution_evidence (migration 0029), facility-scoped.
     api_log: approval_id -> the API-log corroboration of the owner record's console requests (Recovery Release A,
@@ -269,8 +328,11 @@ def attribute_executions(executions: list[dict], records: dict[str, dict], smoke
     verified (the live API log has every request line the record names) or previously_verified (the log is past its
     retention and an earlier committed report verified the same lines). Anything else, or no corroboration at all,
     fails closed: an owner record alone can never attribute an execution.
-    Returns (one verdict per execution, record-level problems)."""
+    test_origin_record: the Category D record (owner-confirmed test origin of a failed smoke's execution).
+    Returns (one verdict per execution, record-level problems; Category D problems carry TEST_ORIGIN_PROBLEM)."""
     owner, owner_problems = load_owner_attributions(owner_record)
+    origin, origin_problems = load_test_origin(test_origin_record)
+    owner_problems = owner_problems + origin_problems
     claims = smoke_claims(smoke_records)
     out = []
     for e in executions:
@@ -299,6 +361,15 @@ def attribute_executions(executions: list[dict], records: dict[str, dict], smoke
         for c in claims.get(aid, []):
             s = c["record"]
             sb = []
+            if not s.get("all_pass") and aid in origin:
+                # Category D: the failed smoke stays failed; the owner's record accounts only for the test origin.
+                db = _test_origin_problems(origin[aid], s, c, row)
+                if db:
+                    hard += [f"owner-confirmed test origin does not match: {b}" for b in db]
+                else:
+                    cats.append(("D", f"owner-confirmed test origin: failed smoke {s.get('smoke_id')} on release "
+                                      f"{str(s.get('release_sha'))[:12]} (smoke outcome FAIL; never smoke evidence)"))
+                continue
             if not s.get("all_pass"):
                 sb.append("the smoke record that names it did not pass")
             if s.get("environment", ENVIRONMENT) != ENVIRONMENT:
@@ -323,6 +394,9 @@ def attribute_executions(executions: list[dict], records: dict[str, dict], smoke
                 hard += [f"owner-confirmed record does not match the database: {b}" for b in ob]
             else:
                 cats.append(("C", "owner-confirmed manual console test: " + owner[aid].get("label", "")))
+        if aid in origin and not any(c == "D" for c, _ in cats) and not any("test origin does not match" in h
+                                                                            for h in hard):
+            hard.append("the owner's test-origin record names it, but no committed failed smoke record names it")
         if len(cats) > 1:
             hard.append("attributed more than once: " + ", ".join(c for c, _ in cats))
         v["reasons"] += hard
@@ -333,12 +407,16 @@ def attribute_executions(executions: list[dict], records: dict[str, dict], smoke
             v["reasons"].append(cats[0][1])
         else:
             v["reasons"].append("no attributable evidence (not a Step 6 drill, no smoke record names it, not "
-                                "owner-confirmed)")
+                                "owner-confirmed, no owner-confirmed test origin)")
         out.append(v)
     return out, owner_problems
 
 
 # ------------------------------------------------------------------------------------------------ the gate
+R_TO = TEST_ORIGIN_PROBLEM
+ALL_ATTRIBUTED = "every approval execution is attributed (A drill, B smoke, C owner-confirmed, D owner-confirmed test origin)"
+
+
 def booking_workflow_renewal(base_checks: dict[str, bool], config: tuple[dict, list, dict],
                              attribution: tuple[list[dict], list[str]], smoke: tuple[dict, list],
                              fresh_smoke_record: dict | None) -> dict:
@@ -355,10 +433,12 @@ def booking_workflow_renewal(base_checks: dict[str, bool], config: tuple[dict, l
     checks = {**base_checks, **{f"config: {k}": ok for k, ok in cfg_checks.items()},
               **{f"smoke: {k}": ok for k, ok in smk_checks.items()},
               "smoke: the fresh smoke's own executions are attributed to it (category B)": fresh_attributed,
-              "owner attribution record is valid and limited to the two confirmed executions": not owner_problems,
+              "owner attribution record is valid and limited to the two confirmed executions":
+                  not any(not p.startswith(R_TO) for p in owner_problems),
+              "owner test-origin record is valid and limited to its confirmed executions (category D)":
+                  not any(p.startswith(R_TO) for p in owner_problems),
               "no approval execution contradicts its evidence": not any(v["verdict"] == FAIL for v in verdicts),
-              "every approval execution is attributed (A drill, B smoke, C owner-confirmed)":
-                  all(v["verdict"] == "ATTRIBUTED" for v in verdicts)}
+              ALL_ATTRIBUTED: all(v["verdict"] == "ATTRIBUTED" for v in verdicts)}
     diagnostics = list(cfg_disc) + list(smk_diag) + list(owner_problems)
     for v in verdicts:
         if v["verdict"] == FAIL:
@@ -366,10 +446,9 @@ def booking_workflow_renewal(base_checks: dict[str, bool], config: tuple[dict, l
         elif v["verdict"] == UNRESOLVED:
             diagnostics.append(f"approval execution {v['execution']} has no attributable evidence: "
                                + "; ".join(v["reasons"]))
-    contradicted = [k for k, ok in checks.items()
-                    if not ok and k != "every approval execution is attributed (A drill, B smoke, C owner-confirmed)"]
+    contradicted = [k for k, ok in checks.items() if not ok and k != ALL_ATTRIBUTED]
     status = FAIL if contradicted else (UNRESOLVED if not all(checks.values()) else PASS)
-    by_cat = {c: sorted(v["execution"] for v in verdicts if v["category"] == c) for c in ("A", "B", "C")}
+    by_cat = {c: sorted(v["execution"] for v in verdicts if v["category"] == c) for c in ("A", "B", "C", "D")}
     return {"mode": "renewal", "status": status, "renewal_status": status, "checks": checks,
             "not_shown": [] if status == PASS else [f"BOOKING_WORKFLOW: {status} — {d}" for d in diagnostics],
             "diagnostics": [f"BOOKING_WORKFLOW: {status} — {d}" for d in diagnostics],
