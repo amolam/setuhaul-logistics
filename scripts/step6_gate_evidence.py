@@ -676,7 +676,9 @@ def renewal_gate(out, fns, res, approval_ref: str, release_sha: str, fresh_smoke
     api_log = owner_api_log_corroboration(owner, api_group, now)
     origin_file = EVIDENCE / "owner_test_origin_20261126.json"          # Category D (owner-confirmed test origin)
     origin = json.loads(origin_file.read_text(encoding="utf-8")) if origin_file.exists() else None
-    attribution = R.attribute_executions(execs, records, smokes, owner, api_log, origin)
+    drivers_file = EVIDENCE / "owner_test_drivers_20261126.json"        # Category E (owner's test-driver rule)
+    drivers = json.loads(drivers_file.read_text(encoding="utf-8")) if drivers_file.exists() else None
+    attribution = R.attribute_executions(execs, records, smokes, owner, api_log, origin, drivers)
     smoke = R.fresh_smoke_checks(fresh_smoke, release_sha, artifact, now)
     g = R.booking_workflow_renewal(base, config, attribution, smoke, fresh_smoke)
     g["evidence"]["activation_facts"] = {k: ev_act.get(k) for k in ("state_machine", "alias_routes_to_version",

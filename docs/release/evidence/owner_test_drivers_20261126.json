@@ -1,0 +1,46 @@
+{
+ "record": "owner-authorised standing rule for bookings of the authorised Telegram test drivers' synthetic shipments (Category E)",
+ "category": "E",
+ "category_meaning": "An approval-workflow execution whose shipment is a Telegram test driver's synthetic shipment (SYN-SHP-TEST-<n>), created on or after 26 Nov 2026, APPROVED by a person in the planner role through the hosted console. Category E accounts for the origin of such a booking (the owner's own two-driver Telegram testing and demo); it is never a passing smoke test, never smoke evidence and never satisfies the fresh-smoke requirement. The hard checks (synthetic shipment, pilot facility, execution status, transitions) still apply. A TEST-driver request that was rejected, expired or decided any other way is not covered. Defined in setuhaul/ops/renewal.py (TEST_DRIVER_SHIPMENT, TEST_DRIVER_RULE_FROM); changing the rule is a code change.",
+ "environment": "pilot-ap-southeast-2",
+ "state_machine": "setuhaul-pilot-approval",
+ "owner_confirmation": {
+  "confirmed_by": "owner",
+  "confirmed_at_utc": "2026-11-26",
+  "channel": "Claude Code session (demo release DEMO-01, renewal attribution)",
+  "statement": "Confirm + rule for TEST drivers: approvals 453358af and 251b0c87 (synthetic shipment SYN-SHP-TEST-1, FAC-JAI-01, approved by a planner in the hosted console at about 13:21 and 13:26 IST on 26 Nov 2026) were my own Telegram tests; and any SYN-SHP-TEST-* booking by the authorised Telegram test drivers, approved by a human planner in the console, counts as an owner test.",
+  "scope": "origin of the authorised Telegram test drivers' console-approved bookings only"
+ },
+ "rule": {
+  "shipment_pattern": "SYN-SHP-TEST-[0-9]{1,3}",
+  "created_on_or_after_utc": "2026-11-26T00:00:00Z",
+  "approval_status": "APPROVED",
+  "decided_by_type": "HUMAN",
+  "decided_by_role": "planner",
+  "decider_kind": "console_user",
+  "telegram_live_approval": "OWNER-APPROVAL-20261126-SYNTHETIC-PILOT-TELEGRAM-LIVE-01",
+  "authorized_drivers": ["SYN-DRV-TEST-1", "SYN-DRV-TEST-2"]
+ },
+ "confirmed_executions_at_record_time": [
+  {
+   "approval_id": "453358af-04ae-4f8e-907e-543498da963c",
+   "database_facts_as_observed": {
+    "note": "Read-only, through approval_execution_evidence (migration 0029) on 2026-11-26. Recorded as observed; the rule judges the live record at each renewal.",
+    "kind": "PLANNER_REVIEW", "facility_id": "FAC-JAI-01", "shipment_id": "SYN-SHP-TEST-1",
+    "appointment_id": "APT-57274202b61d4c8cbeafa210a08feb9d", "appointment_status": "CANCELLED",
+    "approval_status": "APPROVED", "decided_by_type": "HUMAN", "decided_by_role": "planner", "decider_kind": "console_user",
+    "created_at_utc": "2026-11-26T07:51:32Z", "decided_at_utc": "2026-11-26T07:51:49Z", "execution_status": "SUCCEEDED"
+   }
+  },
+  {
+   "approval_id": "251b0c87-a097-4814-8690-e16d5ad88ede",
+   "database_facts_as_observed": {
+    "note": "Read-only, through approval_execution_evidence (migration 0029) on 2026-11-26.",
+    "kind": "STANDARD", "facility_id": "FAC-JAI-01", "shipment_id": "SYN-SHP-TEST-1",
+    "appointment_id": "APT-5947d86b3d61438d85fb481c1ba6a4bf", "appointment_status": "CONFIRMED",
+    "approval_status": "APPROVED", "decided_by_type": "HUMAN", "decided_by_role": "planner", "decider_kind": "console_user",
+    "created_at_utc": "2026-11-26T07:56:35Z", "decided_at_utc": "2026-11-26T07:57:34Z", "execution_status": "SUCCEEDED"
+   }
+  }
+ ]
+}

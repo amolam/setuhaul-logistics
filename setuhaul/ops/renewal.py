@@ -29,6 +29,14 @@ Attribution categories (an execution must be in exactly one, or the gate does no
                          never satisfies the fresh-smoke requirement, the failed smoke record stays as it is, and the
                          hard checks (synthetic, pilot facility, execution status, transitions) still apply. Extending
                          it to another execution is a code change, like C.
+  E  owner-authorised    a STANDING rule the owner approved on 26 Nov 2026 for the two-driver Telegram demo: an execution
+     Telegram test       whose shipment is one of the authorised Telegram test drivers' synthetic shipments
+     driver booking      (SYN-SHP-TEST-<n>), created on or after TEST_DRIVER_RULE_FROM, APPROVED by a person in the planner
+                         role through the hosted console (decider kind console_user). Needs the owner's record
+                         docs/release/evidence/owner_test_drivers_20261126.json (category E, this environment, the
+                         Telegram-live approval and driver allow-list it covers). Never equivalent to B: it never satisfies
+                         the fresh-smoke requirement; the hard checks still apply; a TEST-driver request that was rejected,
+                         expired or decided any other way is not covered. Changing the rule is a code change.
 Otherwise: UNRESOLVED (no visible record, or no evidence) or FAIL (evidence contradicts the record, a non-synthetic or
 out-of-pilot record, a failed execution, or the same execution claimed twice).
 """
@@ -49,6 +57,12 @@ OWNER_CONFIRMED_IDS = frozenset({"87915a37-918e-46b5-8872-8ecaa4fc7a24", "29ffac
 # SMOKE-20261126T040450Z (check 7 defect, fixed in a1d34f8). Adding one is a code change and a review.
 OWNER_TEST_ORIGIN_IDS = frozenset({"3c3ff424-5d40-4033-bfd2-28f1837fa7c5"})
 TEST_ORIGIN_PROBLEM = "test-origin record: "
+# Category E: the owner's standing rule (26 Nov 2026) for bookings of the authorised Telegram test drivers' shipments.
+TEST_DRIVER_SHIPMENT = re.compile(r"SYN-SHP-TEST-[0-9]{1,3}")
+TEST_DRIVER_RULE_FROM = datetime(2026, 11, 26, tzinfo=timezone.utc)
+TEST_DRIVER_APPROVAL = "OWNER-APPROVAL-20261126-SYNTHETIC-PILOT-TELEGRAM-LIVE-01"
+TEST_DRIVER_IDS = ("SYN-DRV-TEST-1", "SYN-DRV-TEST-2")
+TEST_DRIVER_PROBLEM = "test-driver record: "
 REPORT_MAX_AGE = timedelta(hours=24)          # a renewal report older than this is refused when evidence is written
 SMOKE_MAX_AGE = timedelta(hours=24)           # the fresh smoke must be at most this old when the report is collected
 
@@ -199,6 +213,47 @@ def load_test_origin(record: dict | None) -> tuple[dict[str, dict], list[str]]:
     return ({} if problems else out), [TEST_ORIGIN_PROBLEM + p for p in problems]
 
 
+def load_test_driver_rule(record: dict | None) -> tuple[bool, list[str]]:
+    """The Category E record, validated: category E, owner confirmation, this environment, and exactly the rule this
+    module applies (shipment pattern, Telegram-live approval, driver allow-list). Returns (usable, problems, each
+    prefixed TEST_DRIVER_PROBLEM). No record: the rule is off and nothing is a problem."""
+    if not record:
+        return False, []
+    problems = []
+    if record.get("category") != "E":
+        problems.append("it is not category E")
+    conf = record.get("owner_confirmation") or {}
+    if not (conf.get("confirmed_by") == "owner" and conf.get("statement")):
+        problems.append("it has no owner confirmation")
+    if record.get("environment") != ENVIRONMENT:
+        problems.append(f"it is for {record.get('environment')!r}, not {ENVIRONMENT!r}")
+    rule = record.get("rule") or {}
+    if rule.get("shipment_pattern") != TEST_DRIVER_SHIPMENT.pattern:
+        problems.append(f"its shipment pattern {rule.get('shipment_pattern')!r} is not {TEST_DRIVER_SHIPMENT.pattern!r}")
+    if rule.get("telegram_live_approval") != TEST_DRIVER_APPROVAL:
+        problems.append("it does not name the Telegram-live approval the rule covers")
+    if tuple(rule.get("authorized_drivers") or ()) != TEST_DRIVER_IDS:
+        problems.append("its driver allow-list is not the authorised Telegram test drivers")
+    return not problems, [TEST_DRIVER_PROBLEM + p for p in problems]
+
+
+def _test_driver_problems(row: dict) -> list[str] | None:
+    """None: not a TEST-driver shipment (the rule does not apply). Otherwise why it is NOT Category E ([] when it is)."""
+    if not TEST_DRIVER_SHIPMENT.fullmatch(str(row.get("shipment_id") or "")):
+        return None
+    bad = []
+    c = parse_ts(row.get("created_at"))
+    if not (c and c >= TEST_DRIVER_RULE_FROM):
+        bad.append(f"created {row.get('created_at')}, before the owner's rule ({TEST_DRIVER_RULE_FROM.date()})")
+    if row.get("status") != "APPROVED":
+        bad.append(f"the approval is {row.get('status')}, the rule covers only APPROVED")
+    if row.get("decided_by_type") != "HUMAN" or row.get("decided_by_role") != "planner":
+        bad.append(f"decided by {row.get('decided_by_type')!r} / {row.get('decided_by_role')!r}, not a human planner")
+    if row.get("decider_kind") != "console_user":
+        bad.append(f"decider kind {row.get('decider_kind')!r}, not the hosted console (console_user)")
+    return bad
+
+
 def _test_origin_problems(entry: dict, smoke: dict, claim: dict, row: dict) -> list[str]:
     """Why a failed smoke's claim on an execution is NOT accountable as Category D ([] when it is)."""
     bad = []
@@ -320,7 +375,8 @@ API_LOG_ACCEPTED = ("verified", "previously_verified")
 
 def attribute_executions(executions: list[dict], records: dict[str, dict], smoke_records: list[dict],
                          owner_record: dict | None, api_log: dict[str, dict] | None = None,
-                         test_origin_record: dict | None = None) -> tuple[list[dict], list[str]]:
+                         test_origin_record: dict | None = None,
+                         test_driver_record: dict | None = None) -> tuple[list[dict], list[str]]:
     """executions: [{"name" (= approval id), "status", "start", "arn"}] from Step Functions.
     records: approval_id -> the row from approval_execution_evidence (migration 0029), facility-scoped.
     api_log: approval_id -> the API-log corroboration of the owner record's console requests (Recovery Release A,
@@ -329,10 +385,13 @@ def attribute_executions(executions: list[dict], records: dict[str, dict], smoke
     retention and an earlier committed report verified the same lines). Anything else, or no corroboration at all,
     fails closed: an owner record alone can never attribute an execution.
     test_origin_record: the Category D record (owner-confirmed test origin of a failed smoke's execution).
-    Returns (one verdict per execution, record-level problems; Category D problems carry TEST_ORIGIN_PROBLEM)."""
+    test_driver_record: the Category E record (the owner's standing rule for the Telegram test drivers' bookings).
+    Returns (one verdict per execution, record-level problems; Category D problems carry TEST_ORIGIN_PROBLEM, Category
+    E problems TEST_DRIVER_PROBLEM)."""
     owner, owner_problems = load_owner_attributions(owner_record)
     origin, origin_problems = load_test_origin(test_origin_record)
-    owner_problems = owner_problems + origin_problems
+    rule_on, rule_problems = load_test_driver_rule(test_driver_record)
+    owner_problems = owner_problems + origin_problems + rule_problems
     claims = smoke_claims(smoke_records)
     out = []
     for e in executions:
@@ -394,6 +453,12 @@ def attribute_executions(executions: list[dict], records: dict[str, dict], smoke
                 hard += [f"owner-confirmed record does not match the database: {b}" for b in ob]
             else:
                 cats.append(("C", "owner-confirmed manual console test: " + owner[aid].get("label", "")))
+        td = _test_driver_problems(row) if rule_on else None
+        if td == []:
+            cats.append(("E", f"owner-authorised Telegram test-driver booking ({row.get('shipment_id')}), approved by a "
+                              "planner in the hosted console (never smoke evidence)"))
+        elif td and not cats:
+            v["reasons"].append("Telegram test-driver shipment, but not covered by the owner's rule: " + "; ".join(td))
         if aid in origin and not any(c == "D" for c, _ in cats) and not any("test origin does not match" in h
                                                                             for h in hard):
             hard.append("the owner's test-origin record names it, but no committed failed smoke record names it")
@@ -407,14 +472,17 @@ def attribute_executions(executions: list[dict], records: dict[str, dict], smoke
             v["reasons"].append(cats[0][1])
         else:
             v["reasons"].append("no attributable evidence (not a Step 6 drill, no smoke record names it, not "
-                                "owner-confirmed, no owner-confirmed test origin)")
+                                "owner-confirmed, no owner-confirmed test origin, not an owner-authorised test-driver "
+                                "booking)")
         out.append(v)
     return out, owner_problems
 
 
 # ------------------------------------------------------------------------------------------------ the gate
 R_TO = TEST_ORIGIN_PROBLEM
-ALL_ATTRIBUTED = "every approval execution is attributed (A drill, B smoke, C owner-confirmed, D owner-confirmed test origin)"
+R_TD = TEST_DRIVER_PROBLEM
+ALL_ATTRIBUTED = ("every approval execution is attributed (A drill, B smoke, C owner-confirmed, D owner-confirmed test "
+                  "origin, E owner-authorised test-driver booking)")
 
 
 def booking_workflow_renewal(base_checks: dict[str, bool], config: tuple[dict, list, dict],
@@ -434,9 +502,11 @@ def booking_workflow_renewal(base_checks: dict[str, bool], config: tuple[dict, l
               **{f"smoke: {k}": ok for k, ok in smk_checks.items()},
               "smoke: the fresh smoke's own executions are attributed to it (category B)": fresh_attributed,
               "owner attribution record is valid and limited to the two confirmed executions":
-                  not any(not p.startswith(R_TO) for p in owner_problems),
+                  not any(not p.startswith((R_TO, R_TD)) for p in owner_problems),
               "owner test-origin record is valid and limited to its confirmed executions (category D)":
                   not any(p.startswith(R_TO) for p in owner_problems),
+              "owner test-driver rule record is valid (category E)":
+                  not any(p.startswith(R_TD) for p in owner_problems),
               "no approval execution contradicts its evidence": not any(v["verdict"] == FAIL for v in verdicts),
               ALL_ATTRIBUTED: all(v["verdict"] == "ATTRIBUTED" for v in verdicts)}
     diagnostics = list(cfg_disc) + list(smk_diag) + list(owner_problems)
@@ -448,7 +518,7 @@ def booking_workflow_renewal(base_checks: dict[str, bool], config: tuple[dict, l
                                + "; ".join(v["reasons"]))
     contradicted = [k for k, ok in checks.items() if not ok and k != ALL_ATTRIBUTED]
     status = FAIL if contradicted else (UNRESOLVED if not all(checks.values()) else PASS)
-    by_cat = {c: sorted(v["execution"] for v in verdicts if v["category"] == c) for c in ("A", "B", "C", "D")}
+    by_cat = {c: sorted(v["execution"] for v in verdicts if v["category"] == c) for c in ("A", "B", "C", "D", "E")}
     return {"mode": "renewal", "status": status, "renewal_status": status, "checks": checks,
             "not_shown": [] if status == PASS else [f"BOOKING_WORKFLOW: {status} — {d}" for d in diagnostics],
             "diagnostics": [f"BOOKING_WORKFLOW: {status} — {d}" for d in diagnostics],
