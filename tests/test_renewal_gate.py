@@ -528,3 +528,118 @@ def test_a_previously_verified_corroboration_is_accepted_after_the_log_expires()
     g = gate(*live_shaped(), api_log={**VERIFIED, C2: {"status": "previously_verified"}})
     v = {x["approval_id"]: x for x in g["evidence"]["approval_executions"]}
     assert v[C2]["verdict"] == "ATTRIBUTED" and v[C2]["category"] == "C"
+
+
+# ------------------------------------------------------------------------------------------------ category D
+# Owner-confirmed test origin of an execution started by a FAILED smoke (26 Nov 2026, check 7 defect).
+D_ID = "3c3ff424-5d40-4033-bfd2-28f1837fa7c5"
+ORIGIN = json.loads((EVID / "owner_test_origin_20261126.json").read_text(encoding="utf-8"))
+FAILED_SMOKE = json.loads((EVID / "smoke" / "option_d_smoke_20261126T040450Z.json").read_text(encoding="utf-8"))
+
+
+def with_failed_smoke(origin=ORIGIN, smoke_over=None, row_over=None, smokes_extra=()):
+    execs, recs = live_shaped()
+    execs.append(ex(D_ID, start="2026-11-26T04:06:26+00:00"))
+    recs[D_ID] = {**row(D_ID, shipment="SYN-SHP-DDD13851", appt="APT-af0e9d8a19174cd7baf0ea7e7a39d139",
+                        kind="drill_staff", decided="2026-11-26T04:06:53+00:00"), **(row_over or {})}
+    failed = {**copy.deepcopy(FAILED_SMOKE), **(smoke_over or {})}
+    att = R.attribute_executions(execs, recs, [SMOKE_OLD, failed, *smokes_extra, fresh_smoke()], OWNER, VERIFIED,
+                                 origin)
+    cfg = R.check_booking_config(fns(), HEALTH, MODE, REF)
+    g = R.booking_workflow_renewal(BASE, cfg, att, R.fresh_smoke_checks(fresh_smoke(), SHA, ART, NOW), fresh_smoke())
+    return g, {v["approval_id"]: v for v in att[0]}
+
+
+def test_the_committed_failed_smoke_record_is_kept_as_failed():
+    assert FAILED_SMOKE["all_pass"] is False and FAILED_SMOKE["smoke_id"] == ORIGIN["executions"][0]["smoke_id"]
+    assert [k for k, ok in FAILED_SMOKE["checks"].items() if not ok] == [
+        "7 isolation: only synthetic identities; no delivery outside the test sink"]
+    assert R.OWNER_TEST_ORIGIN_IDS == {D_ID}
+
+
+def test_a_failed_test_booking_with_the_owner_test_origin_record_is_category_d_not_a_passing_smoke():
+    g, v = with_failed_smoke()
+    assert g["status"] == "PASS", g["diagnostics"]
+    assert v[D_ID]["category"] == "D" and v[D_ID]["verdict"] == "ATTRIBUTED"
+    assert "smoke outcome FAIL" in v[D_ID]["reasons"][0] and "never smoke evidence" in v[D_ID]["reasons"][0]
+    s = g["evidence"]["attribution_summary"]
+    assert s["D"] == ["3c3ff424"] and "3c3ff424" not in s["B"]
+
+
+def test_a_failed_test_booking_without_the_owner_record_still_fails():
+    g, v = with_failed_smoke(origin=None)
+    assert g["status"] == "FAIL" and v[D_ID]["verdict"] == "FAIL"
+    assert "the smoke record that names it did not pass" in v[D_ID]["reasons"]
+
+
+def test_category_d_never_satisfies_the_fresh_smoke_requirement():
+    execs, recs = live_shaped()
+    execs = [e for e in execs if e["name"] != FRESH_ID] + [ex(D_ID, start="2026-11-26T04:06:26+00:00")]
+    recs.pop(FRESH_ID)
+    recs[D_ID] = row(D_ID, shipment="SYN-SHP-DDD13851", appt="APT-af0e9d8a19174cd7baf0ea7e7a39d139", kind="drill_staff")
+    att = R.attribute_executions(execs, recs, [SMOKE_OLD, FAILED_SMOKE], OWNER, VERIFIED, ORIGIN)
+    cfg = R.check_booking_config(fns(), HEALTH, MODE, REF)
+    g = R.booking_workflow_renewal(BASE, cfg, att, R.fresh_smoke_checks(FAILED_SMOKE, SHA, ART, NOW), FAILED_SMOKE)
+    assert g["status"] == "FAIL"
+    assert not g["checks"]["smoke: the fresh smoke's own executions are attributed to it (category B)"]
+
+
+def test_an_execution_outside_the_confirmed_ids_cannot_use_category_d():
+    other = "99999999-0000-0000-0000-000000000001"
+    origin = copy.deepcopy(ORIGIN)
+    origin["executions"][0]["approval_id"] = other
+    g, v = with_failed_smoke(origin=origin)
+    assert g["status"] == "FAIL" and v[D_ID]["verdict"] == "FAIL"
+    assert not g["checks"]["owner test-origin record is valid and limited to its confirmed executions (category D)"]
+
+
+@pytest.mark.parametrize("mutate, why", [
+    (lambda o: o.pop("owner_confirmation"), "no owner confirmation"),
+    (lambda o: o.update(category="C"), "not category D"),
+    (lambda o: o.update(environment="production"), "not 'pilot"),
+])
+def test_an_invalid_test_origin_record_attributes_nothing(mutate, why):
+    origin = copy.deepcopy(ORIGIN)
+    mutate(origin)
+    g, v = with_failed_smoke(origin=origin)
+    assert g["status"] == "FAIL" and v[D_ID]["verdict"] == "FAIL"
+    assert any(why in d for d in g["diagnostics"]), g["diagnostics"]
+
+
+@pytest.mark.parametrize("smoke_over, row_over, why", [
+    ({"smoke_id": "SMOKE-OTHER"}, None, "is not the one the owner named"),
+    ({"environment": "production"}, None, "failed smoke record is for"),
+    ({"release_sha": None}, None, "not in the renewal format"),
+    (None, {"shipment_id": "SYN-SHP-ELSE0001"}, "shipment"),
+    (None, {"appointment_id": "APT-ELSE"}, "appointment"),
+])
+def test_category_d_fails_closed_when_the_records_disagree(smoke_over, row_over, why):
+    g, v = with_failed_smoke(smoke_over=smoke_over, row_over=row_over)
+    assert g["status"] == "FAIL" and v[D_ID]["verdict"] == "FAIL"
+    assert any(why in r for r in v[D_ID]["reasons"]), v[D_ID]["reasons"]
+
+
+def test_category_d_keeps_the_hard_checks_for_a_failed_execution_and_a_non_synthetic_shipment():
+    g, v = with_failed_smoke(row_over={"shipment_id": "SHP-REAL-0001", "shipment_is_synthetic": False})
+    assert v[D_ID]["verdict"] == "FAIL" and any("not synthetic" in r for r in v[D_ID]["reasons"])
+
+
+def test_the_owner_record_without_a_failed_smoke_naming_it_fails():
+    execs, recs = live_shaped()
+    execs.append(ex(D_ID, start="2026-11-26T04:06:26+00:00"))
+    recs[D_ID] = row(D_ID, shipment="SYN-SHP-DDD13851", appt="APT-af0e9d8a19174cd7baf0ea7e7a39d139", kind="drill_staff")
+    verdicts, _ = R.attribute_executions(execs, recs, [SMOKE_OLD, fresh_smoke()], OWNER, VERIFIED, ORIGIN)
+    v = {x["approval_id"]: x for x in verdicts}[D_ID]
+    assert v["verdict"] == "FAIL" and any("no committed failed smoke record names it" in r for r in v["reasons"])
+
+
+def test_a_successful_test_booking_is_still_category_b_and_a_genuine_operational_booking_is_unaccounted():
+    real = "77777777-0000-0000-0000-000000000002"
+    g, v = with_failed_smoke()
+    assert v[FRESH_ID]["category"] == "B"                                     # successful test booking: unchanged
+    execs, recs = live_shaped()
+    execs.append(ex(real))
+    recs[real] = row(real, shipment="SYN-SHP-OPS00001", appt="APT-OPS", kind="console_user")
+    verdicts, _ = R.attribute_executions(execs, recs, [SMOKE_OLD, FAILED_SMOKE, fresh_smoke()], OWNER, VERIFIED, ORIGIN)
+    o = {x["approval_id"]: x for x in verdicts}[real]
+    assert o["verdict"] == "UNRESOLVED" and o["category"] is None             # no evidence: never D by default

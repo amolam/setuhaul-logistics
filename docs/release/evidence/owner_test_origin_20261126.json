@@ -1,0 +1,37 @@
+{
+ "record": "owner-confirmed test origin of an approval-workflow execution started by a FAILED smoke run (Category D)",
+ "category": "D",
+ "category_meaning": "The execution was started by an authorised synthetic-pilot smoke run that did not pass. Category D accounts for its origin only: it is never a passing smoke test, never smoke evidence, never satisfies the fresh-smoke requirement, and never a statement that a booking succeeded. The failed smoke record is kept unchanged and still reads all_pass=false. Defined in setuhaul/ops/renewal.py (OWNER_TEST_ORIGIN_IDS).",
+ "environment": "pilot-ap-southeast-2",
+ "state_machine": "setuhaul-pilot-approval",
+ "owner_confirmation": {
+  "confirmed_by": "owner",
+  "confirmed_at_utc": "2026-11-26",
+  "channel": "Claude Code session (synthetic pilot patch release, PATCH-01 renewal blocked)",
+  "statement": "I confirm that booking \"3c3ff424\", shipment \"SYN-SHP-DDD13851\", facility \"FAC-JAI-01\", generated at approximately 04:06 UTC on 26 November 2026, originated from the authorised synthetic pilot smoke test. The booking attempt did NOT succeed. It failed because of the check 7 defect that has since been fixed. My confirmation is specifically about the booking's test origin and context. It is NOT confirmation that the booking succeeded, that the smoke test passed at that time, or that the shipment was genuinely booked.",
+  "scope": "test origin and context only"
+ },
+ "executions": [
+  {
+   "approval_id": "3c3ff424-5d40-4033-bfd2-28f1837fa7c5",
+   "smoke_id": "SMOKE-20261126T040451Z-8d8f951d",
+   "smoke_record": "docs/release/evidence/smoke/option_d_smoke_20261126T040450Z.json",
+   "smoke_outcome": "FAIL (all_pass=false); the only failing check was 7 (isolation), which counted the owner-approved Telegram-live deliveries to SYN-DRV-TEST-1 as leaks; fixed in a1d34f8 (PR #25)",
+   "release_sha": "24c388c1d73a2f07654f2f0a31307e99aef01f80",
+   "shipment_id": "SYN-SHP-DDD13851",
+   "facility_id": "FAC-JAI-01",
+   "appointment_id": "APT-af0e9d8a19174cd7baf0ea7e7a39d139",
+   "database_facts_as_observed": {
+    "note": "Read-only, from the renewal gate's approval_execution_evidence read (migration 0029) on 2026-11-26T04:43Z. Recorded as observed; Category D does not depend on them and does not change them. The appointment is a synthetic smoke-test record on a synthetic shipment.",
+    "approval_status": "APPROVED",
+    "appointment_status": "CONFIRMED",
+    "decided_by_type": "HUMAN",
+    "decider_kind": "drill_staff",
+    "created_at_utc": "2026-11-26T04:06:13Z",
+    "decided_at_utc": "2026-11-26T04:06:53Z",
+    "execution_status": "SUCCEEDED",
+    "execution_started_utc": "2026-11-26T04:06:26Z"
+   }
+  }
+ ]
+}
