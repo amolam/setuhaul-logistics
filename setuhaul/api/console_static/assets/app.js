@@ -130,7 +130,7 @@ function showApp(){
   }).catch(() => {});
   render();
 }
-function setTab(t){ tab = t; selected = null; nextBefore = null; threads = [];
+function setTab(t){ tab = t; selected = null; nextBefore = null; threads = []; pagedThreads = false; threadSig = "";
   document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.t === t)); render() }
 
 async function render(){
@@ -357,12 +357,24 @@ async function loadThreads(more){
   $("#more").hidden = !nextBefore;
 }
 
-async function openThread(id){
+let threadSig = "";
+async function openThread(id, quiet){
+  // quiet = the live refresh: no "Loading…" flash, the scroll position kept, and nothing redrawn when nothing changed
   selected = id; if(tab !== "threads"){ tab = "threads"; document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.t === "threads")); await loadThreads(false) }
   document.querySelectorAll("#list .item").forEach(e => e.classList.toggle("sel", e.dataset.open === id));
-  const d = $("#detail"); d.innerHTML = `<div class="empty">Loading…</div>`;
+  const d = $("#detail"); if(!quiet) d.innerHTML = `<div class="empty">Loading…</div>`;
   let b; try { b = await api("GET", "/console/threads/" + encodeURIComponent(id)) }
-  catch(e){ d.innerHTML = `<div class="empty err">${e.status === 404 ? "Not found, or not in your facilities." : "Could not load: " + esc(e.message)}</div>`; return }
+  catch(e){ if(quiet) return; d.innerHTML = `<div class="empty err">${e.status === 404 ? "Not found, or not in your facilities." : "Could not load: " + esc(e.message)}</div>`; return }
+  if(selected !== id) return;                                  // another conversation was opened meanwhile
+  const sig = JSON.stringify([id, b.messages.map(m => [m.message_id, m.at]), b.notifications.map(n => [n.notification_id, n.status]),
+                              b.thread.human_active, b.flow.state, b.flow.appointment_id]);
+  if(quiet && sig === threadSig) return;
+  threadSig = sig;
+  const keep = quiet ? d.scrollTop : 0;
+  try { renderThread(d, b) } finally { if(quiet) d.scrollTop = keep }
+}
+
+function renderThread(d, b){
   const t = b.thread, f = b.flow, x = b.extracted;
   const facts = x.facts ? Object.entries(x.facts).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(typeof v === "object" ? JSON.stringify(v) : v)}</dd>`).join("") : "";
   d.innerHTML = `
@@ -374,7 +386,7 @@ async function openThread(id){
     <h3>Messages (masked)</h3>
     <div class="chat">${b.messages.map(m => m.read_back_record
         ? `<div class="b sys" title="Stored so the driver's YES can be checked against exactly this wording; the driver receives the reply below, once">${esc(m.body_masked)}<small>READ-BACK RECORD (not sent) · ${when(m.at)}</small></div>`
-        : `<div class="b ${m.sender === "DRIVER" ? "in" : m.sender === "AGENT" ? "out" : "sys"}">${esc(m.body_masked)}<small>${esc(m.sender)} · ${when(m.at)}</small></div>`).join("") || `<div class="empty">No messages.</div>`}</div>
+        : `<div class="b ${m.sender === "DRIVER" ? "in" : m.sender === "AGENT" ? "out" : "sys"}">${esc(m.body_masked)}<small>${esc(m.sender === "SYSTEM" ? (m.channel === "TELEGRAM" ? "BOT MESSAGE (Telegram)" : "NOTICE") : m.sender)} · ${when(m.at)}</small></div>`).join("") || `<div class="empty">No messages.</div>`}</div>
     <h3>What the reader recorded</h3>
     ${facts ? `<dl class="kv">${facts}</dl>` : `<div class="muted">No open facts carried (the last report was acted on, or nothing was extracted yet).</div>`}
     ${x.asked ? `<div class="muted">Waiting for the driver to answer: ${esc(x.asked)}</div>` : ""}
@@ -389,6 +401,23 @@ async function openThread(id){
     <p class="muted">Delivered-by shows the internal test sink only when the stored record carries a test-sink reference; a queued record is never shown as delivered.</p>`;
 }
 
+// ---------------------------------------------------------------- live refresh (Demo release)
+// Conversations update on their own: every few seconds while the tab is visible and the Conversations view is open,
+// the first page of the list and the open conversation are read again (read-only GETs, the same RLS-scoped API).
+// Skipped while a request is in flight, while the user has paged further down the list, and while typing.
+const LIVE_REFRESH_MS = 3000;
+let liveBusy = false, pagedThreads = false;
+async function liveRefresh(){
+  if(liveBusy || !TOKEN || tab !== "threads" || document.visibilityState !== "visible") return;
+  const a = document.activeElement; if(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return;
+  liveBusy = true;
+  try {
+    if(!pagedThreads) await loadThreads(false);
+    if(selected) await openThread(selected, true);
+  } catch(e){ /* the next tick tries again; the manual Refresh button still works */ }
+  finally { liveBusy = false }
+}
+
 // ---------------------------------------------------------------- events
 document.addEventListener("click", async ev => {
   const b = ev.target.closest("button,[data-open]"); if(!b) return;
@@ -396,7 +425,7 @@ document.addEventListener("click", async ev => {
     if(b.dataset.t) setTab(b.dataset.t);
     else if(b.dataset.open !== undefined){ if(b.dataset.open) openThread(b.dataset.open); else toast("No conversation for this escalation.") }
     else if(b.id === "refresh"){ loadStatus(); selected && tab === "threads" ? (await loadThreads(false), openThread(selected)) : render() }
-    else if(b.id === "more") loadThreads(true);
+    else if(b.id === "more"){ pagedThreads = true; loadThreads(true) }
     else if(b.id === "signinbtn") signIn();
     else if(b.id === "signout") signOut();
     else if(b.dataset.d){ const r = await api("POST", `/console/requests/${encodeURIComponent(b.dataset.a)}/decision`, {decision:b.dataset.d, idempotency_key:key(), note:"hosted console"}); toast(`${b.dataset.d}: ${JSON.stringify(r)}`); render() }
@@ -413,6 +442,7 @@ document.addEventListener("click", async ev => {
   try { CFG = await (await fetch("config.json", {cache:"no-store"})).json() }
   catch { showSignIn("This console is not configured (config.json missing)."); loadStatus(); return }
   loadStatus(); setInterval(loadStatus, 60000);
+  setInterval(liveRefresh, LIVE_REFRESH_MS);
   setInterval(() => { if(TOKEN && Date.now() > EXPIRES - 15000){ TOKEN = null; showSignIn("Your session has ended. Please sign in again.") } }, 10000);
   try { if(await finishSignIn()) return showApp() } catch(e){ return showSignIn(e.message) }
   showSignIn();

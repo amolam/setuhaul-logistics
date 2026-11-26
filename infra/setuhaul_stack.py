@@ -324,6 +324,13 @@ class SetuHaulPilotStack(Stack):
                                 "SETUHAUL_WHATSAPP_SECRET_ID": whatsapp_secret.secret_arn,
                                 # names of templates Meta has approved, as "name:language"; none until E6 submission
                                 "SETUHAUL_WA_APPROVED_TEMPLATES": approved_templates, **ls_outbound, **tg_outbound})
+        # Demo release: event-driven outbound. The agent (after a committed reply) and the api (after a planner's
+        # decision) invoke the sender asynchronously instead of waiting for its one-minute tick. No retries of the
+        # kick itself: the scheduled tick stays the fallback and the work is stored in PostgreSQL.
+        for f in (agent_fn, api_fn):
+            outbound_fn.grant_invoke(f)
+            f.add_environment("SETUHAUL_OUTBOUND_FUNCTION", outbound_fn.function_name)
+        outbound_fn.configure_async_invoke(retry_attempts=0, max_event_age=Duration.minutes(2))
         if langsmith_secret is not None:                            # the functions that export traces
             for f in (agent_fn, api_fn, outbound_fn):
                 langsmith_secret.grant_read(f)

@@ -322,6 +322,14 @@ class TelegramBotProvider:
         return SendResult(PERMANENT, error=f"HTTP {r.status_code}")        # 400 bad chat, 403 blocked by the user
 
 
+def _outbound_trace_refs() -> dict:
+    try:
+        from .outbound import OUTBOUND_TRACE
+        return {k: v for k, v in (OUTBOUND_TRACE.get() or {}).items() if v}
+    except Exception:                                         # noqa: BLE001 — metadata only
+        return {}
+
+
 class TracedTelegram:
     """LangSmith tracing around ANY Telegram transport (live, test bot, test sink, paused): one root trace per send,
     named telegram_outbound, with the outcome. Records only what happened: a chat TAG (never the chat id), the
@@ -338,7 +346,10 @@ class TracedTelegram:
             ctx = self.tracer.turn(str(uuid.uuid4()), "telegram_outbound", metadata={
                 "channel": "TELEGRAM", "component": "telegram_outbound", "chat_tag": chat_tag(to),
                 "notification_ref": str(idempotency_key)[:80], "text_chars": len(text or ""),
-                "buttons": bool(reply_markup), "transport": type(self.inner).__name__})
+                "buttons": bool(reply_markup), "transport": type(self.inner).__name__,
+                # Demo release: the conversation (LangSmith thread_id) and the driver message the reply answers, as
+                # opaque refs: the agent_turn of that message carries the same message_ref
+                **_outbound_trace_refs()})
             run = ctx.__enter__()
         except Exception:                                     # noqa: BLE001 — tracing never blocks a send
             return self.inner.send(to, text, idempotency_key, reply_markup=reply_markup)

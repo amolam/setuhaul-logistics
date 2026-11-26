@@ -25,6 +25,7 @@ error 131047) end the same way: FAILED plus an escalation, through record_send_r
 """
 from __future__ import annotations
 
+import contextvars
 import logging
 import threading
 import uuid
@@ -32,6 +33,8 @@ from dataclasses import dataclass, field
 from typing import Callable, Protocol
 
 log = logging.getLogger("setuhaul.outbound")
+# Demo release: the conversation refs of the notification being sent, read by TracedTelegram for its trace metadata
+OUTBOUND_TRACE: contextvars.ContextVar = contextvars.ContextVar("setuhaul_outbound_trace", default=None)
 
 ACCEPTED, RETRYABLE, PERMANENT, AMBIGUOUS = "ACCEPTED", "RETRYABLE", "PERMANENT", "AMBIGUOUS"
 
@@ -276,6 +279,7 @@ class OutboundRelay:
     def __init__(self, db, provider: Provider, resolve_phone: Callable[[str], str] | None = None,
                  approved_templates: ApprovedTemplates | None = None, window_margin_min: int = 30, telegram=None):
         self.db, self.provider = db, provider
+        self._sent: tuple[str, str | None] | None = None        # (channel, text) of the send in progress
         # Roadmap Phase 4 (0035/0036): a driver whose Telegram account is linked is reached on Telegram, through this
         # same relay (same claim, retries, UNKNOWN and FAILED handling). None = no Telegram routing (WhatsApp/SMS
         # behaviour unchanged). The transport is the test sink unless the owner authorizes real sends.
@@ -299,9 +303,17 @@ class OutboundRelay:
 
     def _telegram_route(self, nid) -> dict:
         """The linked chat (if any), the open offer the message carries and whether to offer the one-off location
-        button: read by the database just before the send (telegram_delivery_for, 0036)."""
+        button: read by the database just before the send (telegram_delivery_for, 0036). Demo release: in the same
+        transaction, the conversation and the driver message the reply answers, as opaque refs for the trace."""
+        from ..observability import tracing
         with self.db.tx("system", self._scope()) as c:
-            return c.execute("SELECT telegram_delivery_for(%s)", (str(nid),)).fetchone()[0] or {}
+            route = c.execute("SELECT telegram_delivery_for(%s)", (str(nid),)).fetchone()[0] or {}
+            row = c.execute("""SELECT n.thread_id, m.reply_to FROM notifications n
+                                 LEFT JOIN chat_messages m ON m.message_id = n.chat_message_id
+                                WHERE n.notification_id = %s""", (str(nid),)).fetchone()
+        if row:
+            OUTBOUND_TRACE.set({"thread_id": tracing.ref(row[0]), "reply_to_message_ref": tracing.ref(row[1])})
+        return route
 
     def _deliver(self, ref: str, template: str | None, payload, body: str | None, nid) -> SendResult:
         lang = None
@@ -318,6 +330,7 @@ class OutboundRelay:
                     # live Telegram: never send to a driver who is not on the owner's pilot list (visible, not silent)
                     return SendResult(PERMANENT, error="TELEGRAM_DRIVER_NOT_AUTHORIZED")
                 text = body if body is not None else template_text(template, lang)
+                self._sent = ("TELEGRAM", text)
                 # Telegram has no 24-hour window and no templates; the stored reply or the fixed notice goes as is
                 return self.telegram.send(route["chat_ref"], text, str(nid), reply_markup=reply_markup_for(route))
         if getattr(self.provider, "service_window", False) and not self._window_open(ref):
@@ -331,8 +344,10 @@ class OutboundRelay:
             except ValueError as e:
                 return SendResult(PERMANENT, error=f"TEMPLATE_VARIABLES {e}")
             name, code = choice
+            self._sent = ("WHATSAPP", template_text(template, lang))
             return self.provider.send_template(self.resolve_phone(ref), name, code, params, str(nid))
         text = body if body is not None else template_text(template, lang)
+        self._sent = ("WHATSAPP", text)
         return self.provider.send(self.resolve_phone(ref), text, str(nid))
 
     def _scope(self) -> list[str]:
@@ -361,6 +376,19 @@ class OutboundRelay:
                 return detect_language(body)
         return "en"
 
+    def _store_notice(self, nid, channel: str, text: str | None, scope) -> None:
+        """Demo release: a fixed notice the driver received (e.g. booking_approved) is part of the stored conversation,
+        as a SYSTEM message in the notification's conversation, once per notification (external id notice:<id>).
+        SYSTEM rows never enter the outbox (that trigger fires for AGENT replies only), so nothing is sent twice.
+        Best effort after the send is recorded; a failure is logged, never fatal."""
+        if not text:
+            return
+        try:
+            with self.db.tx("system", scope) as c:
+                c.execute("SELECT record_notice_message(%s, %s, %s)", (str(nid), channel, text[:1000]))   # 0046
+        except Exception as e:                                   # noqa: BLE001
+            log.warning("ALERT notice not stored in the conversation (%s)", type(e).__name__)
+
     def run_once(self, limit: int = 20) -> dict:
         scope = self._scope()
         with self.db.tx("system", scope) as c:
@@ -376,6 +404,8 @@ class OutboundRelay:
             if not go:
                 results[str(nid)] = "NOT_SENT"
                 continue
+            self._sent = None
+            OUTBOUND_TRACE.set(None)
             try:
                 outcome = self._deliver(ref, template, payload, body, nid)
             except ProviderTimeout as e:
@@ -384,4 +414,6 @@ class OutboundRelay:
                 results[str(nid)] = c.execute("SELECT record_send_result(%s,%s,%s,%s,%s)",
                                               (nid, attempt, outcome.outcome, outcome.provider_message_id,
                                                outcome.error)).fetchone()[0]
+            if body is None and outcome.outcome == ACCEPTED and self._sent:
+                self._store_notice(nid, *self._sent, scope)
         return {"reconciled": reconciled, "enqueued": enqueued, "claimed": len(claimed), "results": results}
