@@ -1,18 +1,17 @@
 {
- "collected_utc": "2026-11-26T06:36:18+00:00",
+ "collected_utc": "2026-11-26T13:49:46+00:00",
  "stack": "SetuHaulPilot",
  "region": "ap-southeast-2",
- "booking_enabled": false,
+ "booking_enabled": true,
  "booking_observed": {
   "source": "https://w8ptr7w960.execute-api.ap-southeast-2.amazonaws.com/pilot/health",
-  "observed_utc": "2026-11-26T06:36:17+00:00",
+  "observed_utc": "2026-11-26T13:49:44+00:00",
   "http_status": 200,
-  "booking_state": "refused",
-  "booking_enabled": false,
-  "meaning": "booking enabled but not authorized by the database",
+  "booking_state": "authorized",
+  "booking_enabled": true,
+  "meaning": "booking enabled and authorized by the database",
   "format": "D4 (the database's verdict)",
   "booking_switch": "on",
-  "booking_refusal": "start-up gates not satisfied: deployment gates not satisfied: BOOKING_WORKFLOW: no evidence for this deployment",
   "booking_kill_switch": "disengaged",
   "version": "0.2.0"
  },
@@ -21,10 +20,10 @@
   "WORKLOAD_IDENTITY": {
    "evidence": {
     "login_to_group_roles": {
-     "setuhaul_login_agent_423ec91188b0": [
+     "setuhaul_login_agent_905cc7c2c663": [
       "setuhaul_agent"
      ],
-     "setuhaul_login_console_423ec91188b0": [
+     "setuhaul_login_console_905cc7c2c663": [
       "setuhaul_console"
      ],
      "setuhaul_login_deploy_evidence": [
@@ -116,7 +115,7 @@
     },
     "reach": [
      {
-      "login": "setuhaul_login_agent_423ec91188b0",
+      "login": "setuhaul_login_agent_905cc7c2c663",
       "can_use_console": false,
       "can_use_rpc": false,
       "superuser": false,
@@ -124,7 +123,7 @@
       "can_use_db_owner": false
      },
      {
-      "login": "setuhaul_login_console_423ec91188b0",
+      "login": "setuhaul_login_console_905cc7c2c663",
       "can_use_console": true,
       "can_use_rpc": false,
       "superuser": false,
@@ -273,11 +272,11 @@
    "evidence": {
     "engine": "aurora-postgresql 17.9",
     "server_version": "17.9",
-    "migrations_live": 44,
-    "migrations_in_repo": 45,
+    "migrations_live": 45,
+    "migrations_in_repo": 46,
     "hash_mismatches": [],
     "repo_only_migrations": [
-     "0045"
+     "0046"
     ],
     "evidence_triggers": {
      "appointments.aa_booking_kill_switch": [
@@ -378,7 +377,7 @@
     },
     "evidence_trigger_problems": [],
     "tables_with_forced_rls": 34,
-    "tables": 57,
+    "tables": 58,
     "t33": {
      "production_requirement": "PostgreSQL 18.3+ (T33, unchanged)",
      "engine_major": 17
@@ -482,8 +481,8 @@
      ]
     },
     "last_48h": {
-     "messages_sent": 42,
-     "messages_deleted": 42,
+     "messages_sent": 61,
+     "messages_deleted": 61,
      "dlq_messages_sent": 0
     },
     "dlq_drill": {
@@ -548,19 +547,19 @@
      {
       "name": "setuhaul-pilot-approval-relay-every-minute",
       "expression": "rate(1 minute)",
-      "state": "DISABLED",
+      "state": "ENABLED",
       "target": "setuhaul-pilot-approval-relay"
      },
      {
       "name": "setuhaul-pilot-outbound-every-minute",
       "expression": "rate(1 minute)",
-      "state": "DISABLED",
+      "state": "ENABLED",
       "target": "setuhaul-pilot-outbound"
      },
      {
       "name": "setuhaul-pilot-recovery-every-minute",
       "expression": "rate(1 minute)",
-      "state": "DISABLED",
+      "state": "ENABLED",
       "target": "setuhaul-pilot-recovery"
      }
     ],
@@ -570,10 +569,10 @@
       "ingest",
       "system"
      ],
-     "code_sha256": "Qj7JEYiwZVfrq/JcfiAYr5fjci3zJdQ1nf97fR0diXU="
+     "code_sha256": "kFzHwsZjQydmDh0MOPew2gYjyByOL7L/fRaIFDdkrhE="
     },
-    "recovery_invocations_last_3_days": 500,
-    "last_invocation_utc": "2026-11-26T04:41:22.383000+00:00",
+    "recovery_invocations_last_3_days": 814,
+    "last_invocation_utc": "2026-11-26T13:48:42.638000+00:00",
     "lease_loss_drill": {
      "checks": {
       "clean start: empty queue, no other unprocessed receipt, all data synthetic": true,
@@ -589,7 +588,7 @@
       "queue empty afterwards": true
      }
     },
-    "schedules_disabled_while_sleeping": true
+    "schedules_disabled_while_sleeping": false
    },
    "checks": {
     "recovery schedule exists, every minute": true,
@@ -613,7 +612,7 @@
     "config: every other function has booking OFF": true,
     "config: api and agent run in the pilot environment with synthetic data": true,
     "config: every function is synthetic-data only": true,
-    "config: /health answers: status ok, database ok, booking ON": false,
+    "config: /health answers: status ok, database ok, booking ON": true,
     "config: /health environment is the synthetic pilot": true,
     "config: kill switch is in its expected state (disengaged)": true,
     "config: the renewal names a well-formed owner approval reference": true,
@@ -622,16 +621,19 @@
     "smoke: the fresh smoke's own executions are attributed to it (category B)": false,
     "owner attribution record is valid and limited to the two confirmed executions": true,
     "owner test-origin record is valid and limited to its confirmed executions (category D)": true,
+    "owner test-driver rule record is valid (category E)": true,
     "no approval execution contradicts its evidence": true,
-    "every approval execution is attributed (A drill, B smoke, C owner-confirmed, D owner-confirmed test origin)": true
+    "every approval execution is attributed (A drill, B smoke, C owner-confirmed, D owner-confirmed test origin, E owner-authorised test-driver booking)": false
    },
    "not_shown": [
-    "BOOKING_WORKFLOW: FAIL \u2014 /health: status 'ok', database 'ok', booking_enabled False",
-    "BOOKING_WORKFLOW: FAIL \u2014 no fresh smoke test record (scripts/smoke_option_d.py --release-sha <sha>) was supplied"
+    "BOOKING_WORKFLOW: FAIL \u2014 no fresh smoke test record (scripts/smoke_option_d.py --release-sha <sha>) was supplied",
+    "BOOKING_WORKFLOW: FAIL \u2014 approval execution cdc497bd has no attributable evidence: no attributable evidence (not a Step 6 drill, no smoke record names it, not owner-confirmed, no owner-confirmed test origin, not an owner-authorised test-driver booking)",
+    "BOOKING_WORKFLOW: FAIL \u2014 approval execution bb952e8f has no attributable evidence: no attributable evidence (not a Step 6 drill, no smoke record names it, not owner-confirmed, no owner-confirmed test origin, not an owner-authorised test-driver booking)"
    ],
    "diagnostics": [
-    "BOOKING_WORKFLOW: FAIL \u2014 /health: status 'ok', database 'ok', booking_enabled False",
-    "BOOKING_WORKFLOW: FAIL \u2014 no fresh smoke test record (scripts/smoke_option_d.py --release-sha <sha>) was supplied"
+    "BOOKING_WORKFLOW: FAIL \u2014 no fresh smoke test record (scripts/smoke_option_d.py --release-sha <sha>) was supplied",
+    "BOOKING_WORKFLOW: FAIL \u2014 approval execution cdc497bd has no attributable evidence: no attributable evidence (not a Step 6 drill, no smoke record names it, not owner-confirmed, no owner-confirmed test origin, not an owner-authorised test-driver booking)",
+    "BOOKING_WORKFLOW: FAIL \u2014 approval execution bb952e8f has no attributable evidence: no attributable evidence (not a Step 6 drill, no smoke record names it, not owner-confirmed, no owner-confirmed test origin, not an owner-authorised test-driver booking)"
    ],
    "evidence": {
     "booking_configuration": {
@@ -700,17 +702,90 @@
      "health": {
       "status": "ok",
       "database": "ok",
-      "booking_enabled": false,
+      "booking_enabled": true,
       "environment": "pilot-ap-southeast-2",
       "booking_kill_switch": "disengaged",
-      "gate_exceptions": null,
+      "gate_exceptions": [
+       "AURORA",
+       "OUTBOUND_DELIVERY",
+       "WORKLOAD_IDENTITY"
+      ],
       "version": "0.2.0"
      },
-     "deployed_booking_mode": "ON (OWNER-APPROVAL-20261126-SYNTHETIC-PILOT-PATCH-01)",
-     "deployed_approval_ref": "OWNER-APPROVAL-20261126-SYNTHETIC-PILOT-PATCH-01",
-     "renewal_approval_ref": "OWNER-APPROVAL-20261126-SYNTHETIC-PILOT-PATCH-02"
+     "deployed_booking_mode": "ON (OWNER-APPROVAL-20261126-SYNTHETIC-PILOT-PATCH-02)",
+     "deployed_approval_ref": "OWNER-APPROVAL-20261126-SYNTHETIC-PILOT-PATCH-02",
+     "renewal_approval_ref": "OWNER-APPROVAL-20261126-SYNTHETIC-PILOT-DEMO-01"
     },
     "approval_executions": [
+     {
+      "approval_id": "251b0c87-a097-4814-8690-e16d5ad88ede",
+      "execution": "251b0c87",
+      "execution_status": "SUCCEEDED",
+      "started": "2026-11-26T13:27:15.627000+05:30",
+      "category": "E",
+      "verdict": "ATTRIBUTED",
+      "reasons": [
+       "owner-authorised Telegram test-driver booking (SYN-SHP-TEST-1), approved by a planner in the hosted console (never smoke evidence)"
+      ],
+      "record": {
+       "kind": "STANDARD",
+       "facility_id": "FAC-JAI-01",
+       "shipment_id": "SYN-SHP-TEST-1",
+       "appointment_id": "APT-5947d86b3d61438d85fb481c1ba6a4bf",
+       "appointment_status": "CONFIRMED",
+       "status": "APPROVED",
+       "decided_by_type": "HUMAN",
+       "decider_kind": "console_user",
+       "created_at": "2026-11-26 07:56:35.428849+00:00",
+       "decided_at": "2026-11-26 07:57:34.269381+00:00"
+      }
+     },
+     {
+      "approval_id": "453358af-04ae-4f8e-907e-543498da963c",
+      "execution": "453358af",
+      "execution_status": "SUCCEEDED",
+      "started": "2026-11-26T13:22:15.651000+05:30",
+      "category": "E",
+      "verdict": "ATTRIBUTED",
+      "reasons": [
+       "owner-authorised Telegram test-driver booking (SYN-SHP-TEST-1), approved by a planner in the hosted console (never smoke evidence)"
+      ],
+      "record": {
+       "kind": "PLANNER_REVIEW",
+       "facility_id": "FAC-JAI-01",
+       "shipment_id": "SYN-SHP-TEST-1",
+       "appointment_id": "APT-57274202b61d4c8cbeafa210a08feb9d",
+       "appointment_status": "CANCELLED",
+       "status": "APPROVED",
+       "decided_by_type": "HUMAN",
+       "decider_kind": "console_user",
+       "created_at": "2026-11-26 07:51:32.645694+00:00",
+       "decided_at": "2026-11-26 07:51:49.724788+00:00"
+      }
+     },
+     {
+      "approval_id": "cdc497bd-e045-4296-a89f-0f40de61b91a",
+      "execution": "cdc497bd",
+      "execution_status": "SUCCEEDED",
+      "started": "2026-11-26T12:21:34.976000+05:30",
+      "category": null,
+      "verdict": "UNRESOLVED",
+      "reasons": [
+       "no attributable evidence (not a Step 6 drill, no smoke record names it, not owner-confirmed, no owner-confirmed test origin, not an owner-authorised test-driver booking)"
+      ],
+      "record": {
+       "kind": "STANDARD",
+       "facility_id": "FAC-JAI-01",
+       "shipment_id": "SYN-SHP-A53FED66",
+       "appointment_id": "APT-7626c283a0814f118841dbdc4c75ecd1",
+       "appointment_status": "CONFIRMED",
+       "status": "APPROVED",
+       "decided_by_type": "HUMAN",
+       "decider_kind": "drill_staff",
+       "created_at": "2026-11-26 06:51:22.171328+00:00",
+       "decided_at": "2026-11-26 06:52:00.908804+00:00"
+      }
+     },
      {
       "approval_id": "48cb850c-7fc1-45de-abe9-44673c5d3103",
       "execution": "48cb850c",
@@ -762,10 +837,10 @@
       "execution": "bb952e8f",
       "execution_status": "SUCCEEDED",
       "started": "2026-11-26T02:32:44.302000+05:30",
-      "category": "B",
-      "verdict": "ATTRIBUTED",
+      "category": null,
+      "verdict": "UNRESOLVED",
       "reasons": [
-       "smoke test SMOKE-20261125T210115Z-9d4d8bc0 on release 66e22c2231b1"
+       "no attributable evidence (not a Step 6 drill, no smoke record names it, not owner-confirmed, no owner-confirmed test origin, not an owner-authorised test-driver booking)"
       ],
       "record": {
        "kind": "STANDARD",
@@ -1047,7 +1122,6 @@
       "48cb850c",
       "73cac501",
       "9ed447a4",
-      "bb952e8f",
       "e95e30a0"
      ],
      "C": [
@@ -1057,7 +1131,14 @@
      "D": [
       "3c3ff424"
      ],
-     "unresolved": [],
+     "E": [
+      "251b0c87",
+      "453358af"
+     ],
+     "unresolved": [
+      "bb952e8f",
+      "cdc497bd"
+     ],
      "failed": []
     },
     "fresh_smoke": null,
@@ -1067,7 +1148,7 @@
      "live_definition_sha256": "d5d970c03393afa647027e6f43c5c37dbfcb46cea9731b4b3b9b67181c45f908",
      "repo_definition_sha256": "d5d970c03393afa647027e6f43c5c37dbfcb46cea9731b4b3b9b67181c45f908"
     },
-    "executions_total": 14,
+    "executions_total": 17,
     "api_log_corroboration": {
      "87915a37-918e-46b5-8872-8ecaa4fc7a24": {
       "status": "verified",
@@ -1139,9 +1220,9 @@
  },
  "mode": "renewal",
  "environment": "pilot-ap-southeast-2",
- "release_sha": "24c388c1d73a2f07654f2f0a31307e99aef01f80",
- "approval_ref": "OWNER-APPROVAL-20261126-SYNTHETIC-PILOT-PATCH-02",
- "artifact_sha256": "423ec91188b06557ebabf25c7e2018af97e3722df325d4359dff7b7d1d1d8975",
+ "release_sha": "31af6a62ce14e33aefbeb88477461617d9d8e85e",
+ "approval_ref": "OWNER-APPROVAL-20261126-SYNTHETIC-PILOT-DEMO-01",
+ "artifact_sha256": "905cc7c2c6634327660e1d0c38f7b0da0623c81c8e2fb2ff7d1688143764ae11",
  "expected_kill_switch": "disengaged",
  "approved_exceptions": [
   "AURORA (T33-P)",
