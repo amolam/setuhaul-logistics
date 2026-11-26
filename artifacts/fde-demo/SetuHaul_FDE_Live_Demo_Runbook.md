@@ -17,8 +17,8 @@
 | Stack | `SetuHaulPilot`, ap-southeast-2 |
 | Booking | ON under `OWNER-APPROVAL-20261126-SYNTHETIC-PILOT-DEMO-01` (stack output `BookingMode`) |
 | Telegram | LIVE under `OWNER-APPROVAL-20261126-SYNTHETIC-PILOT-TELEGRAM-LIVE-01`, allowlisted to the two test drivers |
-| LLM | OpenRouter → Claude Haiku 4.5 (Bedrock route, ZDR); app cap $0.25/day; key limit $3/month |
-| Judge | ON, 20% sampling. **Expect it to be skipped:** the judge budget ($0.50) is above the shared cap ($0.25) |
+| LLM | OpenRouter → Claude Haiku 4.5 (Bedrock route, ZDR); app cap $0.25/day; key limit $10 total, no reset |
+| Judge | ON, 20% sampling. **It may be skipped:** after the deploy the observed reason was `budget:shared_daily_cap`. The judge only gets the shared $0.25/day cap's headroom above the agent reserve; the configured $0.50/day judge budget is not the binding limit. The current usage balance is unknown |
 | LangSmith | Project `setuhaul-synthetic-pilot`, tracing ON |
 | Pilot state on 26 Nov | **ASLEEP** (all three one-minute rules DISABLED; checked read-only) |
 
@@ -85,7 +85,7 @@ Agent replies are templates: first a read-back ("Do you mean you will reach the 
 | 1 | 0:00–0:30 | Ops lead | Show booking state and kill switch (console Ops health, or the deck) | booking authorized, kill switch disengaged | none | none (read-only) | Booking is database state under an owner approval reference | The audience sees the safety envelope first |
 | 2 | 0:30–1:15 | Dispatcher | Console → Dispatch → offer a dock slot for `SYN-SHP-TEST-<n>` to `SYN-DRV-TEST-1` | Driver A receives Telegram buttons (Accept / Decline) | none | dispatch offer → outbox → outbound (event kick) | Offer expiry and superseding; allowlist; dispatcher cannot decide | The driver gets the load in seconds |
 | 3 | 1:15–1:45 | Driver A | Taps **Accept** | Offer ACCEPTED; request PENDING_CONFIRMATION; planner review OPEN; buttons disappear | none | accept → attestation → hold + request (database functions) | **Driver acceptance is never confirmation**; per-dock claim | A slot is held, not promised |
-| 4 | 1:45–2:30 | Planner | Console → Requests → **Approve**; then open Conversations (refreshes every 3 s) | Driver A: "Your dock booking is confirmed by the warehouse." | none | `decide_booking_request` → Step Functions resumes → notice | Requester ≠ decider; approval workflow; event-driven send | The planner keeps authority; the driver is told within seconds |
+| 4 | 1:45–2:30 | Planner | Console → Requests → **Approve**; then open Conversations (refreshes every 3 s) | Driver A: "Your dock booking is confirmed by the warehouse." | none | `decide_booking_request` → Step Functions resumes → notice | Requester ≠ decider; approval workflow; event-driven send | The planner keeps authority; the driver is notified (event-driven send) |
 | 5 | 2:30–4:00 | Driver A | Types the Hinglish delay → `haan` → `2` | Read-back, then option list, then "Request sent … NOT confirmed yet" | **LLM extraction** (Haiku 4.5): `intent=REPORT_DELAY`, `delay_kind=DELAY_DURATION`, `language=hi-Latn`; then YES and the pick | `get_driver_context`, `record_driver_report`, `find_feasible_options`, `select_option`, `confirm_selection`, `hold_option`, `submit_booking_request` | Schema; safety-word net; read-back + explicit YES; 12 hard constraints; per-dock lock + EXCLUDE | A late driver is re-slotted without a phone call; a planner still decides |
 | 6 | 4:00–5:00 | Engineer | LangSmith → Threads → newest thread | `telegram_inbound` → `agent_turn` (extract, tool spans) → `telegram_outbound`; `llm_judge` child if sampled and within budget | The trace shows model, tokens, cost, latency | – | Ids only: no text, phone or chat id in traces | Any booking is explainable end to end |
 | 7 | 5:00–5:45 | Exception | **Option A (live):** Driver B taps **Accept** on the pre-staged, now-expired offer | "This offer has expired. Your dispatcher can send a new one." No appointment | none | Refused: the offer is past `expires_at` | Expiry enforced by code and data, not by a model | Stale offers cannot become bookings |
@@ -109,12 +109,12 @@ Optional, if time remains: approve Driver A's new request from step 5 to show th
 
 - Use only the two allowlisted test accounts. Any other chat gets "This chat is not linked…" and no data.
 - Buttons are per driver: a forwarded button from another account is refused ("This button is not valid for your account").
-- If a reply is slow (> 20 s), keep talking. The 1-minute tick is the fallback sender. Expected end-to-end time is about 13–15 s.
+- If a reply is slow (> 20 s), keep talking. The 1-minute tick is the fallback sender. On the reported six-exchange sample, end to end was about 13–15 s (preliminary; not a service level).
 
 ## 8. Trace inspection and evaluation demonstration
 
 - **Trace:** filter by the internal driver id `SYN-DRV-TEST-1`. Expand `agent_turn` → `extract` and show model, input/output tokens, `cost_usd` and latency. Point out the absence of message text.
-- **Evaluation (no paid call):** open `evals/results/judge_20261125_172110.json` → `comparison` (95.0% within ±1, baseline 88.3%, 5/5 defects) and `golden_h1_model_20261118_0907.json` → `metrics`. Do **not** start an eval run live.
+- **Evaluation (no paid call):** open `evals/results/judge_20261125_172110.json` → `comparison` (5/5 defects; the 95.0% there is against the AI reference), `golden_h1_model_20261126_2242.json` → `metrics` (prompt p5) and `replay_v4_live_20261126_2305.json` → `summary`. The human-calibration figures (93.3% within ±1) come from `python -m evals.langsmith.judge_calibration evals/results/judge_20261125_172110.json`, which is free and local. Do **not** start an eval run live.
 
 ## 9. Fallback plan
 
@@ -147,4 +147,4 @@ Optional, if time remains: approve Driver A's new request from step 5 to show th
 - [ ] Exact reply texts noted for steps 3, 4 and 7
 - [ ] Recorded screen capture of a full successful run (fallback)
 - [ ] Fresh anonymized screenshots saved to `artifacts/fde-demo/screenshots/` (Telegram cropped, conversation view, LangSmith thread)
-- [ ] Judge budget decision taken (see Gap Analysis) if a live judge score is wanted
+- [ ] If a live judge score is wanted, the owner decides on budgets first. No increase without explicit owner approval; otherwise show the offline judge results
