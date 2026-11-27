@@ -44,7 +44,7 @@ The fields are listed in the `record_driver_report` schema, `docs/1-frame/02_var
 
 #### D2. How does a conversation link to the right driver, shipment and appointment?
 
-**Answer.** Verified phone (WhatsApp sender) or Cognito identity → `drivers.phone_e164` → live shipments (not CANCELLED or COMPLETED).
+**Answer.** Verified sender identity → driver: the signed WhatsApp webhook in the original design; in the current synthetic pilot, an allowlisted Telegram test account. Or a Cognito identity. Then → `drivers.phone_e164` → live shipments (not CANCELLED or COMPLETED).
 - **One live shipment:** link the thread automatically.
 - **Several:** ask with the order references ("ORD-…-004 or ORD-…-020?"). Never guess.
 
@@ -76,7 +76,7 @@ The current appointment is the row with `is_current` and an active status. The t
 
 See WEX, and `docs/1-frame/04_eta_signals_and_tracking.md` §3.
 
-**Status:** Decided. Signal vendors are pending (U11).
+**Status:** Decided and implemented in `setuhaul/domain/eta.py`, tested in `tests/test_eta.py`. The fusion code accepts gate-in, ops override, telematics, location pin, SIM, FASTag, warehouse estimate, driver declaration and plan. **No independent signal feed (FASTag, SIM, telematics) is connected**, so in practice ETAs come from the plan, the driver, gate-in and staff. Signal vendors are pending (U11).
 
 ### DECIDE
 
@@ -154,32 +154,72 @@ Side exits:
 
 #### D7. How do we order simultaneous requests when capacity runs short?
 
-**Answer.** Three layers:
-1. **Per-request commits: first valid commit wins.** Integrity comes from the database. Speed of typing gives no business priority, because options are computed per driver from the same state.
-2. **Priority is applied by policy, not by race.** When a CRITICAL or HIGH load has no option inside its useful window, the **facility scheduler** (CP-SAT) proposes a re-sequence that may move lower-priority **unconfirmed or at-risk** bookings. Moving someone's **on-time confirmed** promise needs planner approval.
-3. **Fairness guard.** A hard `max_yard_wait_min` (default 90) stops the solver starving a waiting NORMAL or LOW truck.
+**Answer** (as built; revised 27 Nov 2026 to match the code). There are two layers.
+1. **Driver requests: the first valid commit wins.**
+   - Every driver's options are computed from the same database state.
+   - The database judges competing holds one at a time: `hold_option()` takes a per-dock advisory lock, and `ex_one_truck_per_dock` is the final guard.
+   - Exactly one request gets the slot. Every other driver gets `LOST`, a plain "That slot was just taken." and fresh options in the same answer.
+   - Typing speed carries no business priority, and the agent cannot reorder anyone.
+2. **Priority is applied by people, through a proposal, never by the agent.**
+   - The facility scheduling tool (`setuhaul/domain/scheduling.py`, rule `FACILITY_SCORE`) is a **deterministic greedy scoring planner with no solver library**. It proposes a sequence for one facility in three passes:
+     - (1) keep every promise the truck can still make;
+     - (2) dispatch the rest, highest priority weight first, onto the earliest usable dock time;
+     - (3) pull an early truck forward only if its own score drops.
+   - Score per truck: `w × wait + 2 × w × lateness + 30 × changed`, plus `2000 × w` if unscheduled. The weights are CRITICAL 8, HIGH 4, NORMAL 2, LOW 1.
+   - A proposal books nothing. Only an ops lead applies a move, one at a time, through `move_appointment()`, which re-checks every rule under the booking locks.
 
 The objective in plain words: less weighted waiting, fewer missed appointments, fewer changes to promises already made.
 
-**Reason.** Fairness and service levels conflict.
+**Not built:**
+- **CP-SAT.** It was evaluated in the Frame spike and in `optimizer.py`, and not used: the problem size does not need it, and the OR-Tools wheel would change the Lambda build.
+- **The `max_yard_wait_min` fairness guard.** The column exists in `facilities` (0001), but no planner reads it.
 
-**Evidence.** Policy tested on the competing trucks (SPK):
-- CP-SAT: −32 % weighted wait against FCFS, with the fewest broken promises.
-- "Priority first" did **worse** than FCFS (docks idle while CRITICAL trucks are still on the road).
-- Unconstrained CP-SAT left SHP1004 waiting 139 min, hence the fairness guard.
+**Reason.** Fairness and service levels conflict. A race must never decide priority, and a proposal must never silently break a promise.
 
-**Status:** Decided. Weights and `max_yard_wait_min` are pending client confirmation.
+**Evidence.** The policy was tested on competing trucks. These are the actual outputs of `python scripts/scheduling_compare.py`, from `docs/3-build/SCHEDULING_TOOL.md` §5. `tests/test_scheduling.py` pins the behaviour.
+- **Early, late and in-progress trucks at one facility.**
+  - `FACILITY_SCORE` changed 1 promise, against 5 for FCFS and 4 for EARLIEST_ETA, and kept 4, against 0 and 1.
+  - Total score 615, against 725 and 796.
+  - Its one move is applicable at once.
+  - It **loses on waiting**: weighted wait 185, against 95 and 112.
+- **The challenge snapshot (FAC-JAI-01, 09:56).**
+  - **EARLIEST_ETA has the best total** (35,592, against 35,954 for `FACILITY_SCORE`) and the least waiting.
+  - `FACILITY_SCORE` keeps one more promise (CRITICAL SHP1009) but makes SHP1005 and SHP1004 wait longer.
+  - Six trucks go to a person under every rule: the five double-assigned trucks, and SHP1015, which has no reefer capacity.
+- **Competing driver requests.**
+  - `docs/challenge/INTEGRITY_PROOF.md`, N = 10 and N = 20: exactly one winner.
+  - `tests/test_api.py::test_fifty_drivers_race_for_one_slot`, N = 50: 1 OK, 49 LOST, every loser with fresh options.
+
+**Status:** Decided and implemented. Two things are pending the client: the priority weights, and which planner rule to use by default. The snapshot result favours EARLIEST_ETA when waiting matters more than keeping told times.
 
 #### D8. When does the facility schedule recalculate, what is fixed, and what is the objective? (optional extension)
 
-**Answer.**
-- **Recalculate** on any of: ETA change > 15 min, gate-in, dock event, cancellation or no-show, hold or pending expiry. Debounced to one solve per facility per 60 s.
-- **Fixed:** trucks in a dock, until predicted end (`max(now, unload_start + p)`); bookings starting within the next 30 min; dock blocks.
-- **Objective:** `Σ w·wait + α·Σ w·lateness + β·changed promises + γ·unscheduled`, with hard compatibility, release, no-overlap, last-start, latest-finish and max-yard-wait constraints. CP-SAT with a 2–5 s limit, falling back to the best dispatch rule.
+**Answer** (as built; revised 27 Nov 2026 to match the code).
+- **When it recalculates:** on demand only. Nothing re-plans automatically.
+  - A planner or ops lead asks in the console (`GET /console/facilities/{id}/schedule-proposal`, or `POST …/schedule-proposals` to store one).
+  - The agent can also call the read-only tool `propose_facility_schedule`.
+  - Each proposal is computed from the current database state: latest ETAs, gate-ins, dock events, holds and pending requests. So a proposal asked for after an ETA update or a gate check-in reflects it.
+  - Event-driven recalculation and debouncing were designed but **not built**.
+- **What is fixed** (`FixedTask`, never moved):
+  - trucks unloading (IN_PROGRESS, IN_DOCK, FIXED claims);
+  - dock blocks from breakdown or maintenance events;
+  - a driver's live hold;
+  - a pending request awaiting a planner.
+- **Other boundaries:** a truck with contradictory data (a double-assigned driver or vehicle) is never planned, and goes to a person. The planning window is 12 hours rolling, inside opening hours and the last-new-start time.
+- **Objective:** `w × wait + 2 × w × lateness + 30 × changed`, with `2000 × w` for an unscheduled truck. It runs as the greedy three-pass rule described in D7.
+  - Compatibility, release time and committed dock time come from the same `FeasibilityEngine` the driver path uses.
+  - No solver library is used.
+- **Applying a proposal:**
+  - Moves carry `depends_on` and `apply_order`.
+  - Swap cycles get no order and go to a person.
+  - Each move is re-proved by `move_appointment()` and refused if anything changed (`APPOINTMENT_CHANGED`, `SLOT_TAKEN`, `PROPOSAL_EXPIRED`, …).
 
-**Evidence.** One replay: SPK (09:56 snapshot, 16 trucks, optimal in 1.4 s).
+**Evidence.**
+- **The replay:** `python scripts/scheduling_compare.py`. Its output is in `docs/3-build/SCHEDULING_TOOL.md` §5. It covers one early, one late and one in-progress truck at one facility, plus the Jaipur snapshot at 09:56.
+- **Item 7 of the scenario run:** the proposal keeps B's confirmed promise and changes 0 appointments (`tests/test_scenario_run.py`).
+- **Tests:** `tests/test_scheduling.py` (pure, deterministic) and `tests/test_move_appointment.py` (PostgreSQL), including `test_two_proposals_moving_different_trucks_to_the_same_slot_exactly_one_wins`.
 
-**Status:** Decided.
+**Status:** Decided and implemented, with on-demand recalculation. Event-driven recalculation and an atomic multi-move (swap) apply are not built. There is no console page for proposals yet; the console API serves them.
 
 #### D9. How do we handle stale options, cancellations, duplicate messages and retries?
 
@@ -214,17 +254,32 @@ The objective in plain words: less weighted waiting, fewer missed appointments, 
 
 **Answer.** Give the reason in plain words and the best alternative in the same message. Never a bare "no".
 
-**Evidence.** Two refusal messages:
-1. *"D1 at 11:00 can't take your truck: your load is 21 t and D1 is limited to 20 t. The earliest dock that fits is D2 at 13:00 (unloading until 14:25). Shall I request it?"* (SHP1014)
-2. *"Another truck confirmed D2 13:00 a moment ago. I can offer D4 at 13:00 or D2 at 14:00. Reply 1 or 2."* (contention loser)
+**Evidence.** Two refusal messages as built. They are fixed templates, not model text, and each is asserted by a test.
+1. **Another driver got the slot first.** The reply is *"That slot was just taken."* followed by *"Available slots: 1. … 2. … 3. … Reply with the number you want."*
+   - The template is `lost` in `setuhaul/agent/replies.py`.
+   - Asserted by `tests/test_scenario_run.py::test_scenario_run_shows_all_six_items_and_ends_in_an_escalation`, item 5: the reply starts with "That slot was just taken.", the contested slot is absent and new options are present.
+   - Also asserted by `tests/test_api.py::test_fifty_drivers_race_for_one_slot`: every loser receives fresh options.
+   - The verbatim text is in `docs/challenge/evidence/integrity_proof.txt` §4.
+2. **The planner rejected the request.** The reply is *"The warehouse could not take that slot. Reply here and we will find another one."*
+   - The template is `booking_rejected` in `setuhaul/notify/outbound.py`.
+   - Asserted by `tests/test_flows.py::test_f2_rejected_request_releases_the_slot_and_the_driver_can_ask_again`: the driver's phone gets exactly this text, the slot is released, and the next message returns real options.
 
-**Status:** Decided.
+**Difference from the design wording:**
+- A slot that does not fit the truck, such as SHP1014's 21 t load on the 20 t D1, is **never offered**, so the driver is never refused for it.
+- The planner's rejection reason is not passed to the driver; the refusal names what happens next instead.
+- When no slot exists at all, the driver gets the escalation message (D10), not a refusal.
+
+**Status:** Decided and implemented.
 
 #### D12. Which decisions need human approval or takeover?
 
 **Answer.** 14 triggers across five modes (approve, decide, take over, confirm, oversee), each with an SLA and a safe timeout where silence is never approval. See `docs/1-frame/08_human_in_the_loop.md`.
 
-**Status:** Decided. SLAs and safety wording are pending client confirmation.
+**Status:** Decided and implemented.
+- Approvals: `migrations/0015`, `0016`. Tests: `tests/test_approvals.py`, `tests/test_confirmation_policy.py`.
+- Escalations and takeover: `0009`, `0018`, `0022`.
+- Facility approval mode, MANUAL (default) or AUTO for auto-eligible safe cases only: T53, `0047`.
+- SLAs and safety wording are pending client confirmation.
 
 ### PROVE
 
@@ -241,7 +296,14 @@ The objective in plain words: less weighted waiting, fewer missed appointments, 
 - 150 random overlapping holds → **0 overlaps**.
 - **0 deadlocks** after the advisory-lock fix. The first run surfaced 40P01 deadlocks, which led to the fix. (VAL §2–3.)
 
-**Status:** Decided. The full-stack Locust contention test runs in the Break phase.
+**Evidence on the built system (27 Nov 2026):** `scripts/integrity_proof.py`.
+- It runs the full path: signed webhook → booking service → `hold_option()` → the constraint.
+- **N = 10:** 10 requests, 1 slot taken, 9 `LOST`, 0 double bookings.
+- **N = 20:** 20 requests, 1 slot taken, 19 `LOST`, 0 double bookings.
+- In both runs, a direct superuser insert of an overlapping claim is refused with `23P01`.
+- See `docs/challenge/INTEGRITY_PROOF.md`.
+
+**Status:** Decided and implemented. The VAL runs above used the Phase 2 design schema; the integrity proof runs on the final migrations.
 
 ---
 
@@ -256,7 +318,7 @@ The objective in plain words: less weighted waiting, fewer missed appointments, 
 | T5 | System of record | **Aurora PostgreSQL Serverless v2**, Multi-AZ, min 0.5 ACU in production (scale to 0 in dev and test) | Exclusion constraints, transactions, RLS. Scales with spikes | DynamoDB (cannot express range-overlap constraints, so integrity moves into app code); provisioned Aurora (idle cost) | VAL |
 | T6 | DB access from Lambdas | **RDS Data API**: IAM authorises `rds-data:*`; DB credentials come from **Secrets Manager** (`secretArn`); RLS scope is set **inside each Data API transaction** (session state is `DISCARD ALL`-reset between calls); writer-only; 1 MiB response cap. MVP uses local PostgreSQL behind the same repository interface | $0.397 per million requests in Mumbai. No RDS Proxy (8-ACU minimum ≈ $134/month) and no VPC-attached Lambdas or interface endpoints for DB access | RDS Proxy + VPC Lambdas | Mumbai price list |
 | T7 | Integrity mechanism | `dock_occupancy` + exclusion constraint + compatibility trigger + per-dock advisory lock | Correct by construction under any concurrency | App-level locks only; slot-row uniqueness only (the seed's gap) | VAL |
-| T8 | Scheduling solver | **OR-Tools CP-SAT** (Lambda container) with a dispatch-rule fallback | Optimal in seconds at this size; Python | OptaPlanner / Timefold (JVM; Python discontinued) | SPK |
+| T8 | Scheduling solver | Planned: **OR-Tools CP-SAT** (Lambda container) with a dispatch-rule fallback. **As built (27 Nov 2026 correction): no solver library.** A deterministic greedy scoring planner (`setuhaul/domain/scheduling.py`, see D7/D8), plus exhaustive per-truck option ranking (`optimizer.py`) | The spike showed the size does not need CP-SAT, and the ortools wheel would change the Lambda build | OptaPlanner / Timefold (JVM; Python discontinued) | SPK |
 | T9 | Ingest | API Gateway (HTTP API) → ingest Lambda → **SQS FIFO** (`MessageGroupId = driver_id`, dedupe = message id) | Per-driver ordering plus dedupe for free | Direct synchronous agent call from the webhook (timeouts, no ordering) | AUD-A18/A19 |
 | T10 | Auth | **People:** Cognito user pool JWT, validated by the API Gateway **JWT authoriser**, then FastAPI RBAC/ABAC. **Services:** IAM roles. **Agent:** AgentCore Identity + Policy. **Webhook:** Meta HMAC. No identity pool | Separate trust mechanisms per caller type; the browser does not need AWS credentials (owner-approved after review) | Identity pool + SigV4 from the browser; API keys | `06_review_response.md` |
 | T11 | Timers and long waits | **EventBridge Scheduler** (hold and pending expiry, approval timeouts) and **Step Functions** (`waitForTaskToken` approvals), plus a 1-minute reconciler | Exact-time triggers, at-least-once with idempotent handlers | Cron polling only | — |

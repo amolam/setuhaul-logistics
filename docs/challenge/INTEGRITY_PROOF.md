@@ -16,6 +16,18 @@ force a second booking into the same window as the database administrator, skipp
 The database refused it. Result: **PASS, 9 of 9 checks**. The same holds for 50 drivers in the automated test
 suite.
 
+## Results at a glance
+
+Every number below is copied from a recorded output file. Each run used a fresh local PostgreSQL 18.6 database and the full production booking path.
+
+| Run | Requests sent | Got the slot (hold, then pending request) | Told "slot taken" (`LOST`) | Other outcomes | Double bookings (overlapping active claims, whole DB) | Superuser bypass | Checks | Output |
+|---|---:|---:|---:|---:|---:|---|---|---|
+| **N = 10**, 27 Nov 2026, on the submission branch | 10 (all in flight before the first answer) | 1 | 9 | 0 | **0** | refused, `23P01` | PASS 9/9 | [`evidence/integrity_proof_n10.txt`](evidence/integrity_proof_n10.txt) |
+| **N = 20**, 23 Nov 2026 | 20 (all in flight before the first answer) | 1 | 19 | 0 | **0** | refused, `23P01` | PASS 9/9 | [`evidence/integrity_proof.txt`](evidence/integrity_proof.txt) |
+| **N = 50**, automated test | 50, behind one barrier | 1 | 49 | 0 | asserted through the statuses; every loser gets fresh options | — | pytest | `tests/test_api.py::test_fifty_drivers_race_for_one_slot` |
+
+The N = 10 run matches the brief's headline: *"ten drivers want the same dock slot"*.
+
 ## Why it cannot double-book
 
 The AI agent never decides whether a slot is free. It can only *ask*. The decision is made in three layers of
@@ -152,7 +164,8 @@ RESULT: PASS  (9/9 checks)  elapsed 38.9 s
 ### Reproduce
 
 ```bash
-export SETUHAUL_TEST_DSN="host=localhost port=55434 user=postgres"
+export SETUHAUL_TEST_DSN="host=localhost port=55432 user=postgres"   # or: python scripts/start_local.py --db-only
+python scripts/integrity_proof.py 10        # the brief's ten drivers (output: evidence/integrity_proof_n10.txt)
 python scripts/integrity_proof.py 20        # N is optional (default 20); exit 0 only if every check passes
 python -m pytest tests/test_api.py::test_fifty_drivers_race_for_one_slot -rA
 ```

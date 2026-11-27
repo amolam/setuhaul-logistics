@@ -1,80 +1,56 @@
-# SetuHaul delay desk — client readout
+# SetuHaul delay desk: one-page readout
 
 **For:** the Head of Operations and the warehouse planners.
-**Status:** pilot on synthetic data, 23 Nov 2026. No real driver, customer or shipment data has been used.
 
-## What it does
+**State on 27 Nov 2026:** synthetic data only.
+- Drivers use a Telegram test bot (two test drivers). WhatsApp is off.
+- Booking is on for the pilot under an owner approval, with both facilities in MANUAL.
+- Production use is refused by the system.
 
-Drivers report delays by WhatsApp in their own words, in English, Hindi or Hinglish. For example: *"tyre burst near Neemrana, around 90 minutes late"*. The service:
+**What it does.**
+- A driver writes in their own words: *"tyre burst, 90 minutes late"*.
+- The service reads the new arrival time back to the driver and asks one question if anything is missing.
+- It then offers only dock times that fit the truck, the load, the dock rules and the other bookings.
+- Code chooses the times, not the AI. The AI only reads the message, and replies are fixed templates.
 
-1. **Understands the message.** It reads the delay, the new arrival time and anything the driver cannot do, such as "I must leave by 9". If something is missing or unclear, it asks one short question.
-2. **Reads the time back before acting.** For example: *"Do you mean you will reach the gate around 7:30 PM? Reply YES."* Nothing moves until the driver confirms.
-3. **Offers real options.** These are later dock slots that fit this truck, this load and your dock rules, worked out by the scheduling rules and not by the AI.
-4. **Takes the driver's choice to your planners** as a request. A slot is promised only when a planner approves it, or when a rule you have authorised in writing allows it.
-5. **Tells the driver the outcome** in the language of the conversation.
+## Booking policy
+- **A driver's YES is a request, not a booking.** The slot is held for 3 minutes. The driver is told *"NOT confirmed yet"* until the warehouse decides.
+- **Competing drivers:** the first valid request wins. Everyone else hears *"That slot was just taken"* and gets new options straight away. The database makes a double booking impossible.
+- **MANUAL or AUTO, per facility.** Every facility starts in MANUAL.
+  - In MANUAL, a planner decides every booking.
+  - In AUTO, only a safe standard booking is confirmed by rule.
+  - A planner always decides cargo that is critical or refrigerated, anything after hours or contradictory, dispatcher offers, time changes and cancellations.
+  - Changing the mode needs a reason and is logged.
+- **Priority** belongs to your planners, not to typing speed.
+  - A scheduling tool proposes the order for the facility. It never books.
+  - An ops lead applies moves one at a time.
 
-## What stays with your staff
+## People stay in charge
+- **No feasible slot:** the driver hears *"A coordinator has your details and will reply within 10 minutes"*, and the coordinator gets a complete hand-off. No slot is invented.
+- **Always handled by a person:**
+  - safety incidents (the coordinator calls within 5 minutes);
+  - contradictory data;
+  - penalties;
+  - customer commitments.
+- **Kill switch:** an ops lead can stop all new bookings at once. Every action is logged.
 
-| Decision | Who decides |
-|---|---|
-| Confirming or rejecting a requested dock appointment | A planner, in the staff console |
-| Moving an already confirmed appointment | An operations lead, from a scheduling proposal |
-| Anything involving safety (accident, injury, threat, medical) | A coordinator. The service stops and hands the conversation over at once. |
-| No slot fits the truck | A coordinator. The service escalates with a full hand-off note and never invents a slot. |
-| Penalties, compensation, customer commitments, disputed or contradictory data | A person, always |
-| Which truck goes first when capacity is short | Your written priority policy. The facility schedule proposes; a planner decides. |
+## No-show and rebooking
+- A truck not at the gate by slot start plus the grace time (Jaipur 30 minutes, Gurugram 20) is marked NO_SHOW. Its dock time is released and the driver is told.
+- The dispatcher then chooses either to **rebook** (a planner approves) or to **request cancellation** (a planner decides).
 
-**The AI only reads messages.** It never books, approves, prioritises or promises. Every booking decision is made by fixed rules and checked by the database, which refuses anything that would double-book a dock.
+## Limits
+- **No GPS:** ETAs come from the plan, the driver, staff and gate-in. Gate-in is entered by hand.
+- **Dispatcher offers:** one option per offer. Drivers cannot cancel a confirmed booking themselves.
+- **AI cost:** AI spend is capped daily. When the cap is reached, a rules reader takes over. Booking safety does not depend on the AI.
+- **Proof:** double-booking safety is proven locally with 10, 20 and 50 drivers racing for one slot. No AWS load test has been run.
 
-## How scheduling proposals work
-
-The facility scheduling tool looks at one facility's whole day at once. It considers:
-- the trucks already unloading, which it never moves;
-- early trucks and late trucks;
-- each truck's priority;
-- the times already promised to drivers.
-
-It proposes an order with a plain reason for each truck, and lists any truck it cannot fit; those go to a person. A proposal is only a suggestion. Planners can view and save proposals. Only an operations lead can apply a move, one at a time, and the database checks it again at that moment. The staff console has no screen for this yet; it is done through the console's API. Moves also stay off while booking is off. If anything has changed since the proposal was made, the move is refused and a fresh proposal is needed.
-
-**Compared with two simple rules**, first-come-first-served and earliest arrival first. Full tables: `docs/3-build/SCHEDULING_TOOL.md`.
-
-- **On a test day with an early truck, a late truck and one truck already unloading:**
-  - **Promises:** our rule changed 1 promised time where the simple rules changed 5 and 4, and kept 4 promises against 0 and 1.
-  - **Easy to apply:** its one change can be applied at once. Several of the simple rules' changes swap trucks with each other, so they can't be applied one by one.
-  - **The price is waiting.** Under the simple rules the early truck docks straight away. Our rule keeps it in its promised slot, 75 minutes later, rather than move other drivers.
-- **On the challenge's real Jaipur snapshot:** earliest arrival first came out best overall and with the least waiting. Our rule kept one more promise, to the critical load, but made two late trucks wait longer. In every rule, the five trucks with conflicting bookings went to a person.
-
-**What this means:** the facility rule is right when changing a time a driver was already given is costly. It is wrong when one late, high-priority truck should take a promised slot. Both trade-offs show in each proposal, so the planner sees them before applying anything. Changes are applied one at a time, and only by an operations lead.
-
-## Proof that it does not double-book
-
-Many drivers can ask for the same slot within seconds, so we tested exactly that. Competing requests for one slot were fired at the same moment:
-- exactly one got it;
-- every other driver was told plainly that the slot had just been taken, and was offered the next options;
-- the database shows one booking for that slot and no overlap on that dock.
-
-The details are in `docs/challenge/INTEGRITY_PROOF.md`. The wider attack and failure testing is in `docs/challenge/BREAK_REPORT.md`.
-
-## What is live today, and what is not
-
-| | Status |
-|---|---|
-| **Option A pilot** on AWS Sydney | **Live, synthetic data only.** <ul><li>Drivers' messages are read, options are offered, and replies go to an internal test inbox, not to WhatsApp.</li><li>The staff console works, with sign-in and two-step verification.</li></ul> |
-| **Option D: booking requests and approvals** | **Switched ON on the test pilot (23 Nov 2026), with your written approval.** A synthetic driver booked a slot through WhatsApp-style chat, a planner approved it and the booking was confirmed; a duplicate message, a double booking and an unauthorised approval were all refused. An emergency stop switch blocks new bookings at once. Still synthetic data only, no real WhatsApp. |
-| Real WhatsApp messages | **Off.** This needs a Meta test number and Meta-approved message templates. |
-| Production use | **Refused** by the system itself until a separate decision is made. |
-
-## Limits you should know
-
-- **Text only:** the service has no GPS or telematics. ETAs come from the plan or from what the driver says, and it treats a repair time and an arrival time differently.
-- **No requests to decide yet:** while booking is off, the console's Requests list stays empty.
-- **AI budget:** the AI reader is capped at $0.25 a day. When the cap is reached, a simpler rules-based reader takes over, which understands less varied phrasing.
-- **Hinglish templates:** Meta must approve the Hinglish message templates separately. Until then, a Hinglish-speaking driver contacted outside WhatsApp's 24-hour window gets the English template.
-- **Database version:** the cloud database is PostgreSQL 17.9, the only version on the current free AWS plan. You approved this as a pilot-only exception (T33-P). It was verified on the real database and on the same version in automated tests. Production still needs version 18.
-
-## Open risks and decisions for you
-
-1. **Release checks:** the live tests on 23 Nov proved four of the six release checks: re-sending a stuck message, the alarm that warns when messages pile up as undeliverable, recovery when a worker dies mid-conversation, and the approval workflow end to end (request, approve, reject, a duplicate click, expiry). The database check passes under the approved pilot-only version exception. A second staff user signed in for real and was refused planner actions, as intended. Still open: a decision on paid drift monitoring, and the Meta test number and templates for real WhatsApp. Booking stays off.
-2. **Automatic confirmation:** any rule that confirms without a person (for example, low-risk night arrivals at Gurugram) needs your written policy. None is switched on.
-3. **"Talk to a person" button:** deferred at your request. Drivers can still reach a coordinator through the safety words and the escalation path.
-4. **Peak capacity:** before any automatic rule relies on "how busy is the dock", peak occupancy should be measured against usable capacity (review item R3 Q3).
+## Decisions and risks for you
+1. **Confirmation deadlines per shift.** Gurugram has no night cover.
+2. **Priority weights and the default scheduling rule.**
+   - On the Jaipur snapshot, "earliest arrival first" gave less waiting.
+   - Our rule kept more promises already given to drivers.
+3. **A written policy before AUTO is switched on anywhere.**
+4. **Real WhatsApp** needs a Meta number and approved Hindi/Hinglish templates.
+5. **Source data quality.**
+   - The snapshot has double-assigned drivers and trucks, overweight bookings and docks marked ACTIVE during breakdowns.
+   - We escalate these cases and never book them, but the source systems need fixing.
