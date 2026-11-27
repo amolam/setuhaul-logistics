@@ -319,6 +319,18 @@ LangSmith project `setuhaul-synthetic-pilot` is on. Since the demo release, the 
 | No-show history backfill | dry run `81cd9dbf` (11 eligible, 0 excluded) reviewed by the owner; apply run `7ad06da7`: 11 transitioned | `no_show_backfill_runs` |
 | DEMO-04 affected tests (local) | 450 + 279 + 132 passed (trace content, infra, dispatch offers, dispatch 0048, outbound, reassignment, traceability, demo reliability, console, orchestrator, migrations, gate triggers, lifecycle, move, recovery, readiness, judge, full activation, concurrency, DB requests, API) | this branch |
 
+### D3a. DEMO-04 deployed (27 Nov 2026, recorded after the deploy)
+
+| Step | Result | Source |
+|---|---|---|
+| PR #55 merged (`0ae1163`), release PR #56 (`ee33296`); provisional run `46002385799` deployed `70333a0`, migration 0050 applied | Smoke 13:05Z stopped: FAC-JAI-01 had been switched to **AUTO** approval at 11:30Z by a console user, so the smoke booking was policy-confirmed with no planner request (check 2a expects one). Not retried; **authorization 75 revoked** (runbook §7.5) | agent log; `facilities.approval_mode` |
+| Owner set FAC-JAI-01 back to MANUAL (13:14Z); recovery under `OWNER-APPROVAL-20261127-DEMO-05` (recovery of 75), provisional run `46006177768` deployed `d6b20b4` | Smoke **11/11** at 13:30Z (`option_d_smoke_20261127T133007Z.json`, first attempt); renewal BOOKING_WORKFLOW **PASS**; renewal run `46008670343` succeeded | release branch `11f68ed` |
+| Booking | `/health` 13:49Z: `booking_enabled: true`, `authorized`, no open provisional window, kill switch disengaged; workers AWAKE | `/health`; `pilot_mode status` |
+| Budgets | agent `SETUHAUL_LLM_DAILY_BUDGET_USD=2`, `SETUHAUL_LLM_JUDGE_DAILY_BUDGET_USD=0.75`; stack output `LlmJudge` = `ON budget USD 0.75/day sample 0.2` | Lambda configuration; stack outputs |
+| Traces | `TraceContent` = `FULL`; agent log `trace export` lines 9–57 runs, **0 dropped**, 0 export errors, no `dropped by the export guard` line since the deploy | agent log |
+| Judge | live turns **SCORED** (2 sampled turns on the smoke, reason none) — no longer `shared_daily_cap` | agent log `online judge … status=SCORED` |
+| Trace tree in LangSmith (inbound → agent_turn → outbound) | **Not verified by inspection** (no LangSmith read in this session); covered by `test_one_tree_per_message_inbound_agent_outbound` | owner to open one Telegram message's trace |
+
 ### D3. Pending at the time of writing (to be completed by the DEMO-04 deploy)
 
 - PR CI on this branch, owner approval, merge, release, provisional and renewal runs under `OWNER-APPROVAL-20261127-DEMO-04`.
