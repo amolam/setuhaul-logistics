@@ -93,6 +93,26 @@ def test_the_smoke_refuses_to_start_on_missing_expiring_or_broken_credentials():
     aws_credentials_ok(NOW, _Sess(_Creds(NOW + timedelta(hours=1))))         # valid for long enough: starts
 
 
+class _Refreshable(_Creds):
+    def __init__(self, exp):
+        super().__init__(exp)
+        self.refreshed = False
+
+    def refresh_needed(self):
+        return True
+
+    def get_frozen_credentials(self):
+        self.refreshed = True
+
+
+def test_refreshable_credentials_are_refreshed_and_proven_not_judged_by_their_piece_lifetime():
+    c = _Refreshable(NOW + timedelta(minutes=14))          # aws login: 15-min pieces, renewed by botocore
+    aws_credentials_ok(NOW, _Sess(c))
+    assert c.refreshed
+    with pytest.raises(SystemExit, match="do not work"):    # a login session that has ended still refuses
+        aws_credentials_ok(NOW, _Sess(_Refreshable(NOW + timedelta(minutes=14)), works=False))
+
+
 def test_the_check_runs_before_the_first_driver_message():
     src = (Path(__file__).resolve().parents[1] / "scripts" / "smoke_option_d.py").read_text(encoding="utf-8")
     main = src[src.index("def main()"):]
