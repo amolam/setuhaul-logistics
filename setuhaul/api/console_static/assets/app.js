@@ -10,6 +10,17 @@ const LS_UI = ["https://smith.langchain.com/", "https://eu.smith.langchain.com/"
 function extLink(u, text){ return typeof u === "string" && LS_UI.some(p => u.startsWith(p))
   ? `<a class="ext" href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(text)}</a>` : "" }
 let CFG = null, TOKEN = null, EXPIRES = 0, tab = "threads", selected = null, nextBefore = null, threads = [];
+// 27 Nov fix plan (issue 2): what /console/me says this person may do. An action button is shown only when the server
+// permits it; otherwise a short note says who can. The server still checks every call (this is a convenience).
+let ME = null;
+function can(a){ return !!(ME && ME.permissions && ME.permissions[a]) }
+const WHO_CAN = {link_driver:"dispatcher, operations or ops lead", send_offer:"dispatcher, operations or ops lead",
+  request_cancellation:"dispatcher, operations or ops lead", request_reschedule:"dispatcher, operations or ops lead",
+  resolve_no_show:"dispatcher, operations or ops lead", decide:"planner, operations or ops lead",
+  decide_cancellation:"planner or ops lead", record_arrival:"operations or ops lead", record_dock:"operations or ops lead",
+  record_completion:"operations or ops lead", move_appointment:"ops lead", booking_kill_switch:"ops lead",
+  booking_hold:"ops lead", pause:"ops lead", handle_escalation:"operations, planner or ops lead"};
+function onlyNote(a, what){ return `<p class="muted">Only ${esc(WHO_CAN[a] || "another role")} can ${esc(what)}.</p>` }
 
 function esc(s){ return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])) }
 function when(s){ if(!s) return ""; const d = new Date(s); return isNaN(d) ? esc(s) : d.toLocaleString("en-IN",
@@ -113,6 +124,7 @@ function showApp(){
   $("#signin").hidden = true; $("#app").hidden = false; $("#signout").hidden = false;
   // what the SERVER derives from the verified token (roles, facilities, permitted actions): the browser cannot change it
   api("GET", "/console/me").then(me => {
+    ME = me;
     const denied = Object.entries(me.permissions).filter(([, ok]) => !ok).map(([a]) => a);
     $("#who").textContent = `${c.username || ""} · server roles: ${me.roles.join(", ") || "none"} · ${me.facilities.join(", ")}`;
     $("#who").title = "Not permitted: " + (denied.join(", ") || "nothing");
@@ -121,7 +133,8 @@ function showApp(){
     const need = {dispatch: "view_dispatch", schedule: "view_schedule", ops: "view_ops", threads: "list_requests",
                   requests: "list_requests", escalations: "list_requests", docks: "list_requests",
                   optimizer: "view_recommendations", observability: "view_observability",
-                  settings: "view_approval_mode"};   // 0047: planner settings
+                  settings: "view_approval_mode",    // 0047: planner settings
+                  controls: "view_controls"};         // 0048 (issue 1): ops lead only
     document.querySelectorAll("#tabs button").forEach(b => {
       const p = need[b.dataset.t]; b.hidden = !!p && me.permissions[p] === false });
     if(need[tab] && me.permissions[need[tab]] === false){
@@ -137,7 +150,8 @@ function setTab(t){ tab = t; selected = null; nextBefore = null; threads = []; p
 async function render(){
   const titles = {threads:"Conversations", requests:"Requests waiting for a decision", escalations:"Escalations", docks:"Docks",
                   optimizer:"Slot optimizer (Phase G)", observability:"Observability (Phase G)", dispatch:"Dispatch",
-                  schedule:"Planner schedule", ops:"Operations health", settings:"Facility settings"};
+                  schedule:"Planner schedule", ops:"Operations health", settings:"Facility settings",
+                  controls:"Controls (ops lead)"};
   $("#lefttitle").textContent = titles[tab]; $("#more").hidden = true;
   const list = $("#list"), detail = $("#detail");
   try {
@@ -153,7 +167,7 @@ async function render(){
       detail.innerHTML = `<div class="empty">Decisions are checked by the server against your role and facility.</div>`;
     } else if(tab === "escalations"){
       const r = (await api("GET", "/console/escalations")).escalations;
-      list.innerHTML = r.length ? r.map(x => `<div class="item" data-open="${esc(x.thread_id || "")}"><div class="top"><b>${esc(x.reason_code)}</b><span>${esc(x.status)}</span></div>
+      list.innerHTML = r.length ? r.map(x => `<div class="item" data-open="${esc(x.thread_id || "")}" ${x.overdue ? 'style="border-left:4px solid var(--bad)"' : ""}><div class="top"><b>${esc(x.reason_code)}</b><span>${x.overdue ? chip("Past acknowledgement time", "bad") + " " : ""}${esc(x.status)}</span></div>
         <div class="muted">${esc(x.facility_id || "CENTRAL")} · ${esc(x.mode)} · <span class="mono">${esc(x.shipment_id || "")}</span></div></div>`).join("")
         : `<div class="empty">No escalations visible to you.</div>`;
       detail.innerHTML = `<div class="empty">Select an escalation to open its conversation.</div>`;
@@ -192,6 +206,7 @@ async function render(){
     else if(tab === "optimizer") renderOptimizer(list, detail);
     else if(tab === "observability") await renderObservability(list, detail);
     else if(tab === "settings") await renderSettings(list, detail);
+    else if(tab === "controls") await renderControls(list, detail);
   } catch(e){ if(e.message !== "signed out" && e.message !== "401"){
     list.innerHTML = `<div class="empty err">${e.status === 403 ? "Not permitted for your role: " : "Service failure: the server did not answer this view ("}${esc(e.message)}${e.status === 403 ? "" : "). Numbers are not shown rather than guessed."}</div>`;
     if(tab === "observability") detail.innerHTML = e.status === 403
@@ -498,7 +513,9 @@ function exact(s){ if(!s) return "—"; const d = new Date(s); return isNaN(d) ?
 function chip(text, tone){ const c = {ok:"var(--ok)", bad:"var(--bad)", warn:"var(--warn)", info:"var(--accent)"}[tone] || "var(--muted)";
   return `<span class="pill" style="color:${c};font-weight:600">${esc(text)}</span>` }
 function stamp(asOf){ return `<p class="muted" style="font-size:12px">Last refreshed ${exact(asOf || new Date().toISOString())}</p>` }
-function errText(e){ try { const j = JSON.parse(e.message); return (j.error || "") + (j.detail ? ": " + j.detail : "") } catch { return e.message } }
+function errText(e){ try { const j = JSON.parse(e.message);
+  if(j.message && j.message !== "The action was refused.") return j.message;          // 0048: a plain sentence
+  return (j.error || "") + (j.detail ? ": " + j.detail : "") } catch { return e.message } }
 const OFFER_TONE = {OFFERED:"info", ACCEPTED:"ok", DECLINED:"bad", ALTERNATIVE_REQUESTED:"warn", EXPIRED:"", SUPERSEDED:"",
                     UNAVAILABLE:"warn"};
 const OFFER_WORDS = {OFFERED:"Offered · waiting for the driver", ACCEPTED:"Accepted by the driver", DECLINED:"Declined",
@@ -518,13 +535,16 @@ async function renderDispatch(list, detail){
   const f = DX.filter;
   const rows = DX.rows.filter(x => f === "ALL" || x.workflow === f);
   list.innerHTML = `<div class="row" role="group" aria-label="Booking state filter">
-      ${[["NEW_BOOKING","Needs booking"],["PENDING_PLANNER","Awaiting planner"],["CONFIRMED","Confirmed"],["ALL","All"]].map(([k, t]) =>
+      ${[["NEW_BOOKING","Needs booking"],["PENDING_PLANNER","Awaiting planner"],["CONFIRMED","Confirmed"],["NO_SHOW","No-show"],["ALL","All"]].map(([k, t]) =>
         `<button class="${f === k ? "" : "ghost"}" data-act="dfilter" data-arg="${k}">${t} · ${n(k)}</button>`).join("")}</div>
     ${stamp(DX.asOf)}
     ${rows.length ? rows.map(x => { const o = x.latest_offer;
       return `<div class="item ${DX.sel === x.shipment_id ? "sel" : ""}" data-act="dopen" data-arg="${esc(x.shipment_id)}" role="button" tabindex="0">
         <div class="top"><b>${esc(x.order_reference)}</b>${x.workflow === "NEW_BOOKING" ? chip("Needs booking", "warn")
-          : x.workflow === "CONFIRMED" ? chip("Confirmed", "ok") : chip("Awaiting planner", "info")}</div>
+          : x.workflow === "CONFIRMED" ? chip("Confirmed", "ok") : x.workflow === "NO_SHOW"
+          ? (x.no_show.resolution === "CANCELLED" ? chip("Cancelled after a no-show", "") : chip("No-show · your decision", "bad"))
+          : chip("Awaiting planner", "info")}</div>
+        ${x.open_safety_escalation ? `<div>${chip("Open safety escalation: every booking needs a person", "bad")}</div>` : ""}
         <div class="muted">ETA ${when(x.planned_eta)} · ${esc(x.facility_id)} · ${esc(x.vehicle_type)} ${esc(x.vehicle_id)}</div>
         <div class="muted">Driver ${esc(x.driver_name || x.driver_id)} · ${x.telegram.linked ? chip("Telegram linked", "ok") : chip("Not linked", "bad")}</div>
         ${o ? `<div class="muted">${esc(KIND_WORDS[o.kind] || o.kind)}: ${chip(o.status, OFFER_TONE[o.status])}${o.status === "OFFERED" ? " until " + exact(o.expires_at) : ""}</div>` : ""}
@@ -540,8 +560,12 @@ async function openDispatch(sid){
   if(!x){ d.innerHTML = `<div class="empty">Not in your facilities.</div>`; return }
   const offers = (await api("GET", "/console/dispatch/offers?limit=200")).offers.filter(o => o.shipment_id === sid);
   const t = x.telegram, a = x.appointment;
+  const ns = x.no_show;
   d.innerHTML = `<h2>${esc(x.order_reference)} · ${x.workflow === "NEW_BOOKING" ? "New booking" : x.workflow === "CONFIRMED"
-        ? "Confirmed appointment" : "Awaiting planner decision"}</h2>
+        ? "Confirmed appointment" : x.workflow === "NO_SHOW" ? "No-show: waiting for your decision" : "Awaiting planner decision"}</h2>
+    ${x.open_safety_escalation ? `<div class="card" style="border-left:4px solid var(--bad);margin-bottom:8px"><b>Open safety escalation: every booking
+      needs a person.</b> <span class="muted">A driver's YES for this shipment goes to the Escalations tab, not to a planner request.
+      Resolve the escalation there first.</span></div>` : ""}
     <dl class="kv"><dt>Shipment</dt><dd class="mono">${esc(x.shipment_id)}</dd><dt>Facility</dt><dd>${esc(x.facility_id)}</dd>
       <dt>Driver</dt><dd>${esc(x.driver_name || "")} <span class="mono">${esc(x.driver_id)}</span></dd>
       <dt>Vehicle</dt><dd>${esc(x.vehicle_type)} <span class="mono">${esc(x.vehicle_id)}</span> (vehicle changes are not in this release)</dd>
@@ -549,32 +573,46 @@ async function openDispatch(sid){
       <dt>Appointment</dt><dd>${a ? `${chip(a.status, a.status === "CONFIRMED" ? "ok" : "info")} dock ${esc(a.dock_code)} at ${exact(a.start)}` : "none"}</dd>
       ${x.cancellation ? `<dt>Cancellation</dt><dd>${chip(x.cancellation, x.cancellation === "OPEN" ? "warn" : "")}</dd>` : ""}</dl>
     <h3>Telegram</h3>
-    <p>${t.linked ? `${chip("Linked", "ok")} since ${exact(t.linked_at)} <button class="ghost" data-act="drevoke" data-arg="${esc(x.driver_id)}">Revoke link</button>`
+    <p>${t.linked ? `${chip("Linked", "ok")} since ${exact(t.linked_at)} ${can("link_driver") ? `<button class="ghost" data-act="drevoke" data-arg="${esc(x.driver_id)}">Revoke link</button>` : ""}`
       : `${chip("Not linked", "bad")} ${t.code_expires_at ? `a code is open until ${exact(t.code_expires_at)} · ` : ""}
-         <button class="ghost" data-act="dcode" data-arg="${esc(x.driver_id)}">Issue link code</button>
+         ${can("link_driver") ? `<button class="ghost" data-act="dcode" data-arg="${esc(x.driver_id)}">Issue link code</button>` : ""}
          <span class="muted">Until linked, offers reach the driver on the existing channel; if that fails, the failure is escalated to Operations.</span>`}</p>
+    ${can("link_driver") ? "" : onlyNote("link_driver", "link or unlink a driver's Telegram")}
     <div id="dcodebox"></div>
-    ${x.workflow === "NEW_BOOKING" ? `
+    ${x.workflow === "NEW_BOOKING" ? (can("send_offer") ? `
       <h3>New booking</h3>
       <p class="muted">Feasible slots come from the same feasibility engine as the driver conversation and are re-checked when you
-        send the offer and again when the driver accepts. Sending an offer holds no dock time.</p>
-      <button class="ghost" data-act="dopts">Load feasible slots</button><div id="dopts"></div>
-      <h3>Reassign before booking</h3>
-      <p class="muted">Sends the selected slot to another driver. ${esc(x.driver_id)} stays assigned until the new driver accepts; a
-        decline or expiry changes nothing.</p>
-      <div class="row"><label>New driver id <input id="dnewdrv" maxlength="80" style="width:200px"></label>
-        <button class="ghost" data-act="doffer" data-arg="reassign">Send reassignment offer</button></div>`
+        send the offer and again when the driver accepts. Sending an offer holds no dock time. A planner approves the booking.</p>
+      <button class="ghost" data-act="dopts">Load feasible slots</button><div id="dopts"></div>` : onlyNote("send_offer", "send a booking offer"))
+    : x.workflow === "NO_SHOW" ? `
+      <h3>No-show</h3>
+      <p>No gate arrival for dock ${esc(ns.dock_code)} at ${exact(ns.start)} within the facility's grace period: the slot was released
+        automatically at ${exact(ns.no_show_at)}. The shipment waits for you; nothing is rebooked automatically.</p>
+      ${ns.resolution === "CANCELLED" ? `<p>${chip("Cancelled", "")} a planner approved the cancellation. Nothing more to decide here.</p>`
+        : ns.resolution === "CANCELLATION_REQUESTED" ? `<p>${chip("Cancellation requested", "warn")} a planner decides.</p>` : can("resolve_no_show") ? `
+      <div class="row"><input id="dnsnote" class="grow" maxlength="300" placeholder="What was agreed with the driver">
+        <button data-act="dnsrebook" data-arg="${esc(ns.appointment_id)}">Rebook (back to Needs booking)</button></div>
+      <div class="row" style="margin-top:6px"><select id="dcreason" style="width:auto"><option>DRIVER_UNAVAILABLE</option><option>VEHICLE_BREAKDOWN</option>
+        <option>SHIPMENT_CANCELLED</option><option>CUSTOMER_REQUEST</option><option>OPERATIONS_DECISION</option></select>
+        <input id="dcnote" class="grow" maxlength="500" placeholder="Why cancel"><button class="bad" data-act="dcancel" data-arg="${esc(ns.appointment_id)}">Request cancellation</button></div>
+      <p class="muted">Rebook: a new booking still needs a planner's approval. Cancellation: a planner decides.</p>` : onlyNote("resolve_no_show", "decide after a no-show")}`
     : x.workflow === "CONFIRMED" ? `
-      <h3>Reassign this confirmed appointment</h3>
+      ${can("request_reschedule") ? `<h3>Check slots / request a new time</h3>
+      <p class="muted">For a confirmed booking before its start. The new time goes to a planner (always); the booking stays
+        confirmed at dock ${esc(a.dock_code)}, ${exact(a.start)} until the planner approves, and the new slot is held for that decision.</p>
+      <button class="ghost" data-act="dresopts" data-arg="${esc(a.appointment_id)}">Check slots</button><div id="dresopts"></div>` : onlyNote("request_reschedule", "request a new time")}
+      ${can("send_offer") ? `<h3>Reassign this confirmed appointment</h3>
       <p class="muted">The new driver is asked to accept the trip AND the existing time (dock ${esc(a.dock_code)}, ${exact(a.start)}).
         Until they accept, ${esc(x.driver_id)} stays assigned and the appointment stays confirmed. Their other trips are checked.</p>
-      <div class="row"><label>New driver id <input id="dcrdrv" maxlength="80" style="width:200px"></label>
-        <button data-act="dreassign">Send reassignment request</button></div>
-      <h3>Request cancellation</h3>
+      <div class="row"><button class="ghost" data-act="dfree" data-arg="${esc(a.start)}|confirmed">Show free drivers</button>
+        <select id="dcrdrv" style="width:auto"><option value="">pick a free driver</option></select>
+        <button data-act="dreassign">Send reassignment request</button></div>` : onlyNote("send_offer", "reassign a driver")}
+      ${can("request_cancellation") ? `<h3>Request cancellation</h3>
       <p class="muted">After agreeing it with the driver. A planner or ops lead decides; dock time is released only when they approve.</p>
       <div class="row"><select id="dcreason" style="width:auto"><option>DRIVER_UNAVAILABLE</option><option>VEHICLE_BREAKDOWN</option>
         <option>SHIPMENT_CANCELLED</option><option>CUSTOMER_REQUEST</option><option>OPERATIONS_DECISION</option></select>
         <input id="dcnote" class="grow" maxlength="500" placeholder="What was agreed, with whom"><button class="bad" data-act="dcancel" data-arg="${esc(a.appointment_id)}">Request cancellation</button></div>`
+        : onlyNote("request_cancellation", "request a cancellation")}`
     : `<p class="muted">A planner is deciding this request${offers[0] && offers[0].planner_decision_due ? " (due " + exact(offers[0].planner_decision_due) + ")" : ""}.
         The dispatcher cannot approve it. Until then the dock time is claimed for it.</p>`}
     <h3>Offers for this shipment</h3>
@@ -601,21 +639,61 @@ async function dispatchAction(act, arg, btn){
         <input type="radio" name="dslot" value="${i}" ${i === 0 ? "checked" : ""} style="width:auto"> <b>Dock ${esc(o.dock_code)} · ${exact(o.start)} – ${exact(o.end)}</b>
         ${o.needs_approval ? `<span class="muted">after the last new start: needs a planner's after-hours decision</span>` : ""}</label>`).join("")}</div>
         <p class="muted">Checked at ${exact(new Date().toISOString())} (${esc(r.outcome)}).</p>
-        <button data-act="doffer" data-arg="initial">Send offer to ${esc(x.driver_id)}</button>`
+        <fieldset style="border:1px solid var(--line);border-radius:8px;padding:8px"><legend>Who receives the offer?</legend>
+          <label class="row"><input type="radio" name="dtarget" value="ASSIGNED" checked style="width:auto"> This driver (${esc(x.driver_id)})</label>
+          <label class="row"><input type="radio" name="dtarget" value="OTHER" style="width:auto"> Another driver
+            <button class="ghost" data-act="dfree" data-arg="slot|initial">Show free drivers for this slot</button>
+            <select id="dnewdrv" style="width:auto"><option value="">pick a free driver</option></select></label>
+          <p class="muted">Another driver: ${esc(x.driver_id)} stays assigned until the new driver accepts; a decline or expiry changes nothing.</p>
+        </fieldset>
+        <button data-act="doffer" data-arg="send">Send offer…</button>`
       : `<div class="empty">${esc(r.outcome)}: no feasible slot. The shipment can be escalated from the conversation.</div>`; return }
   if(act === "doffer"){
     const sel = document.querySelector('input[name="dslot"]:checked');
     if(!DX.opts || !sel) return toast("Load the feasible slots and pick one first.");
-    const o = DX.opts[+sel.value], drv = arg === "reassign" ? ($("#dnewdrv").value || "").trim() : x.driver_id;
-    if(!drv) return toast("Enter the new driver's id.");
-    const name = `offer:${DX.sel}:${drv}:${o.dock_code}:${o.start}`;
+    const target = (document.querySelector('input[name="dtarget"]:checked') || {}).value || "ASSIGNED";
+    const o = DX.opts[+sel.value], drv = target === "OTHER" ? ($("#dnewdrv").value || "").trim() : x.driver_id;
+    if(!drv) return toast("Pick the other driver from the free drivers list.");
+    if(target === "OTHER" && drv === x.driver_id) return toast('"Another driver" cannot be the assigned driver.');
+    // the confirmation names who will receive the offer (issue 5: the two choices can never be confused)
+    if(!confirm(`Send dock ${o.dock_code} at ${exact(o.start)} to ${target === "OTHER" ? "ANOTHER driver: " : "the assigned driver: "}${drv}?`)) return;
+    const name = `offer:${DX.sel}:${target}:${drv}:${o.dock_code}:${o.start}`;
     btn.disabled = true;
     try { const r = await api("POST", "/console/dispatch/offers", {shipment_id:DX.sel, driver_id:drv, vehicle_id:x.vehicle_id,
-        dock_code:o.dock_code, start:o.start, idempotency_key:busyKey(name)});
+        dock_code:o.dock_code, start:o.start, idempotency_key:busyKey(name), target});
       doneKey(name); toast(`${r.replayed ? "Already sent" : "Offer sent"} to ${drv}: ${r.status}, expires ${exact(r.expires_at)}. Nothing is held until they accept.`) }
     catch(e){ if(e.status === 409) doneKey(name); throw e } finally { btn.disabled = false }
     return render() }
-  if(act === "dreassign"){ const drv = ($("#dcrdrv").value || "").trim(); if(!drv) return toast("Enter the new driver's id.");
+  if(act === "dfree"){                                   // issue 4: drivers free for the slot (server-side rule)
+    let start, end, box;
+    if(arg.endsWith("|confirmed")){ start = arg.split("|")[0]; end = new Date(new Date(start).getTime() + 3600e3).toISOString(); box = $("#dcrdrv") }
+    else { const sel = document.querySelector('input[name="dslot"]:checked'); if(!DX.opts || !sel) return toast("Pick a slot first.");
+      const o = DX.opts[+sel.value]; start = o.start; end = o.end; box = $("#dnewdrv");
+      const other = document.querySelector('input[name="dtarget"][value="OTHER"]'); if(other) other.checked = true }
+    const r = await api("GET", `/console/dispatch/shipments/${encodeURIComponent(DX.sel)}/free-drivers?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
+    box.innerHTML = `<option value="">${r.drivers.length ? "pick a free driver" : "no free driver for this slot"}</option>` +
+      r.drivers.map(v => `<option value="${esc(v.driver_id)}">${esc(v.driver_name || "")} ${esc(v.driver_id)}${v.telegram_linked ? " · Telegram" : ""}</option>`).join("");
+    return toast(`${r.drivers.length} free driver(s) for this slot.`) }
+  if(act === "dresopts"){ const out = $("#dresopts"); out.innerHTML = `<div class="empty">Checking feasibility…</div>`;
+    const r = await api("GET", `/console/appointments/${encodeURIComponent(arg)}/reschedule-options`); DX.resopts = r.options;
+    out.innerHTML = r.options.length ? `${r.options.map((o, i) => `<label class="row" style="border:1px solid var(--line);border-radius:8px;padding:8px;margin:6px 0">
+        <input type="radio" name="dres" value="${i}" ${i === 0 ? "checked" : ""} style="width:auto"> <b>Dock ${esc(o.dock_code)} · ${esc(o.start_label)}</b></label>`).join("")}
+      <div class="row"><input id="dresnote" class="grow" maxlength="300" placeholder="Why (what the driver asked)">
+        <button data-act="dresreq" data-arg="${esc(arg)}">Ask a planner for this time</button></div>
+      <p class="muted">${esc(r.note)}</p>` : `<div class="empty">No other feasible slot now (${esc(r.outcome)}).</div>`; return }
+  if(act === "dresreq"){ const sel = document.querySelector('input[name="dres"]:checked'); if(!DX.resopts || !sel) return toast("Pick a slot.");
+    const note = ($("#dresnote").value || "").trim(); if(note.length < 3) return toast("Say why (at least 3 characters).");
+    const o = DX.resopts[+sel.value], name = `resched:${arg}:${o.dock_code}:${o.start}`; btn.disabled = true;
+    try { const r = await api("POST", `/console/appointments/${encodeURIComponent(arg)}/reschedule-requests`, {dock_code:o.dock_code,
+        start:o.start, note, idempotency_key:busyKey(name)}); doneKey(name);
+      toast(`Sent to a planner (decide by ${exact(r.pending_expires_at)}). The booking stays confirmed until they approve.`) }
+    catch(e){ if(e.status === 409) doneKey(name); throw e } finally { btn.disabled = false }
+    return render() }
+  if(act === "dnsrebook"){ const note = ($("#dnsnote").value || "").trim(); if(note.length < 3) return toast("Say what was agreed (at least 3 characters).");
+    btn.disabled = true; try { await api("POST", `/console/appointments/${encodeURIComponent(arg)}/no-show/rebook`, {note});
+      toast("Back in Needs booking. A planner approves the new booking.") } finally { btn.disabled = false }
+    DX.filter = "NEW_BOOKING"; return render() }
+  if(act === "dreassign"){ const drv = ($("#dcrdrv").value || "").trim(); if(!drv) return toast("Pick a free driver first.");
     const name = `reassign:${DX.sel}:${drv}`; btn.disabled = true;
     try { const r = await api("POST", "/console/dispatch/reassignments", {shipment_id:DX.sel, driver_id:drv, idempotency_key:busyKey(name)});
       doneKey(name); toast(`Reassignment request sent to ${drv}, open until ${exact(r.expires_at)}. ${x.driver_id} stays assigned until they accept.`) }
@@ -648,7 +726,14 @@ async function renderSchedule(list, detail){
   if(!SX.fac){ list.innerHTML = `<div class="empty">No facility in your scope.</div>`; detail.innerHTML = ""; return }
   const s = await api("GET", `/console/facilities/${encodeURIComponent(SX.fac)}/schedule?hours=12`);
   const cap = s.capacity, hrs = m => (m / 60).toFixed(1);
-  list.innerHTML = `<h3>Pending your decision · ${s.pending.length}</h3>${stamp(s.as_of)}
+  const escs = s.escalations_needing_decision || [];
+  list.innerHTML = `<h3>Pending your decision · ${s.pending.length + escs.length}</h3>${stamp(s.as_of)}
+    ${escs.map(e => `<div class="card" style="margin-bottom:8px;border-left:4px solid ${e.overdue ? "var(--bad)" : "var(--warn)"}">
+      <div class="top row"><b class="grow">Escalation · ${esc(e.reason_code)} · ${esc(e.order_reference || e.shipment_id || "")}</b>
+        ${chip(e.status, e.status === "OPEN" ? "warn" : "info")} ${e.overdue ? chip("overdue", "bad") : ""}</div>
+      ${e.banner ? `<div>${chip(e.banner, "bad")}</div>` : ""}
+      <div class="muted">Due ${exact(e.due)} · raised ${exact(e.created_at)} · handled in the Escalations tab</div>
+      ${e.thread_id ? `<div class="row" style="margin-top:6px"><button class="ghost" data-open="${esc(e.thread_id)}">Conversation</button></div>` : ""}</div>`).join("")}
     ${s.pending.length ? s.pending.map(p => `<div class="card" style="margin-bottom:8px">
       <div class="top row"><b class="grow">${esc(p.order_reference)} · dock ${esc(p.dock_code)} · ${exact(p.start)}</b>
         ${chip(p.approval_kind, "info")}</div>
@@ -693,11 +778,56 @@ async function renderSchedule(list, detail){
       ["Blocked", cap.blocked], ["Available", cap.available]].map(([k, v]) => `<div class="card" style="min-width:120px"><div class="muted">${k}</div>
       <b style="font-size:18px">${esc(v)}</b> <span class="muted">dock-min (${hrs(v)} h)</span></div>`).join("")}</div>
     <p class="muted">${esc(cap.explanation)}. A pending request's claim holds its dock time until the decision is due; the 180-second hold only covers
-      the moment between a driver's yes and the request.</p>${stamp(s.as_of)}`;
+      the moment between a driver's yes and the request.</p>${stamp(s.as_of)}
+    <div id="sarrivals"></div>
+    ${can("move_appointment") && can("schedule_proposal") ? `<h3>Move a confirmed appointment (ops lead)</h3>
+      <p class="muted">Store the scheduling tool's proposal, then apply one move at a time. Every booking rule is re-checked.</p>
+      <button class="ghost" data-act="sprop">Store proposal and show moves</button><div id="sprops"></div>` : ""}`;
+  await renderArrivals(SX.fac, "#sarrivals");
+}
+
+// ---------------------------------------------------------------- 0048: Arrivals (issue 3), in Schedule and Ops health
+const NEXT_WORDS = {ARRIVED_AT_GATE:["Arrived at gate", "sarrive"], AT_DOCK:["At dock", "sdock"], COMPLETED:["Completed", "sdone"]};
+async function renderArrivals(fac, sel){
+  const box = $(sel); if(!box || !fac || !can("view_arrivals")) return;
+  const r = await api("GET", `/console/facilities/${encodeURIComponent(fac)}/arrivals`);
+  box.innerHTML = `<h3>Arrivals · ${esc(fac)} · today</h3>
+    <p class="muted">${esc(r.rule)} (grace ${esc(r.no_show_grace_min)} min at this facility). Recorded by ${esc(r.who_records)}.</p>
+    ${r.arrivals.length ? `<div class="tablewrap"><table><tr><th>Slot</th><th>Order</th><th>Dock</th><th>State</th><th>Deadline</th><th>Next</th></tr>
+    ${r.arrivals.map(x => { const n = NEXT_WORDS[x.next_step];
+      return `<tr><td>${exact(x.start)}</td><td>${esc(x.order_reference)}</td><td>${esc(x.dock_code)}</td>
+        <td>${chip(x.status, x.status === "NO_SHOW" ? "bad" : x.status === "COMPLETED" ? "ok" : "info")} <span class="muted">${esc(x.shipment_status)}</span>
+          ${x.driver_says_arrived ? `<div>${chip("Driver says arrived · check and record", "warn")} <span class="muted">"${esc(x.driver_says_arrived.text)}"</span></div>` : ""}</td>
+        <td>${x.status === "CONFIRMED" && !x.arrived_at ? exact(x.no_show_deadline) : "—"}</td>
+        <td>${n ? (x.you_can_record ? `<button data-act="${n[1]}" data-arg="${esc(x.appointment_id)}">${n[0]}</button>` : `<span class="muted">${n[0]} (operations or ops lead)</span>`)
+          : x.next_step === "AWAITING_NO_SHOW" ? `<span class="muted">grace passed · becomes a no-show</span>` : ""}</td></tr>` }).join("")}</table></div>`
+    : `<div class="empty">No bookings in the window.</div>`}`;
 }
 
 async function scheduleAction(act, arg, btn){
   if(act === "srefresh") return render();
+  if(act === "sarrive" || act === "sdock" || act === "sdone"){
+    const path = {sarrive:"arrival", sdock:"dock", sdone:"completion"}[act];
+    const what = {sarrive:"the truck ARRIVED AT THE GATE", sdock:"the truck is AT THE DOCK", sdone:"unloading is COMPLETED"}[act];
+    if(!confirm(`Record that ${what}?`)) return;
+    btn.disabled = true;
+    try { await api("POST", `/console/appointments/${encodeURIComponent(arg)}/${path}`, {}); toast("Recorded.") } finally { btn.disabled = false }
+    return render() }
+  if(act === "sprop"){ const out = $("#sprops"); out.innerHTML = `<div class="empty">Computing…</div>`;
+    const r = await api("POST", `/console/facilities/${encodeURIComponent(SX.fac)}/schedule-proposals`, {rule:"FACILITY_SCORE", ttl_s:600});
+    SX.proposal = r.proposal_id;
+    const moves = (r.assignments || []).filter(m => m.appointment_id && m.action && m.action !== "KEEP");
+    out.innerHTML = moves.length ? `<p class="muted">Proposal valid until ${exact(r.expires_at)}.</p>` + moves.map(m =>
+      `<div class="row"><span class="grow">${esc(m.shipment_id)} · ${esc(m.action)} → dock ${esc(m.dock_code || "")} ${exact(m.start)} <span class="muted">${esc(m.reason || "")}</span></span>
+        <button data-act="smove" data-arg="${esc(m.appointment_id)}">Apply move</button></div>`).join("")
+      : `<div class="empty">The proposal moves nothing.</div>`; return }
+  if(act === "smove"){ if(!SX.proposal) return toast("Store a proposal first.");
+    if(!confirm("Apply this move? The driver is told the new time.")) return;
+    const name = `move:${SX.proposal}:${arg}`; btn.disabled = true;
+    try { const r = await api("POST", `/console/appointments/${encodeURIComponent(arg)}/move`, {proposal_id:SX.proposal,
+        idempotency_key:SX.keys[name] || (SX.keys[name] = key())}); delete SX.keys[name]; toast(`Moved: ${r.status || r.outcome}.`) }
+    catch(e){ delete SX.keys[name]; throw e } finally { btn.disabled = false }
+    return render() }
   if(act === "sfac"){ if((SX.facs || []).includes(arg)) SX.fac = arg; return render() }
   if(act === "sdecide"){ const appt = btn.dataset.appt, name = `decide:${appt}:${arg}`; btn.disabled = true;
     try { const r = await api("POST", `/console/requests/${encodeURIComponent(appt)}/decision`, {decision:arg, idempotency_key:SX.keys[name] || (SX.keys[name] = key()),
@@ -740,6 +870,7 @@ async function renderOps(list, detail){
       `<div class="card" style="min-width:150px"><div class="muted">${k}</div><b>${v === "unavailable" ? "unavailable" : esc(v)}</b></div>`).join("")}</div>
     <p class="muted">Notifications in 24 h by delivery state: ${esc(Object.entries(h.notifications_24h || {}).map(([k, v]) => k + " " + v).join(" · ") || "none")}.
       Queue depth and the dead-letter queue are in CloudWatch, not here.</p>${stamp(h.as_of)}
+    ${(ME && ME.facilities || []).map(f => `<div id="oarr-${esc(f)}"></div>`).join("")}
     <h3>Notifications (delivery state only)</h3>
     <div class="row">${["", "FAILED", "UNKNOWN", "RETRY", "SENT"].map(sv => `<button class="${(OX.state || "") === sv ? "" : "ghost"}" data-act="ostate" data-arg="${sv}">${sv || "All"}</button>`).join("")}</div>
     ${nt.notifications.length ? `<div class="tablewrap"><table><tr><th>What</th><th>Order</th><th>Route now</th><th>State</th><th>Tries</th><th>Last attempt</th><th>Next retry</th><th>Last error</th></tr>
@@ -751,7 +882,58 @@ async function renderOps(list, detail){
     ${au.events.length ? `<div class="tablewrap"><table><tr><th>When</th><th>Who</th><th>Action</th><th>Shipment</th><th>Note</th></tr>
       ${au.events.map(e => `<tr><td>${exact(e.at)}</td><td class="mono">${esc(e.by)}</td><td>${esc(e.action)}</td><td class="mono">${esc(e.shipment_id || "")}</td>
         <td class="muted">${esc(e.note || "")}</td></tr>`).join("")}</table></div>` : `<div class="empty">No events.</div>`}`;
+  await opsArrivals();
 }
+
+// ---------------------------------------------------------------- 0048 (issue 1): the ops lead's Controls tab
+async function renderControls(list, detail){
+  const c = await api("GET", "/console/controls"), ks = c.kill_switch;
+  list.innerHTML = `<h3>Booking kill switch</h3>
+    <div class="card"><b>${ks.engaged ? chip("ENGAGED: no new booking commitment is accepted", "bad") : chip("Disengaged", "ok")}</b>
+      <div class="muted">Last changed ${exact(ks.changed_at)} by ${esc(ks.changed_by)}: "${esc(ks.reason)}"</div>
+      <div class="row" style="margin-top:6px"><input id="cksreason" class="grow" maxlength="300" placeholder="Reason (required)">
+        <button class="${ks.engaged ? "ok" : "bad"}" data-act="cks" data-arg="${ks.engaged ? "off" : "on"}">${ks.engaged ? "Disengage" : "Engage"}</button></div></div>
+    <h3>Automation pause</h3>
+    ${c.facilities.map(f => `<div class="card" style="margin-bottom:6px"><b>${esc(f.facility_id)}</b> ${f.automation_paused ? chip("Paused", "warn") : chip("Running", "ok")}
+      <div class="muted">${f.last_change ? `${esc(f.last_change.action)} by ${esc(f.last_change.by)} at ${exact(f.last_change.at)}: "${esc(f.last_change.reason || "")}"` : "never changed"}
+        · no-show grace ${esc(f.no_show_grace_min)} min</div>
+      <div class="row" style="margin-top:6px"><input id="cpr-${esc(f.facility_id)}" class="grow" maxlength="300" placeholder="Reason (required)">
+        <button class="ghost" data-act="cpause" data-arg="${esc(f.facility_id)}|${f.automation_paused ? "false" : "true"}">${f.automation_paused ? "Resume" : "Pause"}</button></div></div>`).join("")}
+    <p class="muted">${esc(c.not_here)}</p>`;
+  detail.innerHTML = `<div class="row"><h2 class="grow">Booking holds</h2><button class="ghost" data-act="crefresh">Refresh</button></div>
+    ${c.holds.length ? c.holds.map(h => `<div class="card" style="margin-bottom:6px"><b>${esc(h.facility_id)}${h.dock_code ? " · dock " + esc(h.dock_code) : " · whole facility"}</b>
+      <div class="muted">"${esc(h.reason)}" · set by ${esc(h.set_by)} at ${exact(h.set_at)}</div>
+      <div class="row" style="margin-top:6px"><input id="chn-${esc(h.hold_id)}" class="grow" maxlength="300" placeholder="Why it can be cleared">
+        <button class="ok" data-act="cclear" data-arg="${esc(h.hold_id)}">Clear hold</button></div></div>`).join("")
+      : `<div class="empty">No open holds.</div>`}
+    <h3>Set a hold</h3>
+    <div class="row"><select id="chfac" style="width:auto">${c.facilities.map(f => `<option>${esc(f.facility_id)}</option>`).join("")}</select>
+      <input id="chdock" maxlength="40" placeholder="dock id (empty = whole facility)" style="width:220px">
+      <input id="chreason" class="grow" maxlength="300" placeholder="Reason (required)"><button class="bad" data-act="chold">Set hold</button></div>
+    <p class="muted">While a hold is open, no booking or approval is accepted at that facility or dock.</p>`;
+}
+
+async function controlsAction(act, arg, btn){
+  if(act === "crefresh") return render();
+  if(act === "cks"){ const reason = ($("#cksreason").value || "").trim(); if(reason.length < 5) return toast("A reason of at least 5 characters is required.");
+    const word = arg === "on" ? "ENGAGE" : "DISENGAGE";
+    if(prompt(`Type ${word} to confirm.`, "") !== word) return toast("Not changed: the confirmation did not match.");
+    btn.disabled = true; try { await api("POST", "/console/booking-kill-switch", {engaged: arg === "on", reason}); toast("Kill switch " + word.toLowerCase() + "d.") }
+    finally { btn.disabled = false } return render() }
+  if(act === "cpause"){ const [fac, on] = arg.split("|"), reason = ($("#cpr-" + fac).value || "").trim();
+    if(reason.length < 3) return toast("A reason is required.");
+    btn.disabled = true; try { await api("POST", `/console/facilities/${encodeURIComponent(fac)}/pause`, {paused: on === "true", reason}); toast("Done.") }
+    finally { btn.disabled = false } return render() }
+  if(act === "chold"){ const reason = ($("#chreason").value || "").trim(); if(reason.length < 3) return toast("A reason is required.");
+    const dock = ($("#chdock").value || "").trim();
+    btn.disabled = true; try { await api("POST", "/console/holds", {facility_id:$("#chfac").value, dock_id: dock || null, reason}); toast("Hold set.") }
+    finally { btn.disabled = false } return render() }
+  if(act === "cclear"){ const note = ($("#chn-" + arg).value || "").trim(); if(note.length < 3) return toast("Say why it can be cleared.");
+    btn.disabled = true; try { await api("POST", `/console/holds/${encodeURIComponent(arg)}/clear`, {note}); toast("Hold cleared.") }
+    finally { btn.disabled = false } return render() }
+}
+
+async function opsArrivals(){ for(const f of (ME && ME.facilities) || []) await renderArrivals(f, `#oarr-${f}`) }
 
 async function opsAction(act, arg, btn){
   if(act === "orefresh") return render();
@@ -770,6 +952,7 @@ document.addEventListener("click", async ev => {
     if(act.startsWith("d")) await dispatchAction(act, arg, b);
     else if(act.startsWith("s")) await scheduleAction(act, arg, b);
     else if(act.startsWith("o")) await opsAction(act, arg, b);
+    else if(act.startsWith("c")) await controlsAction(act, arg, b);
   } catch(e){ if(e.message !== "signed out" && e.message !== "401")
     toast((e.status === 403 ? "Not permitted for your role: " : e.status === 409 ? "Not done: " : "Failed: ") + errText(e)) }
 });

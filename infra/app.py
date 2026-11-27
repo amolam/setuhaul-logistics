@@ -46,5 +46,7 @@ SetuHaulPilotStack(
     telegram_authorized_drivers=ctx("telegram_authorized_drivers") or "",    # the owner's pilot-driver ids
     llm_judge_budget_usd=str(ctx("llm_judge_budget_usd") or "0"),
     llm_judge_sample_rate=str(ctx("llm_judge_sample_rate") or "0.2"),
-    release_commit=ctx("release_commit") or "")
+    release_commit=ctx("release_commit") or "",
+    # 27 Nov 2026 (issue 8): full trace content in the synthetic pilot by default; trace_content=off|on opts down
+    trace_content=ctx("trace_content") or "")
 app.synth()

@@ -30,6 +30,7 @@ EXPECTED: dict[str, dict[str, tuple[str, int]]] = {
         "aa_booking_kill_switch": ("trg_refuse_booking_when_killed", 23),         # 0026: BEFORE INS/UPD ROW, first
         "ab_booking_evidence_guard": ("trg_require_booking_evidence", 23),        # 0030: second
         "claim_approval_consistent": ("trg_check_claim_approval", 17),
+        "no_show_blocks_hold": ("trg_no_show_blocks_booking", 7),                 # 0048 (D3): BEFORE INSERT ROW
         "occupancy_compat": ("trg_occupancy_compat", 23),
         "occupancy_version": ("trg_bump_schedule_version", 29),
     },

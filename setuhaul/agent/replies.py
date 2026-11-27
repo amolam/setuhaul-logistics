@@ -61,6 +61,20 @@ T = {
                     "क्या आप अब लगभग {eta} तक गेट पर पहुँचेंगे? हाँ हो तो YES भेजें, नहीं तो पहुँचने का समय भेजें।"),
     "unclear": ("Sorry, I did not understand. When will you reach the warehouse?",
                 "माफ़ कीजिए, समझ नहीं आया। आप वेयरहाउस कब पहुँचेंगे?"),
+    # issue 9 (27 Nov 2026): a requested day is never silently replaced by another. The Hindi and Hinglish wording
+    # awaits the native-speaker review (as S4-R2-08 did for the others).
+    "date_past": ("{day} has already passed. Which day do you want? I can book up to {last}.",
+                  "{day} बीत चुका है। आपको कौन सा दिन चाहिए? मैं {last} तक बुक कर सकता हूँ।"),
+    "date_too_far": ("I can only book up to 7 days ahead, until {last}. Which day do you want?",
+                     "मैं सिर्फ़ 7 दिन आगे तक, {last} तक, बुक कर सकता हूँ। आपको कौन सा दिन चाहिए?"),
+    "date_unclear": ("Which date do you mean? Please send it like 28 Nov. I can book up to {last}.",
+                     "आपका मतलब कौन सी तारीख से है? कृपया ऐसे भेजें: 28 Nov. मैं {last} तक बुक कर सकता हूँ।"),
+    "date_conflict": ("You mentioned more than one day. Please send the one date you want, like 28 Nov.",
+                      "आपने एक से ज़्यादा दिन बताए हैं। कृपया वह एक तारीख भेजें जो चाहिए, जैसे 28 Nov."),
+    "no_slot_on_day": ("There is no free slot on {day}. I have not booked any other day. Send another date (up to {last}), "
+                       "or call your dispatcher.",
+                       "{day} को कोई खाली स्लॉट नहीं है। मैंने कोई दूसरा दिन बुक नहीं किया है। दूसरी तारीख भेजें ({last} तक), "
+                       "या अपने डिस्पैचर को कॉल करें।"),
 }
 # Hinglish (Hindi in Latin letters), B-AI-3 finding: Hinglish drivers were answered in English. Dock codes, times and
 # order references keep exactly the English form, so grounding and the driver's reading of them are unchanged.
@@ -90,6 +104,12 @@ HL = {
     "keep": "Aapka slot wahi rahega: dock {dock_code}, {start}. Kuch badla to main bataunga.",
     "confirm_eta": "Kya aap ab lagbhag {eta} tak gate par pahunchenge? Haan to YES bhej dijiye, nahi to pahunchne ka time bhej dijiye.",
     "unclear": "Maaf kijiye, samajh nahi aaya. Aap warehouse kab tak pahunchenge?",
+    "date_past": "{day} nikal chuka hai. Aapko kaunsa din chahiye? Main {last} tak book kar sakta hoon.",
+    "date_too_far": "Main sirf 7 din aage tak, {last} tak, book kar sakta hoon. Aapko kaunsa din chahiye?",
+    "date_unclear": "Kaunsi date chahiye? Aise bhejiye: 28 Nov. Main {last} tak book kar sakta hoon.",
+    "date_conflict": "Aapne ek se zyada din bataye hain. Jo ek date chahiye wo bhejiye, jaise 28 Nov.",
+    "no_slot_on_day": "{day} ko koi khaali slot nahi hai. Maine koi doosra din book nahi kiya hai. Doosri date bhejiye "
+                      "({last} tak), ya apne dispatcher ko call kar lijiye.",
 }
 HL_ASK = {
     "declared_eta_local": "Aap warehouse gate par kitne baje pahunchenge?",
