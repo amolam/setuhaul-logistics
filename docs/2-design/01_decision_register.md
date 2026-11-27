@@ -276,7 +276,7 @@ The objective in plain words: less weighted waiting, fewer missed appointments, 
 **Answer.** 14 triggers across five modes (approve, decide, take over, confirm, oversee), each with an SLA and a safe timeout where silence is never approval. See `docs/1-frame/08_human_in_the_loop.md`.
 
 **Status:** Decided and implemented.
-- Approvals: `migrations/0015`, `0016`. Tests: `tests/test_approvals.py`, `tests/test_confirmation_policy.py`.
+- Approvals: `migrations/0015_approval_workflow.sql`, `migrations/0016_confirmation_policy.sql`. Tests: `tests/test_approvals.py`, `tests/test_confirmation_policy.py`.
 - Escalations and takeover: `0009`, `0018`, `0022`.
 - Facility approval mode, MANUAL (default) or AUTO for auto-eligible safe cases only: T53, `0047`.
 - SLAs and safety wording are pending client confirmation.

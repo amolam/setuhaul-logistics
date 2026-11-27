@@ -194,7 +194,7 @@ def main() -> int:
                                    "booking": "off in this run (snapshot date is in the past for the database)",
                                    "refused_seed_bookings": refused, "turns": turns,
                                    "checks": [{"check": n, "pass": ok} for n, ok in checks]},
-                                  indent=1, default=str, ensure_ascii=False) + "\n", encoding="utf-8")
+                                  indent=1, default=str, ensure_ascii=False) + "\n", encoding="utf-8", newline="\n")
         print(f"recorded: {OUT.relative_to(ROOT)}")
     return 0 if passed == len(checks) else 1
 

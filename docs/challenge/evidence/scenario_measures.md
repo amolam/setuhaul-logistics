@@ -31,3 +31,4 @@ Elapsed, synthetic run: wall-clock between the driver's first message and the ou
 | Warehouse slot utilisation | **not measured** in the scenario runs | - |
 | Priority-policy violations | **not measured as a count**. The facility proposal in item 7 kept the confirmed promise and changed 0 appointments | `scenario_run.json` item 7 |
 | Driver clarification turns | 1 clarification question(s) over 6 resolved cases; the snapshot cases L2a and L2b stop after their one recorded question | both run files |
+

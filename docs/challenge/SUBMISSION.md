@@ -144,8 +144,14 @@ Every command below was run on this branch, against a fresh local PostgreSQL 18.
 | Audit re-executed independently on the original data package | every SQL block in `audit_results.md`, run read-only on the `.db` extracted from the supplied zip | 30 / 30 row counts match |
 | Snapshot scenario | `python scripts/snapshot_scenario.py --record` | PASS 6/6 |
 | Integrity proof, N = 10 | `python scripts/integrity_proof.py 10` | PASS 9/9 |
-| Targeted tests | see the root README; results below | RESULTS_PLACEHOLDER |
-| Clean-environment start | CLEAN_PLACEHOLDER | CLEAN_RESULT_PLACEHOLDER |
+| Targeted tests | `python -m pytest -q tests/test_scenario_run.py tests/test_snapshot_scenario.py tests/test_api.py::test_fifty_drivers_race_for_one_slot tests/test_dispatch_offers.py::test_two_shipments_race_for_the_last_slot_one_wins tests/test_flows.py::test_f2_rejected_request_releases_the_slot_and_the_driver_can_ask_again tests/test_pg_view.py tests/test_feasibility.py tests/test_scheduling.py tests/test_move_appointment.py tests/test_eta.py tests/test_concurrency.py tests/test_traceability.py` | **149 passed** in 235 s |
+| Clean-environment start | Fresh `git clone` of this branch; new Python 3.14.7 venv; `pip install -r requirements-dev.txt`; `python scripts/start_local.py --port 55488`. The local cluster was created from nothing | Demo console HTTP 200 at `/demo` after about 6 s, with 5 seeded drivers. A reefer driver's message led to a `NO_FEASIBLE_SLOT` / `DECIDE` / `OPEN` escalation and the coordinator reply. `--stop` stopped the database |
+| Clean-environment reproduction | In the same clone: `scripts/snapshot_scenario.py`, `scripts/integrity_proof.py 10`, `scripts/frame/run_audit.py` | PASS 6/6; PASS 9/9 (OK = 1, LOST = 9, 0 overlaps); audit regenerated with no diff |
+
+**Not re-run for this submission:**
+- The full suite, which takes about 20 minutes. The last full run is in `TEST_REPORT.md` (23 Nov 2026), and CI runs it on every PR.
+- Anything against AWS.
+- Any paid model evaluation.
 
 ## Requirement-to-evidence checklist
 
@@ -156,7 +162,7 @@ Every command below was run on this branch, against a fresh local PostgreSQL 18.
 | All 13 decisions: answer, reason, evidence | Decision register D1–D13 | Implemented and evidenced. D3 signal feeds and D8 event-driven recalculation are design-only, as stated there |
 | Conversation layer, tools, state | `setuhaul/agent/`, `setuhaul/api/service.py`, migrations | Implemented and evidenced |
 | Library versions named in the README | Root README table | Implemented |
-| Startup | `scripts/start_local.py` | Implemented; see the verification table |
+| Startup | `scripts/start_local.py` | Implemented, and verified from a clean clone |
 | Scenario items 1–6, ending in escalation | Run A (`tests/test_scenario_run.py`), Run B (snapshot) | Implemented and evidenced |
 | Scenario item 7 (optional) | Run A item 7 | Implemented and evidenced |
 | Competing requests, no double booking | Integrity proof, N = 10, 20 and 50 | Implemented and evidenced |

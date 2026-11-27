@@ -122,7 +122,7 @@ def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8")
     print(text)
     if "--write" in sys.argv[1:]:
-        (EV / "scenario_measures.md").write_text(text, encoding="utf-8")
+        (EV / "scenario_measures.md").write_text(text + "\n", encoding="utf-8", newline="\n")
     return 0
 
 
