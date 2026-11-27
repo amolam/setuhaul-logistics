@@ -1,0 +1,27 @@
+{
+ "record": "owner-confirmed test origin of an approval-workflow execution started by a FAILED smoke run (Category D)",
+ "category": "D",
+ "category_meaning": "As in owner_test_origin_20261126.json: the execution was started by an authorised synthetic-pilot smoke run that did not pass. Category D accounts for its origin only: never a passing smoke test, never smoke evidence, never the fresh-smoke requirement. The failed smoke record stays unchanged (all_pass=false).",
+ "environment": "pilot-ap-southeast-2",
+ "state_machine": "setuhaul-pilot-approval",
+ "owner_confirmation": {
+  "confirmed_by": "owner",
+  "confirmed_at_utc": "2026-11-27",
+  "channel": "Claude Code session (27 Nov fix plan release; release e7c3a2c renewal blocked, authorization 72 revoked)",
+  "statement": "Owner replied \"confirmed\" to: I confirm that booking \"a95aaaa1\", shipment \"SYN-SHP-2169480F\", facility \"FAC-JAI-01\", created at about 07:56 UTC on 27 November 2026, came from the authorised synthetic pilot smoke test (run 07:54 UTC on release e7c3a2c). That smoke run failed only on check 6, whose log search ran before CloudWatch had ingested the refusal. My confirmation covers the booking's test origin only. It does not say the smoke passed.",
+  "scope": "test origin and context only",
+  "approval_ref_for_recovery": "OWNER-APPROVAL-20261127-DEMO-02"
+ },
+ "executions": [
+  {
+   "approval_id": "a95aaaa1-b515-466a-a628-54214b801519",
+   "smoke_id": "SMOKE-20261127T075446Z-f2a4c7a5",
+   "smoke_record": "docs/release/evidence/smoke/option_d_smoke_20261127T075446Z.json",
+   "smoke_outcome": "FAIL (all_pass=false); the only failing check was 6 (kill switch): the agent refused BOOKING_KILLED at 07:58:30Z and nothing was booked, but the log search at 07:58:44Z ran before CloudWatch ingestion",
+   "release_sha": "e7c3a2c0e3de3251be6ffca5a2c91a5a4df59808",
+   "shipment_id": "SYN-SHP-2169480F",
+   "facility_id": "FAC-JAI-01",
+   "appointment_id": "APT-98d97c42b7554b729841508435b1b3e3"
+  }
+ ]
+}

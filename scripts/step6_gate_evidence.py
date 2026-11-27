@@ -679,8 +679,8 @@ def renewal_gate(out, fns, res, approval_ref: str, release_sha: str, fresh_smoke
     now = datetime.now(timezone.utc)
     api_group = (by_name.get("setuhaul-pilot-api") or {}).get("log_group")
     api_log = owner_api_log_corroboration(owner, api_group, now)
-    origin_file = EVIDENCE / "owner_test_origin_20261126.json"          # Category D (owner-confirmed test origin)
-    origin = json.loads(origin_file.read_text(encoding="utf-8")) if origin_file.exists() else None
+    # Category D (owner-confirmed test origin): one record per owner confirmation, each validated on its own
+    origin = [json.loads(f.read_text(encoding="utf-8")) for f in sorted(EVIDENCE.glob("owner_test_origin_*.json"))] or None
     drivers_file = EVIDENCE / "owner_test_drivers_20261126.json"        # Category E (owner's test-driver rule)
     drivers = json.loads(drivers_file.read_text(encoding="utf-8")) if drivers_file.exists() else None
     attribution = R.attribute_executions(execs, records, smokes, owner, api_log, origin, drivers)

@@ -554,7 +554,7 @@ def test_the_committed_failed_smoke_record_is_kept_as_failed():
     assert FAILED_SMOKE["all_pass"] is False and FAILED_SMOKE["smoke_id"] == ORIGIN["executions"][0]["smoke_id"]
     assert [k for k, ok in FAILED_SMOKE["checks"].items() if not ok] == [
         "7 isolation: only synthetic identities; no delivery outside the test sink"]
-    assert R.OWNER_TEST_ORIGIN_IDS == {D_ID}
+    assert R.OWNER_TEST_ORIGIN_IDS == {D_ID, "a95aaaa1-b515-466a-a628-54214b801519"}   # 27 Nov: owner confirmed (DEMO-02)
 
 
 def test_a_failed_test_booking_with_the_owner_test_origin_record_is_category_d_not_a_passing_smoke():

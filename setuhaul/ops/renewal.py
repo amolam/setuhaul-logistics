@@ -55,7 +55,8 @@ APPROVAL_REF = re.compile(r"OWNER-APPROVAL-20\d{6}-[A-Za-z0-9-]{3,40}")
 OWNER_CONFIRMED_IDS = frozenset({"87915a37-918e-46b5-8872-8ecaa4fc7a24", "29ffac03-d8bd-4dac-b35c-66b0f8ebf24b"})
 # Category D: the owner's confirmation (26 Nov 2026) of the test origin of the execution started by the failed smoke
 # SMOKE-20261126T040450Z (check 7 defect, fixed in a1d34f8). Adding one is a code change and a review.
-OWNER_TEST_ORIGIN_IDS = frozenset({"3c3ff424-5d40-4033-bfd2-28f1837fa7c5"})
+OWNER_TEST_ORIGIN_IDS = frozenset({"3c3ff424-5d40-4033-bfd2-28f1837fa7c5",
+                                   "a95aaaa1-b515-466a-a628-54214b801519"})   # 27 Nov: owner confirmed (DEMO-02)
 TEST_ORIGIN_PROBLEM = "test-origin record: "
 # Category E: the owner's standing rule (26 Nov 2026) for bookings of the authorised Telegram test drivers' shipments.
 TEST_DRIVER_SHIPMENT = re.compile(r"SYN-SHP-TEST-[0-9]{1,3}")
@@ -191,6 +192,17 @@ def load_test_origin(record: dict | None) -> tuple[dict[str, dict], list[str]]:
     Returns ({approval_id: entry}, problems, each prefixed TEST_ORIGIN_PROBLEM). Any problem rejects the whole record."""
     if not record:
         return {}, []
+    if isinstance(record, list):                     # several owner records (one per confirmation), each validated
+        out_all: dict[str, dict] = {}
+        probs: list[str] = []
+        for r in record:
+            got, pr = load_test_origin(r)
+            probs += pr
+            for aid, e in got.items():
+                if aid in out_all:
+                    probs.append(TEST_ORIGIN_PROBLEM + f"{short(aid)} is named by two records")
+                out_all[aid] = e
+        return ({} if probs else out_all), probs
     problems = []
     if record.get("category") != "D":
         problems.append("it is not category D")
