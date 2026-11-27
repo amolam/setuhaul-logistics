@@ -36,3 +36,6 @@ pt*/
 # Build outputs (E0/E5): Lambda artifact and CDK synth
 build/
 cdk.out/
+
+# Local one-command start (scripts/start_local.py): private throwaway PostgreSQL cluster
+.local/

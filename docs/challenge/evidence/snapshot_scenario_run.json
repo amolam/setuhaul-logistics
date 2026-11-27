@@ -1,0 +1,282 @@
+{
+ "recorded_at": "2026-11-27T22:33:39+05:30",
+ "data": "supplied snapshot data/setuhaul_freight_operations.db via pg_seed",
+ "reader": "deterministic rules reader (no model call)",
+ "booking": "off in this run (snapshot date is in the past for the database)",
+ "refused_seed_bookings": [
+  "APT1004",
+  "APT1005",
+  "APT1014A",
+  "APT1015A"
+ ],
+ "turns": [
+  {
+   "case": "L1",
+   "ladder_level": 1,
+   "snapshot_thread": "THR011",
+   "driver": "DRV001",
+   "shipment": "SHP1017",
+   "clock": "2026-08-04T10:02:00+05:30",
+   "driver_says": "What slots are possible after 1 PM if I reach around 12:45?",
+   "agent_replies": "Available slots:\n1. Dock D1, 2:00 PM on 4 Aug\n2. Dock D2, 2:00 PM on 4 Aug\n3. Dock D3, 2:00 PM on 4 Aug\nReply with the number you want.",
+   "path": [
+    "options",
+    "phrase:template"
+   ],
+   "turn_ms": 1903,
+   "tools": [
+    [
+     "get_driver_context",
+     "OK"
+    ],
+    [
+     "record_driver_report",
+     "NEEDS_INFO"
+    ],
+    [
+     "find_feasible_options",
+     "OK"
+    ]
+   ],
+   "extraction": {
+    "intent": "REPORT_DELAY",
+    "shipment_ref_mentioned": null,
+    "delay_kind": "ARRIVAL_TIME",
+    "declared_eta_local": "12:45",
+    "declared_eta_range_local": null,
+    "declared_delay_min": null,
+    "earliest_start_local": "13:00",
+    "latest_finish_local": null,
+    "latest_finish_kind": null,
+    "exception_type": "DELAY",
+    "vehicle_fixed": null,
+    "safety_concern": false,
+    "selected_option_id": null,
+    "explicit_confirmation": false,
+    "language": "en",
+    "requested_date_local": null
+   },
+   "evidence": {
+    "new_holds_or_requests": 0
+   }
+  },
+  {
+   "case": "L2a",
+   "ladder_level": 2,
+   "snapshot_thread": "THR003",
+   "driver": "DRV013",
+   "shipment": "SHP1013",
+   "clock": "2026-08-04T09:19:00+05:30",
+   "driver_says": "I am late by one hour.",
+   "agent_replies": "Do you mean you will now reach the gate around 11:00 AM? Reply YES, or send your arrival time.",
+   "path": [
+    "ask:delay_kind"
+   ],
+   "turn_ms": 1290,
+   "tools": [
+    [
+     "get_driver_context",
+     "OK"
+    ],
+    [
+     "record_driver_report",
+     "NEEDS_INFO"
+    ]
+   ],
+   "extraction": {
+    "intent": "REPORT_DELAY",
+    "shipment_ref_mentioned": null,
+    "delay_kind": "DELAY_DURATION",
+    "declared_eta_local": null,
+    "declared_eta_range_local": null,
+    "declared_delay_min": 60,
+    "earliest_start_local": null,
+    "latest_finish_local": null,
+    "latest_finish_kind": null,
+    "exception_type": "DELAY",
+    "vehicle_fixed": null,
+    "safety_concern": false,
+    "selected_option_id": null,
+    "explicit_confirmation": false,
+    "language": "en",
+    "requested_date_local": null
+   }
+  },
+  {
+   "case": "L2b",
+   "ladder_level": 2,
+   "snapshot_thread": "THR010",
+   "driver": "DRV004",
+   "shipment": null,
+   "clock": "2026-08-04T09:31:00+05:30",
+   "driver_says": "I will be late by 45 minutes.",
+   "agent_replies": "You have more than one shipment today. Which order is this about?\n1. ORD-260804-004\n2. ORD-260804-020\nReply with the number.",
+   "path": [
+    "ask-shipment"
+   ],
+   "turn_ms": 1044,
+   "tools": [
+    [
+     "get_driver_context",
+     "OK"
+    ]
+   ],
+   "extraction": {
+    "intent": "REPORT_DELAY",
+    "shipment_ref_mentioned": null,
+    "delay_kind": "DELAY_DURATION",
+    "declared_eta_local": null,
+    "declared_eta_range_local": null,
+    "declared_delay_min": 45,
+    "earliest_start_local": null,
+    "latest_finish_local": null,
+    "latest_finish_kind": null,
+    "exception_type": "DELAY",
+    "vehicle_fixed": null,
+    "safety_concern": false,
+    "selected_option_id": null,
+    "explicit_confirmation": false,
+    "language": "en",
+    "requested_date_local": null
+   }
+  },
+  {
+   "case": "L6",
+   "ladder_level": 6,
+   "snapshot_thread": "THR005",
+   "driver": "DRV015",
+   "shipment": "SHP1015",
+   "clock": "2026-08-04T16:24:00+05:30",
+   "driver_says": "Evening traffic. ETA 6:30. Can the reefer unload tonight?",
+   "agent_replies": "A coordinator has your details and will reply within 10 minutes.",
+   "path": [
+    "options",
+    "escalated:NO_FEASIBLE_SLOT"
+   ],
+   "turn_ms": 2105,
+   "tools": [
+    [
+     "get_driver_context",
+     "OK"
+    ],
+    [
+     "record_driver_report",
+     "NEEDS_INFO"
+    ],
+    [
+     "find_feasible_options",
+     "NOT_FEASIBLE"
+    ],
+    [
+     "escalate_to_human",
+     "OK"
+    ]
+   ],
+   "extraction": {
+    "intent": "REPORT_DELAY",
+    "shipment_ref_mentioned": null,
+    "delay_kind": "ARRIVAL_TIME",
+    "declared_eta_local": "06:30",
+    "declared_eta_range_local": null,
+    "declared_delay_min": null,
+    "earliest_start_local": null,
+    "latest_finish_local": null,
+    "latest_finish_kind": null,
+    "exception_type": "TRAFFIC",
+    "vehicle_fixed": null,
+    "safety_concern": false,
+    "selected_option_id": null,
+    "explicit_confirmation": false,
+    "language": "en",
+    "requested_date_local": null
+   },
+   "evidence": {
+    "escalation": {
+     "reason_code": "NO_FEASIBLE_SLOT",
+     "mode": "DECIDE",
+     "status": "OPEN",
+     "handoff": {
+      "mode": "DECIDE",
+      "queue": "FAC-JAI-01",
+      "reason": "NO_FEASIBLE_SLOT",
+      "built_by": "database",
+      "priority": "HIGH",
+      "driver_id": "DRV015",
+      "thread_id": "THR005",
+      "ack_sla_min": 10,
+      "shipment_id": "SHP1015",
+      "thread_status": "OPEN",
+      "driver_last_message": "(asked for a slot)",
+      "what_driver_was_told": "A coordinator has your details and will reply within 10 minutes."
+     }
+    },
+    "slots_invented_or_held": 0
+   },
+   "why": {
+    "snapshot_engine_outcome": "NO_FEASIBLE_SLOT",
+    "facts": {
+     "status": "IN_TRANSIT",
+     "priority": "HIGH",
+     "weight_kg": 15000,
+     "eta": "17:30",
+     "eta_source": "ORIGINAL_PLAN",
+     "eta_confidence": "MEDIUM",
+     "eta_window": "17:30–17:45",
+     "arrived": false,
+     "ready_ts": "17:55",
+     "capability": "REEFER",
+     "unload_min": 60,
+     "occupancy_min": 70,
+     "current_appointment": "APT1015A D5 17:00–18:00 (CONFIRMED)",
+     "appointment_at_risk": true,
+     "assignment_conflicts": "none",
+     "earliest_start": "—",
+     "latest_finish": "—"
+    },
+    "reefer_docks_at_jaipur": 1,
+    "reefer_dock_events": [
+     [
+      "D5",
+      "MAINTENANCE",
+      "2026-08-04T18:00:00+05:30",
+      "2026-08-04T22:00:00+05:30"
+     ]
+    ],
+    "rejections": {
+     "D1": "['dock type STANDARD ≠ required REEFER']",
+     "D2": "['dock type STANDARD ≠ required REEFER']",
+     "D3": "['dock type STANDARD ≠ required REEFER']",
+     "D4": "['dock type STANDARD ≠ required REEFER']",
+     "D5": "['17:00 starts before truck is ready', '18:00 slot blocked (Refrigeration power maintenance)', '19:00 slot blocked (Refrigeration power maintenance)', '20:00 slot blocked (Refrigeration power maintenance)', '… 1 more']",
+     "D6": "['dock type HEAVY ≠ required REEFER']"
+    }
+   }
+  }
+ ],
+ "checks": [
+  {
+   "check": "L1: options shown, nothing held or requested",
+   "pass": true
+  },
+  {
+   "check": "L2a: asks one clarification question before any option",
+   "pass": true
+  },
+  {
+   "check": "L2b: asks which shipment (two live), offers nothing",
+   "pass": true
+  },
+  {
+   "check": "L6: NO_FEASIBLE_SLOT escalation, OPEN, with a hand-off record",
+   "pass": true
+  },
+  {
+   "check": "L6: no slot invented or held for the escalated shipment",
+   "pass": true
+  },
+  {
+   "check": "L6: independent check: snapshot engine also finds no feasible slot",
+   "pass": true
+  }
+ ]
+}
