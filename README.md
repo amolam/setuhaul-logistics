@@ -92,7 +92,9 @@ Stop the database afterwards:
 python scripts/start_local.py --stop
 ```
 
-If PostgreSQL is already running on port 55432, it is used as is. `--port` picks another port.
+The script only ever uses its own private cluster.
+- If that cluster is already running on another port, it says which port and exits.
+- If any other server holds the port, it names that server, leaves it untouched and exits (code 2). Pick a free port with `--port`.
 
 ## Reproduce the hand-ins
 
@@ -109,9 +111,9 @@ export SETUHAUL_TEST_DSN="host=localhost port=55432 user=postgres"
 | 4. Scenario, six items | `python -m pytest -q tests/test_scenario_run.py tests/test_snapshot_scenario.py` | passed |
 | 4. Brief measures | `python scripts/scenario_measures.py` | Table computed from the evidence files |
 | 5. Integrity proof | `python scripts/integrity_proof.py 10` | `RESULT: PASS (9/9)`: 1 claim, 9 LOST, 0 double bookings |
-| 5. Integrity test, 50 drivers | `python -m pytest -q tests/test_api.py::test_fifty_drivers_race_for_one_slot` | passed |
+| 5. Integrity test, 50 drivers | `python -m pytest -q tests/test_api.py::test_fifty_drivers_race_for_one_slot` | passed: 1 OK, 49 LOST (service answers; not a database count) |
 | + Scheduling comparison | `python scripts/scheduling_compare.py` | FCFS vs EARLIEST_ETA vs FACILITY_SCORE tables |
-| Full suite (about 20 minutes) | `python -m pytest tests -q` | See `docs/challenge/TEST_REPORT.md` |
+| Full suite (5 to 20 minutes) | `python -m pytest tests -q` | CI on PR #58: 2,229 passed, 1 skipped (`docs/challenge/SUBMISSION.md`) |
 
 Without `SETUHAUL_TEST_DSN` only the database-free tests run; the rest are skipped. Configuration names are in
 `.env.example` (placeholders only).

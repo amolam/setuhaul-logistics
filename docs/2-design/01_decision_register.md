@@ -214,6 +214,8 @@ The objective in plain words: less weighted waiting, fewer missed appointments, 
   - Swap cycles get no order and go to a person.
   - Each move is re-proved by `move_appointment()` and refused if anything changed (`APPOINTMENT_CHANGED`, `SLOT_TAKEN`, `PROPOSAL_EXPIRED`, …).
 
+**Reason.** Changes can ripple through the whole day. A proposal that moved trucks already unloading, or silently re-timed promises already given, would cost more trust than it saves. So the work that is fixed is never moved, every change is visible as a score term, and a person applies each move.
+
 **Evidence.**
 - **The replay:** `python scripts/scheduling_compare.py`. Its output is in `docs/3-build/SCHEDULING_TOOL.md` §5. It covers one early, one late and one in-progress truck at one facility, plus the Jaipur snapshot at 09:56.
 - **Item 7 of the scenario run:** the proposal keeps B's confirmed promise and changes 0 appointments (`tests/test_scenario_run.py`).
@@ -232,6 +234,8 @@ The objective in plain words: less weighted waiting, fewer missed appointments, 
 | **Duplicate message** | Unique `(channel, external_message_id)`, plus a content-hash window for retries that arrive with new ids. Unique `dedupe_key` on exceptions |
 | **Retries of tool calls** | Idempotency key (thread, tool, args, turn) returns the stored result |
 
+**Reason.** Chat channels repeat messages and networks retry calls. A stale option or a duplicate must never become a second booking or a silent failure. So freshness is re-checked at commit, and every write is idempotent.
+
 **Evidence.** One replayed case for each:
 - **Duplicate:** THR001 and THR009 (MSG015, 2 s apart) — the second insert is rejected by `dedupe_key` (VAL §4).
 - **Cancellation:** APT1008 frees D2 10:00.
@@ -246,6 +250,8 @@ The objective in plain words: less weighted waiting, fewer missed appointments, 
 
 **Answer.** Escalate in **Decide** mode with a complete hand-off record. Tell the driver plainly what happens and by when. Never invent a slot.
 
+**Reason.** An invented answer is worse than an escalation. A slot the facility cannot honour turns into a broken promise at the gate, while a coordinator with a complete record can solve the case once.
+
 **Evidence.** The SHP1015 escalation message: *"No reefer dock is free tonight because of planned maintenance from 6 PM. An operations coordinator is reviewing options and will message you by 16:45. Please continue to Jaipur safely."* The hand-off record is in `docs/1-frame/02_variables.md` §7. Delivery goes to the durable queue first; e-mail is a best-effort notification, so the OM004-style failure cannot lose it.
 
 **Status:** Decided.
@@ -253,6 +259,8 @@ The objective in plain words: less weighted waiting, fewer missed appointments, 
 #### D11. What do we say when the preferred slot is not granted?
 
 **Answer.** Give the reason in plain words and the best alternative in the same message. Never a bare "no".
+
+**Reason.** A refusal without a reason or a next step costs trust and triggers repeat messages. Telling the driver what happened and what they can do next keeps the conversation moving.
 
 **Evidence.** Two refusal messages as built. They are fixed templates, not model text, and each is asserted by a test.
 1. **Another driver got the slot first.** The reply is *"That slot was just taken."* followed by *"Available slots: 1. … 2. … 3. … Reply with the number you want."*
@@ -275,6 +283,13 @@ The objective in plain words: less weighted waiting, fewer missed appointments, 
 
 **Answer.** 14 triggers across five modes (approve, decide, take over, confirm, oversee), each with an SLA and a safe timeout where silence is never approval. See `docs/1-frame/08_human_in_the_loop.md`.
 
+**Reason.** Safety, penalties, customer commitments, contradictory data and cases with no feasible slot carry risk that a rule cannot own. The brief's boundaries say a person approves or takes over these. Silence must never count as approval.
+
+**Evidence.**
+- Triggers, modes, SLAs and timeouts are defined in `docs/1-frame/08_human_in_the_loop.md` §2–§4.
+- `tests/test_approvals.py` covers approval and rejection decided by the session principal, and the claim being released on rejection. Examples: `test_approve_confirms_with_the_session_principal_one_event_and_an_audit_row`, `test_reject_releases_the_claim_and_records_the_decider`.
+- `tests/test_confirmation_policy.py` covers the rule rows that require a person. Examples: `test_every_facility_has_every_row_and_none_confirms`, `test_a_plain_new_booking_is_the_safe_case_and_still_needs_a_person`, `test_critical_load_needs_a_planner_not_operations`.
+
 **Status:** Decided and implemented.
 - Approvals: `migrations/0015_approval_workflow.sql`, `migrations/0016_confirmation_policy.sql`. Tests: `tests/test_approvals.py`, `tests/test_confirmation_policy.py`.
 - Escalations and takeover: `0009`, `0018`, `0022`.
@@ -290,6 +305,8 @@ The objective in plain words: less weighted waiting, fewer missed appointments, 
 2. **A per-dock advisory lock** gives clean losers instead of deadlocks.
 3. **A concurrency test** in CI.
 4. **A post-run checker** that self-joins active occupancy.
+
+**Reason.** The business trusts an allocation only with evidence. Application checks alone can race, so the guarantee must hold in the database even if the service has a bug or someone writes to the database directly.
 
 **Evidence.** On PostgreSQL 18:
 - 10 / 50 / 200 parallel holds on one window × 30 / 20 / 10 rounds → **exactly one winner every round**.

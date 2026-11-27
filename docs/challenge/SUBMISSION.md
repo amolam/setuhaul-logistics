@@ -73,9 +73,9 @@ This creates and starts a private local PostgreSQL cluster, applies all migratio
 |---|---:|---:|---:|---:|
 | N = 10 (27 Nov 2026) | 10 | 1 | 9 | **0** |
 | N = 20 (23 Nov 2026) | 20 | 1 | 19 | **0** |
-| N = 50 (pytest `test_fifty_drivers_race_for_one_slot`) | 50 | 1 | 49 | 0 (asserted through the statuses) |
+| N = 50 (pytest `test_fifty_drivers_race_for_one_slot`) | 50 | 1 OK | 49 LOST | **not counted** in the database by this test |
 
-A direct insert of an overlapping claim as the database superuser is refused by the constraint (`23P01`).
+The zero-double-booking result is **measured in the database only for N = 10 and N = 20**. Each run counts overlapping active claims across the whole database with plain SQL (0), and a direct insert of an overlapping claim as the database superuser is refused by the constraint (`23P01`). The N = 50 test checks the service's answers (exactly 1 OK, 49 LOST, every loser with fresh options); it does not count claims in the database.
 
 ### 6. Client readout
 
@@ -147,11 +147,18 @@ Every command below was run on this branch, against a fresh local PostgreSQL 18.
 | Targeted tests | `python -m pytest -q tests/test_scenario_run.py tests/test_snapshot_scenario.py tests/test_api.py::test_fifty_drivers_race_for_one_slot tests/test_dispatch_offers.py::test_two_shipments_race_for_the_last_slot_one_wins tests/test_flows.py::test_f2_rejected_request_releases_the_slot_and_the_driver_can_ask_again tests/test_pg_view.py tests/test_feasibility.py tests/test_scheduling.py tests/test_move_appointment.py tests/test_eta.py tests/test_concurrency.py tests/test_traceability.py` | **149 passed** in 235 s |
 | Clean-environment start | Fresh `git clone` of this branch; new Python 3.14.7 venv; `pip install -r requirements-dev.txt`; `python scripts/start_local.py --port 55488`. The local cluster was created from nothing | Demo console HTTP 200 at `/demo` after about 6 s, with 5 seeded drivers. A reefer driver's message led to a `NO_FEASIBLE_SLOT` / `DECIDE` / `OPEN` escalation and the coordinator reply. `--stop` stopped the database |
 | Clean-environment reproduction | In the same clone: `scripts/snapshot_scenario.py`, `scripts/integrity_proof.py 10`, `scripts/frame/run_audit.py` | PASS 6/6; PASS 9/9 (OK = 1, LOST = 9, 0 overlaps); audit regenerated with no diff |
+| `start_local.py` safety | `python -m pytest -q tests/test_start_local.py`, plus `python scripts/start_local.py` on a machine where another PostgreSQL holds port 55432 | 4 passed: a server the script does not own (PostgreSQL or not) is refused with exit 2 and left with the same databases and oids; the private cluster starts, is reused on its port, is refused promptly on another port (the real port is named), stops, and stops again. On the occupied port: exit 2, the other server's version and data directory named, nothing created |
 
-**Not re-run for this submission:**
-- The full suite, which takes about 20 minutes. The last full run is in `TEST_REPORT.md` (23 Nov 2026), and CI runs it on every PR.
-- Anything against AWS.
-- Any paid model evaluation.
+**CI on PR #58** ([run 46040343715](https://github.com/amolam/setuhaul-logistics/actions/runs/46040343715), Ubuntu, Python 3.13, PostgreSQL 17.9):
+
+| CI job | Result |
+|---|---|
+| Full test suite | **2,229 passed, 1 skipped** |
+| Database tests through the Data API backend (emulated) | **749 passed** |
+| Synth | passed |
+| Deploy | skipped, as designed (manual, approval-gated) |
+
+**Not run for this submission:** anything against AWS, and any paid model evaluation.
 
 ## Requirement-to-evidence checklist
 

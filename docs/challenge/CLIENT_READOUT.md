@@ -42,7 +42,7 @@
 - **No GPS:** ETAs come from the plan, the driver, staff and gate-in. Gate-in is entered by hand.
 - **Dispatcher offers:** one option per offer. Drivers cannot cancel a confirmed booking themselves.
 - **AI cost:** AI spend is capped daily. When the cap is reached, a rules reader takes over. Booking safety does not depend on the AI.
-- **Proof:** double-booking safety is proven locally with 10, 20 and 50 drivers racing for one slot. No AWS load test has been run.
+- **Proof:** double-booking safety is proven locally. With 10 and 20 drivers racing for one slot, the database was checked: 0 double bookings. A 50-driver test also gives the slot to exactly one driver. No AWS load test has been run.
 
 ## Decisions and risks for you
 1. **Confirmation deadlines per shift.** Gurugram has no night cover.

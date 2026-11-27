@@ -24,7 +24,9 @@ Every number below is copied from a recorded output file. Each run used a fresh 
 |---|---:|---:|---:|---:|---:|---|---|---|
 | **N = 10**, 27 Nov 2026, on the submission branch | 10 (all in flight before the first answer) | 1 | 9 | 0 | **0** | refused, `23P01` | PASS 9/9 | [`evidence/integrity_proof_n10.txt`](evidence/integrity_proof_n10.txt) |
 | **N = 20**, 23 Nov 2026 | 20 (all in flight before the first answer) | 1 | 19 | 0 | **0** | refused, `23P01` | PASS 9/9 | [`evidence/integrity_proof.txt`](evidence/integrity_proof.txt) |
-| **N = 50**, automated test | 50, behind one barrier | 1 | 49 | 0 | asserted through the statuses; every loser gets fresh options | — | pytest | `tests/test_api.py::test_fifty_drivers_race_for_one_slot` |
+| **N = 50**, automated test | 50, behind one barrier | 1 | 49 | 0 | **not counted in the database by this test**. It checks the service's answers: exactly 1 OK and 49 LOST, every loser with fresh options | — | pytest | `tests/test_api.py::test_fifty_drivers_race_for_one_slot` |
+
+The double-booking count is measured in the database (Q4 and the superuser bypass) only in the N = 10 and N = 20 runs. The N = 50 test shows that the service gives exactly one driver the slot.
 
 The N = 10 run matches the brief's headline: *"ten drivers want the same dock slot"*.
 
