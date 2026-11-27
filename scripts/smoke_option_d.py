@@ -130,9 +130,15 @@ def aws_credentials_ok(now: datetime | None = None, session=None) -> None:
     creds = session.get_credentials()
     if creds is None:
         raise SystemExit("REFUSED before any driver message: no AWS credentials (sign in first)")
-    exp = getattr(creds, "_expiry_time", None) or (
-        datetime.fromisoformat(os.environ["AWS_CREDENTIAL_EXPIRATION"].replace("Z", "+00:00"))
-        if os.environ.get("AWS_CREDENTIAL_EXPIRATION") else None)
+    if hasattr(creds, "refresh_needed"):
+        # refreshable credentials (aws login / SSO / assume-role) come in short pieces and botocore renews them
+        # before expiry: force a refresh now and prove they work below; their piece lifetime is not the session's
+        creds.get_frozen_credentials()
+        exp = None
+    else:
+        exp = getattr(creds, "_expiry_time", None) or (
+            datetime.fromisoformat(os.environ["AWS_CREDENTIAL_EXPIRATION"].replace("Z", "+00:00"))
+            if os.environ.get("AWS_CREDENTIAL_EXPIRATION") else None)
     if exp is not None and (exp - now).total_seconds() < MIN_CREDENTIAL_MINUTES * 60:
         raise SystemExit(f"REFUSED before any driver message: the AWS credentials expire at {exp:%H:%M} UTC, "
                          f"under {MIN_CREDENTIAL_MINUTES} min away (sign in again)")
