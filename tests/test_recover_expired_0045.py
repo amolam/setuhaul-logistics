@@ -82,7 +82,11 @@ def test_a_recovery_from_an_expired_window_cannot_be_chained(c):
     revoke(c, env)                                    # the recovery's own window ends without renewal
     approve(c, a2, d2)                                # even with an approval recorded for it
     d3 = new_release(c, env)
-    refused(lambda: recover(c, d3, a2), "no second hop")
+    a3 = recover(c, d3, a2)["authorization_id"]       # 0049: one additional hop is allowed ...
+    revoke(c, env)
+    approve(c, a3, d3)
+    d4 = new_release(c, env)
+    refused(lambda: recover(c, d4, a3), "no third hop")   # ... never a third
 
 
 def test_an_expiry_more_than_seven_days_ago_does_not_qualify(c):

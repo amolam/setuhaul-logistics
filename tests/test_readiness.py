@@ -161,7 +161,9 @@ def recovery_state(t):
 @pytest.mark.parametrize("t", [target(), target(status="EXPIRED", events=["ISSUED", "EXPIRED"],
                                               closed_at=str(NOW - timedelta(hours=1))),
                                target(status="REVOKED", events=["ISSUED", "REVOKED"],
-                                      closed_at=str(NOW - timedelta(hours=1)), owner_approved=False)])
+                                      closed_at=str(NOW - timedelta(hours=1)), owner_approved=False),
+                               # 0049: a first recovery may be recovered once more (one additional hop)
+                               target(recovery_of=34, recovery_of_was_recovery=False)])
 def test_a_recoverable_target_passes(t):
     checks = rd.assess(recovery_state(t), REF, SHA, recovery=True)
     assert not rd.blockers(checks), [c.__dict__ for c in rd.blockers(checks)]
@@ -172,7 +174,8 @@ def test_a_recoverable_target_passes(t):
     (target(owner_approved=False), "needs the owner's recorded approval"),
     (target(expires_at=str(NOW - timedelta(days=8))), "expired more than 7 days ago"),
     (target(already_recovered=True), "already been recovered once"),
-    (target(recovery_of=34), "itself a recovery"),
+    (target(recovery_of=34), "itself a recovery"),                     # its own target unread: blocks
+    (target(recovery_of=34, recovery_of_was_recovery=True), "no third hop"),   # 0049: never a third hop
     (target(deployment_id="m-" + "c" * 40), "not the running release"),
     (target(status="CONSUMED"), "only a REVOKED or an owner-approved EXPIRED"),
     (target(status="ISSUED", expires_at=str(NOW + timedelta(minutes=30))), "only a REVOKED or an owner-approved EXPIRED"),
