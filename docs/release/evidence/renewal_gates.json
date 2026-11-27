@@ -1,11 +1,11 @@
 {
- "collected_utc": "2026-11-27T10:12:10+00:00",
+ "collected_utc": "2026-11-27T13:36:54+00:00",
  "stack": "SetuHaulPilot",
  "region": "ap-southeast-2",
  "booking_enabled": true,
  "booking_observed": {
   "source": "https://w8ptr7w960.execute-api.ap-southeast-2.amazonaws.com/pilot/health",
-  "observed_utc": "2026-11-27T10:11:56+00:00",
+  "observed_utc": "2026-11-27T13:36:52+00:00",
   "http_status": 200,
   "booking_state": "authorized",
   "booking_enabled": true,
@@ -13,7 +13,7 @@
   "format": "D4 (the database's verdict)",
   "booking_switch": "on",
   "booking_kill_switch": "disengaged",
-  "booking_provisional_until": "2026-11-27T16:23:57.788336+05:30",
+  "booking_provisional_until": "2026-11-27T19:59:07.576963+05:30",
   "version": "0.2.0"
  },
  "deployment_evidence_rows_written": 0,
@@ -21,10 +21,10 @@
   "WORKLOAD_IDENTITY": {
    "evidence": {
     "login_to_group_roles": {
-     "setuhaul_login_agent_f6978345615c": [
+     "setuhaul_login_agent_fa8f865c616c": [
       "setuhaul_agent"
      ],
-     "setuhaul_login_console_f6978345615c": [
+     "setuhaul_login_console_fa8f865c616c": [
       "setuhaul_console"
      ],
      "setuhaul_login_deploy_evidence": [
@@ -116,7 +116,7 @@
     },
     "reach": [
      {
-      "login": "setuhaul_login_agent_f6978345615c",
+      "login": "setuhaul_login_agent_fa8f865c616c",
       "can_use_console": false,
       "can_use_rpc": false,
       "superuser": false,
@@ -124,7 +124,7 @@
       "can_use_db_owner": false
      },
      {
-      "login": "setuhaul_login_console_f6978345615c",
+      "login": "setuhaul_login_console_fa8f865c616c",
       "can_use_console": true,
       "can_use_rpc": false,
       "superuser": false,
@@ -273,8 +273,8 @@
    "evidence": {
     "engine": "aurora-postgresql 17.9",
     "server_version": "17.9",
-    "migrations_live": 49,
-    "migrations_in_repo": 49,
+    "migrations_live": 50,
+    "migrations_in_repo": 50,
     "hash_mismatches": [],
     "repo_only_migrations": [],
     "evidence_triggers": {
@@ -486,8 +486,8 @@
      ]
     },
     "last_48h": {
-     "messages_sent": 100,
-     "messages_deleted": 100,
+     "messages_sent": 123,
+     "messages_deleted": 123,
      "dlq_messages_sent": 0
     },
     "dlq_drill": {
@@ -574,10 +574,10 @@
       "ingest",
       "system"
      ],
-     "code_sha256": "9peDRWFc+GtnAGnRPBPqph3fnDJ3P1/LWpGYfG7saYg="
+     "code_sha256": "+o+GXGFsLO3V87pI94y3igMePNnTefKOWQJ80wM9nL0="
     },
-    "recovery_invocations_last_3_days": 1489,
-    "last_invocation_utc": "2026-11-27T10:10:15.897000+00:00",
+    "recovery_invocations_last_3_days": 1569,
+    "last_invocation_utc": "2026-11-27T13:34:55.154000+00:00",
     "lease_loss_drill": {
      "checks": {
       "clean start: empty queue, no other unprocessed receipt, all data synthetic": true,
@@ -715,11 +715,57 @@
       ],
       "version": "0.2.0"
      },
-     "deployed_booking_mode": "ON (OWNER-APPROVAL-20261127-DEMO-03)",
-     "deployed_approval_ref": "OWNER-APPROVAL-20261127-DEMO-03",
-     "renewal_approval_ref": "OWNER-APPROVAL-20261127-DEMO-03"
+     "deployed_booking_mode": "ON (OWNER-APPROVAL-20261127-DEMO-05)",
+     "deployed_approval_ref": "OWNER-APPROVAL-20261127-DEMO-05",
+     "renewal_approval_ref": "OWNER-APPROVAL-20261127-DEMO-05"
     },
     "approval_executions": [
+     {
+      "approval_id": "6033220d-0003-482f-a1d1-e62918b8e233",
+      "execution": "6033220d",
+      "execution_status": "SUCCEEDED",
+      "started": "2026-11-27T19:01:43.032000+05:30",
+      "category": "B",
+      "verdict": "ATTRIBUTED",
+      "reasons": [
+       "smoke test SMOKE-20261127T133007Z-ea319344 on release d6b20b41ac71"
+      ],
+      "record": {
+       "kind": "STANDARD",
+       "facility_id": "FAC-JAI-01",
+       "shipment_id": "SYN-SHP-8BDB1BD5",
+       "appointment_id": "APT-19268d39231346f8bea6796355c4c9d8",
+       "appointment_status": "CONFIRMED",
+       "status": "APPROVED",
+       "decided_by_type": "HUMAN",
+       "decider_kind": "drill_staff",
+       "created_at": "2026-11-27 13:31:30.597244+00:00",
+       "decided_at": "2026-11-27 13:32:10.385966+00:00"
+      }
+     },
+     {
+      "approval_id": "f8b71a99-4b97-4dbd-89db-6c27a52f22f5",
+      "execution": "f8b71a99",
+      "execution_status": "SUCCEEDED",
+      "started": "2026-11-27T16:59:27.933000+05:30",
+      "category": "E",
+      "verdict": "ATTRIBUTED",
+      "reasons": [
+       "owner-authorised Telegram test-driver booking (SYN-SHP-TEST-1), approved by a planner in the hosted console (never smoke evidence)"
+      ],
+      "record": {
+       "kind": "PLANNER_REVIEW",
+       "facility_id": "FAC-JAI-01",
+       "shipment_id": "SYN-SHP-TEST-1",
+       "appointment_id": "APT-1d5052e8ea164c938a70eaf6a4ca9ead",
+       "appointment_status": "CANCELLED",
+       "status": "APPROVED",
+       "decided_by_type": "HUMAN",
+       "decider_kind": "console_user",
+       "created_at": "2026-11-27 11:28:37.076503+00:00",
+       "decided_at": "2026-11-27 11:29:01.287047+00:00"
+      }
+     },
      {
       "approval_id": "b06d85c7-7717-448c-8bc5-ebca05eb456c",
       "execution": "b06d85c7",
@@ -804,7 +850,7 @@
        "facility_id": "FAC-JAI-01",
        "shipment_id": "SYN-SHP-5608263A",
        "appointment_id": "APT-54731af7b3c64c378680aba637dacac6",
-       "appointment_status": "CONFIRMED",
+       "appointment_status": "NO_SHOW",
        "status": "APPROVED",
        "decided_by_type": "HUMAN",
        "decider_kind": "drill_staff",
@@ -873,7 +919,7 @@
        "facility_id": "FAC-JAI-01",
        "shipment_id": "SYN-SHP-TEST-2",
        "appointment_id": "APT-12211e413bee40628be4a81afe44d4b2",
-       "appointment_status": "CONFIRMED",
+       "appointment_status": "NO_SHOW",
        "status": "APPROVED",
        "decided_by_type": "HUMAN",
        "decider_kind": "console_user",
@@ -942,7 +988,7 @@
        "facility_id": "FAC-JAI-01",
        "shipment_id": "SYN-SHP-TEST-1",
        "appointment_id": "APT-5947d86b3d61438d85fb481c1ba6a4bf",
-       "appointment_status": "CONFIRMED",
+       "appointment_status": "NO_SHOW",
        "status": "APPROVED",
        "decided_by_type": "HUMAN",
        "decider_kind": "console_user",
@@ -988,7 +1034,7 @@
        "facility_id": "FAC-JAI-01",
        "shipment_id": "SYN-SHP-A53FED66",
        "appointment_id": "APT-7626c283a0814f118841dbdc4c75ecd1",
-       "appointment_status": "CONFIRMED",
+       "appointment_status": "NO_SHOW",
        "status": "APPROVED",
        "decided_by_type": "HUMAN",
        "decider_kind": "drill_staff",
@@ -1011,7 +1057,7 @@
        "facility_id": "FAC-JAI-01",
        "shipment_id": "SYN-SHP-FC78D8F3",
        "appointment_id": "APT-4cdacdcd0d0c4ec98a54cd889b2ceef2",
-       "appointment_status": "CONFIRMED",
+       "appointment_status": "NO_SHOW",
        "status": "APPROVED",
        "decided_by_type": "HUMAN",
        "decider_kind": "drill_staff",
@@ -1034,7 +1080,7 @@
        "facility_id": "FAC-JAI-01",
        "shipment_id": "SYN-SHP-DDD13851",
        "appointment_id": "APT-af0e9d8a19174cd7baf0ea7e7a39d139",
-       "appointment_status": "CONFIRMED",
+       "appointment_status": "NO_SHOW",
        "status": "APPROVED",
        "decided_by_type": "HUMAN",
        "decider_kind": "drill_staff",
@@ -1057,7 +1103,7 @@
        "facility_id": "FAC-JAI-01",
        "shipment_id": "SYN-SHP-446452C7",
        "appointment_id": "APT-4fccf7e5809a456f9ea778722f65c48f",
-       "appointment_status": "CONFIRMED",
+       "appointment_status": "NO_SHOW",
        "status": "APPROVED",
        "decided_by_type": "HUMAN",
        "decider_kind": "drill_staff",
@@ -1080,7 +1126,7 @@
        "facility_id": "FAC-JAI-01",
        "shipment_id": "SYN-SHP-59CDBF7C",
        "appointment_id": "APT-8376d6666f904a8681f8735160519a7d",
-       "appointment_status": "CONFIRMED",
+       "appointment_status": "NO_SHOW",
        "status": "APPROVED",
        "decided_by_type": "HUMAN",
        "decider_kind": "drill_staff",
@@ -1103,7 +1149,7 @@
        "facility_id": "FAC-JAI-01",
        "shipment_id": "SYN-SHP-14B0CA5A",
        "appointment_id": "APT-20ccc80eef2740c59478e617e0f81287",
-       "appointment_status": "CONFIRMED",
+       "appointment_status": "NO_SHOW",
        "status": "APPROVED",
        "decided_by_type": "HUMAN",
        "decider_kind": "drill_staff",
@@ -1126,7 +1172,7 @@
        "facility_id": "FAC-JAI-01",
        "shipment_id": "SYN-SHP-08A355E7",
        "appointment_id": "APT-89027b09ab6449d1acdd5a51c6549bc5",
-       "appointment_status": "CONFIRMED",
+       "appointment_status": "NO_SHOW",
        "status": "APPROVED",
        "decided_by_type": "HUMAN",
        "decider_kind": "console_user",
@@ -1172,7 +1218,7 @@
        "facility_id": "FAC-JAI-01",
        "shipment_id": "SYN-SHP-2172ACB8",
        "appointment_id": "APT-01c31ce02a444ad79d6f43d0fa874cc0",
-       "appointment_status": "CONFIRMED",
+       "appointment_status": "NO_SHOW",
        "status": "APPROVED",
        "decided_by_type": "HUMAN",
        "decider_kind": "drill_staff",
@@ -1287,7 +1333,7 @@
        "facility_id": "FAC-JAI-01",
        "shipment_id": "SYN-STEP6-SHP-4AB620D0",
        "appointment_id": "APT-996682f395a24fb4af2852e35b83b004",
-       "appointment_status": "CONFIRMED",
+       "appointment_status": "NO_SHOW",
        "status": "APPROVED",
        "decided_by_type": "HUMAN",
        "decider_kind": "drill_staff",
@@ -1331,6 +1377,7 @@
      "B": [
       "48cb850c",
       "4db1b3ec",
+      "6033220d",
       "73cac501",
       "94d01eed",
       "9ed447a4",
@@ -1353,7 +1400,8 @@
       "251b0c87",
       "3e1786bf",
       "453358af",
-      "7c539fb9"
+      "7c539fb9",
+      "f8b71a99"
      ],
      "X": [
       "3cba692b"
@@ -1362,18 +1410,18 @@
      "failed": []
     },
     "fresh_smoke": {
-     "smoke_id": "SMOKE-20261127T100646Z-de9fc05c",
-     "release_sha": "5b661a123142615f5c157bae4dd01cb07cb2a13a",
+     "smoke_id": "SMOKE-20261127T133007Z-ea319344",
+     "release_sha": "d6b20b41ac711c76e82472f6a2d44d29e4108668",
      "environment": "pilot-ap-southeast-2",
-     "collected_utc": "2026-11-27T10:10:23+00:00",
-     "deployed_code_sha256": "f6978345615cf86b670069d13c13eaa61ddf9c32773f5fcb5a91987c6eec6988",
+     "collected_utc": "2026-11-27T13:35:05+00:00",
+     "deployed_code_sha256": "fa8f865c616c2cedd5f3ba48f78cb78a031e3cd9d379f28e59027cd3033d9cbd",
      "all_pass": true,
      "executions": [
       {
-       "approval_id": "b06d85c7-7717-448c-8bc5-ebca05eb456c",
-       "execution_arn": "arn:aws:states:ap-southeast-2:************:execution:setuhaul-pilot-approval:b06d85c7-7717-448c-8bc5-ebca05eb456c",
-       "shipment_id": "SYN-SHP-05B0AA10",
-       "appointment_id": "APT-28082c58ee44475488709792a4b95ca2",
+       "approval_id": "6033220d-0003-482f-a1d1-e62918b8e233",
+       "execution_arn": "arn:aws:states:ap-southeast-2:************:execution:setuhaul-pilot-approval:6033220d-0003-482f-a1d1-e62918b8e233",
+       "shipment_id": "SYN-SHP-8BDB1BD5",
+       "appointment_id": "APT-19268d39231346f8bea6796355c4c9d8",
        "facility_id": "FAC-JAI-01"
       }
      ]
@@ -1384,7 +1432,7 @@
      "live_definition_sha256": "d5d970c03393afa647027e6f43c5c37dbfcb46cea9731b4b3b9b67181c45f908",
      "repo_definition_sha256": "d5d970c03393afa647027e6f43c5c37dbfcb46cea9731b4b3b9b67181c45f908"
     },
-    "executions_total": 26,
+    "executions_total": 28,
     "api_log_corroboration": {
      "87915a37-918e-46b5-8872-8ecaa4fc7a24": {
       "status": "verified",
@@ -1456,9 +1504,9 @@
  },
  "mode": "renewal",
  "environment": "pilot-ap-southeast-2",
- "release_sha": "5b661a123142615f5c157bae4dd01cb07cb2a13a",
- "approval_ref": "OWNER-APPROVAL-20261127-DEMO-03",
- "artifact_sha256": "f6978345615cf86b670069d13c13eaa61ddf9c32773f5fcb5a91987c6eec6988",
+ "release_sha": "d6b20b41ac711c76e82472f6a2d44d29e4108668",
+ "approval_ref": "OWNER-APPROVAL-20261127-DEMO-05",
+ "artifact_sha256": "fa8f865c616c2cedd5f3ba48f78cb78a031e3cd9d379f28e59027cd3033d9cbd",
  "expected_kill_switch": "disengaged",
  "approved_exceptions": [
   "AURORA (T33-P)",
