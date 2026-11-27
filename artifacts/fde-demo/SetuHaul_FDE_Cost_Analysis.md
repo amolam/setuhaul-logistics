@@ -1,6 +1,9 @@
 # SetuHaul FDE Demo: Cost and Performance Analysis
 
-**Scope:** release `4b9ac56` (evidence head `e3c5bbe`), synthetic pilot `pilot-ap-southeast-2` · prepared 26 Nov 2026.
+**Scope:** release `4b9ac56` (evidence head `e3c5bbe`), synthetic pilot `pilot-ap-southeast-2` · prepared 26 Nov 2026 ·
+**updated 27 Nov 2026** for the owner's new model budgets (DEMO-04: **$2.00/day overall, of which $0.75/day for the
+judge**). The 26 Nov figures below are kept where they describe what was measured then; the budget, capacity and
+binding-limit statements are updated (§2.5, §4.3, §4.4) and marked.
 
 Every number has one of these labels:
 - **ACTUAL**: billed or ledger-recorded money;
@@ -24,7 +27,7 @@ A projection is never actual spend.
 | p5 eval re-runs, 26 Nov (golden v4, held-out h1, live replay v4) | COMPUTED (result files) | $1.0462 | three `*_20261126_*.json` result files |
 | Aborted first v4 attempt, 26 Nov (≈ 38 calls) | **ESTIMATE** | ≈ $0.14 | cache entries; not in any result file |
 | OpenRouter key limit and counter | REPORTED (owner-run key endpoint read, 26 Nov, before the replay) | $10 limit, no reset; $5.98 used, $4.02 remaining | – |
-| Pilot model spend since 23 Nov (agent extraction and online judge) | **NOT AVAILABLE** | In the pilot's `model_usage` / `model_budget_day` tables. Not read: reading them would resume the paused Aurora cluster. Bounded above by the $0.25/day cap | `COSTS.md` "How to inspect usage" |
+| Pilot model spend since 23 Nov (agent extraction and online judge) | **NOT AVAILABLE** | In the pilot's `model_usage` / `model_budget_day` tables. Not read: reading them would resume the paused Aurora cluster. Bounded above by the daily cap ($0.25/day until the DEMO-04 release; $2.00/day after it) | `COSTS.md` "How to inspect usage" |
 | Pilot judge cost per judgement | REPORTED | ≈ $0.0033 (9 turns scored on 26 Nov) | previous session |
 | AWS bill | **NOT AVAILABLE** | Owner to read Billing → Bills (free) before quoting | – |
 | AWS monthly estimate | ESTIMATE | idle ≈ $6.50–6.90; a few hours a week ≈ $8–10; always on with WAF ≈ $85–100 | `docs/release/09_LOW_COST_PILOT_PLAN.md` |
@@ -88,14 +91,15 @@ About $1.50 of the $3.16 went on full-set reruns after fixes that touched only a
 ### 2.5 What happens when the budget is exhausted
 
 1. Before each attempt, `reserve_model_call` (migration 0023) atomically reserves the upper-bound cost in PostgreSQL for the UTC day.
-2. If the reservation would exceed `SETUHAUL_LLM_DAILY_BUDGET_USD` ($0.25), no request is sent (`budget_exhausted`, $0).
+2. If the reservation would exceed `SETUHAUL_LLM_DAILY_BUDGET_USD` (**$2.00 from the DEMO-04 release**; $0.25 before), no request is sent (`budget_exhausted`, $0). The value is now an explicit, checked input of the activation run (`llm_daily_budget_usd`, 0.25–2, default 2); the stack refuses a value above $2 or below the judge's budget.
 3. The orchestrator uses the rules reader. Booking, approval and outbound are unaffected. The driver is understood less well: on held-out h1, intent accuracy is 61.2% for the rules reader against 98.0% for the model.
 4. Independently, the OpenRouter key limit ($10 total, **no reset**, no auto top-up) makes OpenRouter answer 402/403 once spent, which is never retried. It is a lifetime ceiling, not a monthly budget. (The owner approved $3/month on 21 Nov; the key endpoint on 26 Nov shows $10 with no reset, and the owner confirmed that the pilot and the evaluation runs use this same key, so evals and the pilot draw on one $10. `COSTS.md` records both.)
 5. The online judge is limited twice (`setuhaul/agent/online_judge.py`):
-   - **Configured judge budget, $0.50/day** (`SETUHAUL_LLM_JUDGE_DAILY_BUDGET_USD`; stack output `LlmJudge`). This is the judge's own sub-cap (refusal reason `judge_daily_cap`).
-   - **Shared application cap, $0.25/day** (`SETUHAUL_LLM_DAILY_BUDGET_USD`). The judge's reservations are checked against the shared cap minus `SETUHAUL_LLM_JUDGE_AGENT_RESERVE_USD`. That reserve defaults to half the shared cap; no override was found in `infra/setuhaul_stack.py`. Refusal reason: `shared_daily_cap`.
+   - **Configured judge budget** (`SETUHAUL_LLM_JUDGE_DAILY_BUDGET_USD`; stack output `LlmJudge`): the judge's own sub-cap (refusal reason `judge_daily_cap`). **$0.75/day from the DEMO-04 release** ($0.50 before).
+   - **Shared application cap** (`SETUHAUL_LLM_DAILY_BUDGET_USD`). The judge's reservations are checked against the shared cap minus `SETUHAUL_LLM_JUDGE_AGENT_RESERVE_USD`. That reserve defaults to half the shared cap; no override was found in `infra/setuhaul_stack.py`. Refusal reason: `shared_daily_cap`.
 
-   So the agent's reserve is protected, and the $0.50 figure is never the binding limit while the shared cap is $0.25. After the deploy the observed skip reason was `budget:shared_daily_cap` (REPORTED). The exact usage balance at that moment is **not available**: it lives in the pilot's ledger, which was not read. Any change to either budget is an owner decision; this analysis does not recommend raising either.
+   **Before DEMO-04** the shared cap was $0.25, so the judge could use at most $0.125 of headroom and was in practice always skipped: on 27 Nov every sampled turn logged `budget:shared_daily_cap` (pilot agent log, e.g. 11:09 UTC). **From DEMO-04** the shared cap is $2.00, the agent's reserve is $1.00, and the judge's own $0.75 is the binding judge limit (owner decision, 27 Nov). Whether the judge then actually scores turns is to be verified on the pilot after the deploy (Evidence Register Part D).
+6. **The $10 OpenRouter key limit (no reset) becomes the first limit to bind.** At $2/day of headroom, and with $4.02 remaining at the 26 Nov check (less the $0.30 replay and pilot use since), the key can be exhausted within about two days of heavy use. When it is spent every model call fails (402/403, not retried) and the agent uses the rules reader. Raising or resetting the key limit is an owner action at OpenRouter.
 
 ## 3. Infrastructure cost (AWS, Sydney)
 
@@ -162,9 +166,9 @@ Cost per *successful* booking needs the success rate. On the 23 Nov local load t
 ### 4.3 Monthly scenarios (PROJECTION, not demonstrated AWS capacity)
 
 None of these volumes has been run on AWS. Today the pilot is limited by design:
-- the $0.25/day app cap;
-- the $10 OpenRouter key limit, which never resets (a lifetime ceiling, so no monthly capacity is derived from it);
-- the daily cap alone allows ≈ 20–42 bookings/day (ESTIMATE: $0.25 ÷ $0.0059–0.0128 LLM cost per booking including the judge, §4.2).
+- the app cap: **$2.00/day from DEMO-04** ($0.25/day before);
+- the $10 OpenRouter key limit, which never resets (a lifetime ceiling, so no monthly capacity is derived from it). At $2/day it binds first (§2.5, item 6);
+- the daily cap alone allows ≈ 156–339 bookings/day from DEMO-04 (ESTIMATE: $2.00 ÷ $0.0059–0.0128 LLM cost per booking including the judge, §4.2); ≈ 20–42 at the earlier $0.25.
 
 | Bookings / month | ≈ per day | LLM / month | AWS / month (assumption) | Total / month | Per 1,000 bookings |
 |---|---|---|---|---|---|
@@ -183,7 +187,7 @@ The slide 14 chart plots the **upper** values per 1,000 bookings: $112.8, $22.8 
 
 | Constraint | Today | Breaks at |
 |---|---|---|
-| App LLM cap $0.25/day | ≈ 20–42 bookings/day (ESTIMATE: $0.25 ÷ $0.0059–0.0128 LLM cost per booking including the judge, §4.2). Method: daily cap ÷ LLM cost per booking (3 extraction turns + 0.6 judgements). The judge shares the cap, and at most the headroom above the agent reserve | above ≈ 600–1,300 bookings/month (ESTIMATE). Raising it is an owner decision |
+| App LLM cap **$2.00/day** (DEMO-04, owner 27 Nov; $0.25 before) | ≈ 156–339 bookings/day (ESTIMATE: $2.00 ÷ $0.0059–0.0128 LLM cost per booking including the judge, §4.2). Method: daily cap ÷ LLM cost per booking (3 extraction turns + 0.6 judgements). The judge shares the cap, at most the headroom above the agent reserve, and its own $0.75 | above ≈ 4,700–10,000 bookings/month (ESTIMATE). In practice the $10 key limit binds long before |
 | OpenRouter key limit $10, no reset | $4.02 remaining at the 26 Nov check (before the $0.30 replay) | a lifetime ceiling: when spent, model calls stop until the owner raises it; no monthly capacity is derived |
 | Aurora max 2 ACU | sized for the pilot | must rise before 100,000/month; not load-tested on AWS |
 | Agent turn latency 8.5–11 s on the pilot (REPORTED) | fine for 2 drivers | the 20–35-message spike in the brief has **not** been tested on AWS |

@@ -4,6 +4,12 @@
 
 **The one idea to carry through:** *the AI reads; code and the database decide; people approve.* Every slide is a variation on that sentence, and every hard question has an answer that goes back to it.
 
+> **Updated 27 Nov 2026.** Changed for the 27 Nov releases (Evidence Register Part D): slide 8 PII answer, slide 10
+> cost answer, slide 11 (one trace tree per message, full operational content with name/phone/credentials removed),
+> slide 14 budgets ($2.00/day, judge $0.75; the $10 key limit binds first), slide 15 (a fifth hard problem: two
+> releases stopped by their own gates), demo step 6. Prompt p6's paid evaluation was deferred: slide 9's p5 numbers
+> are **not** results for p6 — say so if asked.
+
 ---
 
 ## 0. Timing plan
@@ -166,7 +172,7 @@
 7. **Transition:** "Controls stop bad actions. But how good is the model at its one job?"
 8. **Likely questions:**
    - "Prompt injection?" Treated as data. The worst case is a wrong field, caught downstream.
-   - "PII?" Kept in PostgreSQL; ids only in traces.
+   - "PII?" Kept in PostgreSQL. In the synthetic pilot, traces carry full operational content for debugging, but the driver's name and phone and every credential are removed before anything leaves the process, and full content is refused outside the synthetic pilot (code and CDK).
 9. **Do not claim:** that prompt wording provides security; tenant isolation (single tenant).
 10. **Evidence:** `security.py`, `extraction.py`, `telegram.py`, migrations 0026/0030/0032/0036/0040.
 11. **Time:** 1:30.
@@ -202,16 +208,16 @@
 5. **Decisions:** steps 2–4 deliberately use no AI.
 6. **Business relevance:** a late truck is re-slotted without a phone call, and a planner still decides.
 7. **Transition:** "What you just saw, as a trace."
-8. **Likely questions:** "What did that cost?" A handful of extractions at fractions of a cent each, within a $0.25 daily cap.
-9. **Do not claim:** that the judge will score live (it may be skipped; see the gap analysis); WhatsApp.
+8. **Likely questions:** "What did that cost?" A handful of extractions at fractions of a cent each, within a $2.00 daily cap.
+9. **Do not claim:** that the judge will score live unless a sampled `llm_judge` run was seen after the DEMO-04 deploy; WhatsApp.
 10. **Evidence:** `SetuHaul_FDE_Live_Demo_Runbook.md`; `TELEGRAM_TEST_BOT_VALIDATION_REPORT.md` journeys A and C.
 11. **Time:** 6:00.
 
-## Slide 11: Main conversation path correlated in LangSmith; ids only
+## Slide 11: One trace tree per message in LangSmith; name and phone masked
 
 1. **Purpose:** observability as an engineering tool.
-2. **Key message:** traces answer "what happened to this booking?"
-3. **Script:** "On the main conversation path, the webhook, the agent turn, the judge and the outbound send share one opaque thread id, so LangSmith groups the conversation. Not every run yet: four inbound runs for link codes and button callbacks have no thread id. Inside the agent turn you see the extraction with the model name, tokens, cost and latency, and each tool span with its result code. The judge is a child of the turn it scored. What's not there is just as important: no message text, no phone number, no chat id. What is there are pseudonymous internal ids, here synthetic driver, shipment and facility ids, after a format gate. To investigate a failed booking you filter by driver id, read the turn's outcome, open the failing tool span, and confirm in the database's audit trail. Gaps: four inbound runs, link codes and button callbacks, don't carry the thread id yet, and we alert from CloudWatch, not from traces."
+2. **Key message:** traces answer "what happened to this booking?" from the trace alone.
+3. **Script (DEMO-04):** "Every Telegram message is one tree: the inbound webhook, then the agent turn under it, then the outbound send under the turn. Inside the turn you see what the model read and what it returned, with model, tokens, cost and latency; each tool with its result; and the decision path. The judge is a child of the turn it scored. This is a synthetic pilot, so we export full operational content for debugging. Two things never leave the process: the driver's name and phone, and any credential. Full content is refused outside the synthetic pilot, in code and in the infrastructure. One honest story: on 27 November we found that the export guard had been dropping the test drivers' traces, because their names contained ordinary words that also appear in ids. The guard did what it should, fail closed, but it was too blunt; it now never scans ids, and there's a regression test. Gaps: link-code and button-callback runs, offer continuations and proactive notices are still their own roots, and we alert from CloudWatch, not from traces."
 4. **Technical concepts:** trace, run, parent/child; logs vs metrics vs traces; correlation ids; PII redaction at the export boundary.
 5. **Decisions:** a custom exporter so we control exactly what leaves the process.
 6. **Business relevance:** support can answer "why was my slot refused?" from one link.
@@ -219,8 +225,9 @@
 8. **Likely questions:**
    - "Why LangSmith?" Thread view, feedback on runs, datasets and experiments in one place.
    - "Cost of tracing?" Measured overhead was 13 ms per turn locally; the LangSmith bill is not known.
-9. **Do not claim:** complete observability; trace-based alerting.
-10. **Evidence:** `tracing.py`, `identifiers.py`, `redaction.py`, commit `ff4076d`, PR #17, `g1_perf_20261123_1500.json`.
+   - "Isn't exporting message text risky?" It's synthetic data, the setting is pilot-only and enforced, and name, phone and credentials are still removed. With real drivers we'd go back to a reviewed field list.
+9. **Do not claim:** complete observability; trace-based alerting; full content in any environment other than the synthetic pilot; the tree for every run type.
+10. **Evidence:** `tracing.py`, `redaction.py`, `notify/telegram.py`, migration 0050, `tests/test_trace_content_full.py`, commit `ff4076d`, PR #17, `g1_perf_20261123_1500.json`.
 11. **Time:** 1:15.
 
 ## Slide 12: Tests prove the rules; evaluations measure the model
@@ -255,7 +262,7 @@
 
 1. **Purpose:** FinOps fluency.
 2. **Key message:** recorded dev/eval spend is known and small; current pilot LLM spend, AWS billing and LangSmith billing are not available; scale numbers are projections, not demonstrated capacity; spend is capped by construction.
-3. **Script:** "Actuals first. Recorded model spend for development and evaluation up to 18 November was about $3.16, from the key's own counter. The two judge runs cost 21 cents, from our ledger. One extraction costs about a third of a cent at most. What I don't have: the current pilot model spend, the AWS bill and the LangSmith bill. I'm not quoting any of them; the estimate for the idle AWS pilot is about $7 a month. The chart is a projection with the assumptions underneath, and it is not demonstrated capacity: we have never run ten thousand or a hundred thousand bookings a month on AWS. At a hundred bookings a month, fixed AWS cost dominates. At a hundred thousand, the LLM dominates, at about 1.3 cents a booking. Today's limits: a $0.25 daily cap reserved in PostgreSQL before every call and that cap alone allows roughly 20 to 42 bookings a day, an estimate from the per-booking cost including the judge. Separately, the OpenRouter key has a $10 limit that never resets, so I don't turn it into a monthly capacity. The p5 re-runs on 26 November cost $1.05 across three runs; a first attempt crashed after about 38 calls, roughly 14 cents by estimate, and the key's own counter is the authoritative total. The judge only gets the shared cap's headroom above an agent reserve. When the budget runs out, the rules reader takes over and booking keeps working."
+3. **Script:** "Actuals first. Recorded model spend for development and evaluation up to 18 November was about $3.16, from the key's own counter. The two judge runs cost 21 cents, from our ledger. One extraction costs about a third of a cent at most. What I don't have: the current pilot model spend, the AWS bill and the LangSmith bill. I'm not quoting any of them; the estimate for the idle AWS pilot is about $7 a month. The chart is a projection with the assumptions underneath, and it is not demonstrated capacity: we have never run ten thousand or a hundred thousand bookings a month on AWS. At a hundred bookings a month, fixed AWS cost dominates. At a hundred thousand, the LLM dominates, at about 1.3 cents a booking. Today's limits: a $2 daily cap, reserved in PostgreSQL before every call, of which the judge may use 75 cents; the cap alone would allow roughly 150 to 340 bookings a day, an estimate from the per-booking cost including the judge. Until 27 November the cap was 25 cents and the judge never got a turn, so we raised it on purpose. The binding limit is now the OpenRouter key: $10 that never resets, so I don't turn it into a monthly capacity. The p5 re-runs on 26 November cost $1.05 across three runs; a first attempt crashed after about 38 calls, roughly 14 cents by estimate, and the key's own counter is the authoritative total. When the budget runs out, the rules reader takes over and booking keeps working."
 4. **Technical concepts:** reservation-then-settle metering; fixed vs variable vs usage-based cost; why growth is not linear.
 5. **Decisions:**
    - templates instead of a phrasing model, so there is no second model call per turn;
@@ -263,7 +270,7 @@
    - judge sampling at 20%.
 6. **Business relevance:** AI cost per booking is cents; the real cost driver at scale is how many turns need the model.
 7. **Transition:** "Here's what was hard, and what isn't solved."
-8. **Likely questions:** "Isn't $0.25/day tiny?" Deliberately so. By estimate it supports about 20–42 bookings a day; any change to the limits is an explicit owner decision.
+8. **Likely questions:** "Why $2 a day?" The owner's decision on 27 November, so the judge actually runs; it is a checked deployment input, and the stack refuses more than $2 or less than the judge's budget. The $10 non-resetting key limit binds first.
 9. **Do not claim:** an AWS figure as billed; current pilot LLM spend; projections as actuals or as demonstrated capacity; LangSmith cost.
 10. **Evidence:** `COSTS.md`; `judge_*.json`; `golden_h1_model_*`; `09_LOW_COST_PILOT_PLAN.md`; `SetuHaul_FDE_Cost_Analysis.md`.
 11. **Time:** 1:15.
@@ -277,6 +284,7 @@
    - Latency: "Replies waited for a timer. Now they're event-driven, with the timer as a fallback. The after-numbers are preliminary: six reported exchanges."
    - Judge trust: "An always-5 dummy scores 88% agreement, so planted defects became an acceptance rule. Against my own scores the judge reaches 93.3%: real, but a modest margin."
    - Synthetic-pilot activation safety: "Evidence goes stale, and humans forget. The database refuses to book without current evidence, authorization expires, and every approval is re-attributed weekly."
+   - The gates stopping our own releases (27 Nov): "Two releases in one morning stopped at renewal: one smoke booking had no passing record, one smoke died on an expired sign-in after it had already created a request. The runbook says revoke, so we revoked; booking went off. We fixed forward: an owner-confirmed category for the first, an exemption only for requests that expired without being confirmed and hold no dock time, a credential check before the smoke sends anything, and one more allowed recovery hop. The third release renewed cleanly."
 
    Then read the open issues without apologising.
 4. **Technical concepts:** problem → investigation → decision → implementation → outcome.
@@ -315,7 +323,7 @@
 | 3 (0:30) | "The driver taps Accept. Important: that's a request, not a booking. Acceptance is never confirmation." |
 | 4 (0:45) | "Now I'm the planner. One pending request. Approve." *Phone:* "'Your dock booking is confirmed by the warehouse.' And the conversation view updates on its own every three seconds." |
 | 5 (1:30) | "Now the AI part. The driver is stuck in traffic and writes in Hinglish." *Type.* "The model has read it into a typed form: intent delay, duration 45 minutes, language Hinglish. But we don't act yet; we read the time back." *Reply 'haan'.* "Now code, not the model, computes feasible slots." *Pick 2.* "Held, requested, and the reply says plainly it is not confirmed yet." |
-| 6 (1:00) | "As an engineer: here's that conversation in LangSmith. One thread: inbound, the agent turn with the extraction (model, tokens, cost, latency), each tool, and the outbound send. No message text, no phone, no chat id." |
+| 6 (1:00) | "As an engineer: here's that message in LangSmith. One tree: inbound, the agent turn under it with what the model read and returned (model, tokens, cost, latency), each tool with its result, and the outbound send with the text that went out. The driver's name and phone are masked; no credential is ever exported." |
 | 7 (0:45) | "Last: a stale action. Ten minutes ago the dispatcher sent driver two an offer. It has expired. Driver two taps Accept." *Phone:* "'This offer has expired. Your dispatcher can send a new one.' No appointment. That refusal isn't the model's opinion; it's a rule in the system." |
 
 **If something fails:** "This is why we have fallbacks." Switch to the recorded run (runbook §9) without apologising, and keep the persona → AI → tool → control → outcome narration.
