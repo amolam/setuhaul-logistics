@@ -1,6 +1,6 @@
 # SetuHaul FDE Demo: Technical and Leadership Q&A Preparation
 
-**96 questions** in 13 groups (group M added 27 Nov), plus 6 rapid-fire hard questions at the end. Each has:
+**101 questions** in 14 groups (groups M and N added 27 Nov), plus 6 rapid-fire hard questions at the end. Each has:
 - **S**: a short answer (about 30 s);
 - **D**: a detailed answer (1–2 min);
 - **E**: implementation evidence;
@@ -381,7 +381,7 @@ the $0.25 cap or "ids only", group M and the Evidence Register Part D take prece
 
   The owner raised both on 27 Nov so the judge actually runs; the overall budget is now a checked deployment input and may never be below the judge's.
 - **E:** `online_judge.py`; stack output `LlmJudge`; `infra/setuhaul_stack.py` (`LLM_DAILY_MAX_USD`); `tests/test_infra.py`.
-- **F:** "So the judge is running?" → Verify after the DEMO-04 deploy: a sampled turn shows an `llm_judge` child in LangSmith. Before that, 9 turns were scored on 26 Nov (reported).
+- **F:** "So the judge is running?" → Yes, since DEMO-04: verified 27 Nov during the 13:30 UTC smoke: 2 sampled smoke turns `SCORED` (agent log); 20% of turns are sampled. Before that, 9 turns were scored on 26 Nov (reported).
 
 **G8. Can the judge itself hallucinate?**
 - **S:** Yes. That's why it's advisory, validated strictly, and calibrated against baselines and one human reviewer, not yet blind or multi-reviewer.
@@ -698,6 +698,29 @@ the $0.25 cap or "ids only", group M and the Evidence Register Part D take prece
 **M6. Why did a test driver's booking stop after YES?**
 - **S:** An old SAFETY escalation was still open on the shipment; by design such a booking goes to a person. The bug was that the conversation then stayed stuck at HELD. DEMO-04 releases the hold, resets the conversation and logs the reason; planners can now resolve escalations directly.
 - **E:** `service._book_accepted_offer`, `_reset_offer_flow`; `tests/test_dispatch_offers.py`.
+
+---
+
+## N. The business workflow (added 27 Nov 2026; `SetuHaul_FDE_Business_Workflow.md`)
+
+**N1. What is the difference between the driver confirming and the planner approving?**
+- **S:** Two events. The driver's YES (or Accept) only holds the slot and creates a request, and the reply says "NOT confirmed yet". Only a planner's approval, or an eligible AUTO rule, makes the booking; then the driver reads "confirmed by the warehouse".
+- **E:** `replies.py` (`pending`), `outbound.py` (`booking_approved`); smoke checks 2a–2c.
+
+**N2. What exactly does AUTO approve?**
+- **S:** Only an eligible booking the driver made in the chat: a planner-authorised, auto-eligible rule, a standard request, no risk flag, and not a dispatcher offer. Dispatcher offers, dispatcher time changes and cancellations always need a planner.
+- **E:** migration 0047 (`v_auto`, `f_dispatch`); `tests/test_facility_approval_mode*.py`.
+- **F:** "Why not AUTO for dispatcher offers?" → The dispatcher chose the slot; a second person decides (separation of duties).
+
+**N3. Can a dispatcher send the driver several options?**
+- **S:** Not today. An offer is one slot; the driver accepts, declines, or asks for another time, and the dispatcher sends a new offer. Several options appear only in the driver's own chat booking. This is gap W1.
+
+**N4. Can a driver cancel?**
+- **S:** Not by themselves. A dispatcher, operations or ops lead requests the cancellation and a planner decides. A driver's "cancel" only releases a slot still on hold. This is gap W4.
+
+**N5. Walk me through a no-show.**
+- **S:** No gate arrival by slot start plus the facility's grace period (Jaipur 30 minutes, Gurugram 20): the system marks NO_SHOW, frees the dock and tells the driver. The dispatcher chooses Rebook (back to Needs booking) or Request cancellation (a planner decides). Until then the database refuses a new booking for that shipment.
+- **E:** migration 0048; `tests/test_lifecycle_0048.py`; Q&A M1–M2.
 
 ---
 

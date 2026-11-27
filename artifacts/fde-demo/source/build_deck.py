@@ -19,7 +19,7 @@ from pptx_kit import (AI_FILL, AI_LINE, AMBER, BLUE, DET_FILL, DET_LINE, EXT_FIL
                       legend_row, new_deck, notes, table, text)
 
 OUT = HERE.parent
-TOTAL = 16
+TOTAL = 17
 
 
 def frame(p, n, title, message, source):
@@ -129,15 +129,17 @@ def build_deck():
           "to a test or live check, which is what makes the requirements testable. (60 s)")
 
     # 4 ------------------------------------------------------------------------------------------------------------
-    s = frame(p, 4, "AI at the edges, code in the middle, people decide",
-              "The LLM reads every driver message; it never books, approves or promises",
-              "setuhaul/agent/orchestrator.py (module docstring), docs/challenge/CLIENT_READOUT.md, PR #15")
-    D.d_workflow(s)
-    legend_row(s, 0.5, 6.7, D.LEGEND, size=10.5)
-    notes(s, "Walk the lanes left to right. Amber is the only AI step: reading a message into a typed form. "
-          "Blue is deterministic code and PostgreSQL. Green is a person. Notice the read-back before anything "
-          "moves, and that the planner, not the AI, confirms. The dispatcher path uses Telegram buttons and "
-          "reassignment needs a second person. (75 s)")
+    s = frame(p, 4, "One booking, end to end: who does what, who decides",
+              "Drivers confirm; planners approve (or an eligible AUTO rule); operations record arrival; no-shows return to dispatch",
+              "migrations 0035, 0037, 0047, 0048; setuhaul/api/service.py; SetuHaul_FDE_Business_Workflow.md (release d6b20b4)")
+    D.d_business_workflow(s)
+    notes(s, "This is the business workflow as deployed. Walk it by actor. The dispatcher offers one slot to a "
+          "driver. The driver's Accept is a confirmation, not a booking: it holds the slot and creates a request. A "
+          "planner approves; a dispatcher's offer always goes to a planner, even when the facility is in AUTO. AUTO "
+          "only confirms an eligible, low-risk booking the driver made in the chat. Operations or the ops lead record "
+          "gate, dock and completed. If nobody records the arrival by start plus the facility's grace, the system "
+          "marks a no-show by itself, frees the dock and tells the driver; the dispatcher then rebooks or asks a "
+          "planner to cancel. The AI's only job is reading what drivers write (slide 6). (75 s)")
 
     # 5 ------------------------------------------------------------------------------------------------------------
     s = frame(p, 5, "Serverless on AWS Sydney; PostgreSQL is the source of truth",
@@ -528,6 +530,17 @@ def build_deck():
           "The expected column needs a real pilot baseline. Close on the chain and the one-sentence principle. "
           "Then invite questions. (60 s)")
 
+    # 17 (appendix) ------------------------------------------------------------------------------------------------
+    s = frame(p, 17, "A real conversation: the driver confirms, the planner approves",
+              "Telegram templates as deployed; MANUAL vs AUTO by booking type",
+              "setuhaul/agent/replies.py, notify/telegram.py OFFER_REPLIES, notify/outbound.py TEMPLATES, migrations 0047, 0048")
+    D.d_conversation(s)
+    notes(s, "Use when asked how it feels for a driver, or what AUTO changes. Left: the exact texts a driver sees in a "
+          "chat booking, from the deployed templates. YES is a confirmation, and the reply says plainly it is not "
+          "confirmed yet; only the planner's decision produces 'confirmed by the warehouse'. Right: MANUAL vs AUTO. "
+          "AUTO only ever confirms an eligible driver-chat booking; dispatcher offers, time changes and cancellations "
+          "always need a planner. (60 s)")
+
     path = OUT / "SetuHaul_FDE_Demo.pptx"
     p.save(path)
     return path
@@ -553,6 +566,8 @@ def build_diagrams():
         ("charts/14_llm_cost_breakdown", "LLM cost breakdown (actual)", lambda s: D.c_llm_spend(s, 0.5, 1.5, 12.33, 5.3)),
         ("charts/15_performance_latency_comparison", "Performance and latency comparison", lambda s: D.c_latency(s, 0.5, 1.5, 12.33, 5.3)),
         ("diagrams/16_future_roadmap", "Future roadmap", D.d_roadmap),
+        ("diagrams/17_business_workflow_by_actor", "Business workflow by actor (release d6b20b4)", D.d_business_workflow),
+        ("diagrams/18_telegram_conversation_manual_vs_auto", "Telegram conversation; MANUAL vs AUTO", D.d_conversation),
         ("charts/eval_model_vs_rules_heldout_h1", "Model vs rules reader, held-out h1", lambda s: D.c_eval_model_vs_rules(s, 0.5, 1.5, 12.33, 5.3)),
         ("charts/unit_cost_per_1000_bookings_projection", "Unit economics (projection)", lambda s: D.c_unit_cost(s, 0.5, 1.5, 12.33, 5.3)),
         ("charts/judge_vs_always5_baseline", "LLM judge vs always-5 baseline", lambda s: D.c_judge_vs_baseline(s, 0.5, 1.5, 12.33, 5.3)),

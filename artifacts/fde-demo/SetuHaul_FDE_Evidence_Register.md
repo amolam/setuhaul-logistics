@@ -288,7 +288,7 @@ LangSmith project `setuhaul-synthetic-pilot` is on. Since the demo release, the 
 - A latency speed-up multiple ("4×", "45×") or any service level; the after-sample is preliminary and uncommitted.
 - "No personal data" in general. Say (DEMO-04, synthetic pilot only): the driver's name and phone and every credential are removed from traces; message text, model input/output, tool results and platform ids are exported for debugging. Other environments keep the stricter `off`/`on` modes.
 - That p5 results from 26 Nov apply to any later prompt version without a re-run. **The deployed prompt is p6 (27 Nov) and its paid golden re-run was deferred by the owner: model-backed extraction on p6/schema v2 is unvalidated.**
-- That the judge scores live turns, until a sampled `llm_judge` run is seen on the pilot after DEMO-04.
+- That the judge scores every turn: it samples 20% of turns and stays within $0.75/day (live scoring verified 27 Nov during the 13:30 UTC smoke: 2 sampled smoke turns `SCORED` (agent log)).
 - That the two stopped releases (authorizations 72 and 73) were successful; they were revoked by the runbook's safe-stop rule (Part D).
 
 ---
@@ -304,7 +304,7 @@ LangSmith project `setuhaul-synthetic-pilot` is on. Since the demo release, the 
 | Category D for `a95aaaa1` (owner-confirmed test origin) and category X (an expired, never-confirmed request holding no dock time needs no attribution) | PRs #47, #49; `owner_test_origin_20261127.json`; `tests/test_expired_exemption_demo03.py` | Deployed | High |
 | Migration 0049: one additional recovery from a recovery, pilot only; third hop refused | PR #51; `tests/test_recovery_release_a.py`, `test_recover_expired_0045.py`, `test_readiness.py` | Deployed | High |
 | Smoke credential check before any driver message (refreshable credentials refreshed and proven; fixed ones need 15 min) | PRs #49, #53 | Implemented (operator script) | High |
-| **DEMO-04** (this PR): traces masked to name + phone + credentials only; guard never scans ids; one tree per message (0050); $2/day overall, $0.75 judge (checked activation input); refused request after an accepted offer releases the hold and resets the conversation (reason logged); Resolve… for planners; live holds only on the schedule; smoke waits up to 60 s for the kill-switch log | branch `feat/fde-demo-finalization`; focused tests in `test_trace_content_full.py`, `test_dispatch_offers.py`, `test_infra.py`, `test_expired_exemption_demo03.py` | Implemented and tested locally; **deploy pending** (D3) | High (code) |
+| **DEMO-04** (this PR): traces masked to name + phone + credentials only; guard never scans ids; one tree per message (0050); $2/day overall, $0.75 judge (checked activation input); refused request after an accepted offer releases the hold and resets the conversation (reason logged); Resolve… for planners; live holds only on the schedule; smoke waits up to 60 s for the kill-switch log | branch `feat/fde-demo-finalization`; focused tests in `test_trace_content_full.py`, `test_dispatch_offers.py`, `test_infra.py`, `test_expired_exemption_demo03.py` | Deployed (release `d6b20b4`, D3a) | High (code) |
 
 ### D2. Test and release evidence
 
@@ -319,11 +319,40 @@ LangSmith project `setuhaul-synthetic-pilot` is on. Since the demo release, the 
 | No-show history backfill | dry run `81cd9dbf` (11 eligible, 0 excluded) reviewed by the owner; apply run `7ad06da7`: 11 transitioned | `no_show_backfill_runs` |
 | DEMO-04 affected tests (local) | 450 + 279 + 132 passed (trace content, infra, dispatch offers, dispatch 0048, outbound, reassignment, traceability, demo reliability, console, orchestrator, migrations, gate triggers, lifecycle, move, recovery, readiness, judge, full activation, concurrency, DB requests, API) | this branch |
 
-### D3. Pending at the time of writing (to be completed by the DEMO-04 deploy)
+### D3a. DEMO-04 deployed (27 Nov 2026, recorded after the deploy)
+
+| Step | Result | Source |
+|---|---|---|
+| PR #55 merged (`0ae1163`), release PR #56 (`ee33296`); provisional run `46002385799` deployed `70333a0`, migration 0050 applied | Smoke 13:05Z stopped: FAC-JAI-01 had been switched to **AUTO** approval at 11:30Z by a console user, so the smoke booking was policy-confirmed with no planner request (check 2a expects one). Not retried; **authorization 75 revoked** (runbook §7.5) | agent log; `facilities.approval_mode` |
+| Owner set FAC-JAI-01 back to MANUAL (13:14Z); recovery under `OWNER-APPROVAL-20261127-DEMO-05` (recovery of 75), provisional run `46006177768` deployed `d6b20b4` | Smoke **11/11** at 13:30Z (`option_d_smoke_20261127T133007Z.json`, first attempt); renewal BOOKING_WORKFLOW **PASS**; renewal run `46008670343` succeeded | release branch `11f68ed` |
+| Booking | `/health` 13:49Z: `booking_enabled: true`, `authorized`, no open provisional window, kill switch disengaged; workers AWAKE | `/health`; `pilot_mode status` |
+| Budgets | agent `SETUHAUL_LLM_DAILY_BUDGET_USD=2`, `SETUHAUL_LLM_JUDGE_DAILY_BUDGET_USD=0.75`; stack output `LlmJudge` = `ON budget USD 0.75/day sample 0.2` | Lambda configuration; stack outputs |
+| Traces | `TraceContent` = `FULL`; agent log `trace export` lines 9–57 runs, **0 dropped**, 0 export errors, no `dropped by the export guard` line since the deploy | agent log |
+| Judge | live turns **SCORED** (2 sampled turns on the smoke, reason none) — no longer `shared_daily_cap` | agent log `online judge … status=SCORED` |
+| Trace tree in LangSmith (inbound → agent_turn → outbound) | **Not verified by inspection** (no LangSmith read in this session); covered by `test_one_tree_per_message_inbound_agent_outbound` | owner to open one Telegram message's trace |
+
+### D3. Pending at the time of writing (completed 27 Nov except the LangSmith eyeball check; see D3a)
 
 - PR CI on this branch, owner approval, merge, release, provisional and renewal runs under `OWNER-APPROVAL-20261127-DEMO-04`.
 - On the pilot after the deploy: one Telegram message traced as one tree (inbound → agent_turn → outbound) with message text and the name/phone masked; a sampled `llm_judge` child; stack outputs `LlmJudge` (0.75) and the agent's `SETUHAUL_LLM_DAILY_BUDGET_USD` (2).
 - These results are recorded on the release branch as evidence commits, as for every release.
+
+### D5. Canonical business workflow: claim by claim (checked against `d6b20b4`)
+
+| Claim | Evidence | Status |
+|---|---|---|
+| Shipment with a driver and no appointment shows as *Needs booking* | `service` dispatch board; `tests/test_dispatcher_role.py` | Deployed |
+| Dispatcher offers **one** slot to this or another (free) driver; offer expires and can be superseded | `create_dispatch_offer_to`, `free_drivers_for` (0048); `tests/test_dispatch_offers.py`, `test_dispatch_0048.py` | Deployed |
+| Driver Accept holds the slot and creates a request; never a booking by itself | `_book_accepted_offer`; smoke 2a; `test_offer_accept_goes_to_planner_and_only_planner_confirms` | Deployed, pilot-demonstrated |
+| Dispatcher offers always go to a planner, also in AUTO | migration 0047 (`f_dispatch`) | Deployed |
+| AUTO confirms only eligible driver-chat bookings; recorded as a policy confirmation | migration 0047; observed live 27 Nov 13:07Z (`APT-a9159c4f…`, rule `FAC-JAI-01:safe-new-booking`) | Deployed, pilot-observed |
+| Driver change: read-back, options on the requested day, YES, planner/AUTO; old booking stands until approved | `orchestrator.py`, `dates.py`; `tests/test_reschedule_dates_0048.py`, `test_dates_0048.py` | Deployed |
+| Dispatcher time change always to a planner; requester cannot approve; booking stays until approved | `request_reschedule`, `trg_requester_cannot_approve` (0048); `tests/test_dispatch_0048.py` | Deployed |
+| Cancellation requested by staff, decided by a planner/ops lead | `request_cancellation`, `decide_cancellation`; `service.py` permissions | Deployed |
+| Gate → dock → completed by operations or ops lead; completion releases dock time and tells the driver | `record_*` (0048); `tests/test_lifecycle_0048.py`; local browser check 27 Nov | Deployed |
+| Automatic no-show at each facility's grace; dispatcher Rebook / cancellation; booking blocked until decided | `process_no_shows`, `resolve_no_show`, `trg_no_show_blocks_booking` (0048); backfill 27 Nov (11 applied) | Deployed |
+| Safety / contradictory data → a person; kill switch; audit trail | 0026, 0047 (`f_safety`, `f_contra`); smoke 6; `booking_events` | Deployed, pilot-demonstrated |
+| **Not implemented:** multi-option dispatcher offers (W1); driver confirmation of a dispatcher time change (W3); driver-requested cancellation (W4) | code search of `d6b20b4` | Gap |
 
 ### D4. Open items (not done)
 

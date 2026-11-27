@@ -14,6 +14,8 @@ charts/13_infrastructure_cost_breakdown
 charts/14_llm_cost_breakdown
 charts/15_performance_latency_comparison
 diagrams/16_future_roadmap
+diagrams/17_business_workflow_by_actor
+diagrams/18_telegram_conversation_manual_vs_auto
 charts/eval_model_vs_rules_heldout_h1
 charts/unit_cost_per_1000_bookings_projection
 charts/judge_vs_always5_baseline

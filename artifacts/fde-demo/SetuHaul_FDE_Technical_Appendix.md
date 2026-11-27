@@ -4,7 +4,7 @@
 
 **Updated 27 Nov 2026:** §8 (migrations 0048–0050, the lifecycle), §13–§14 (full-content traces, one tree per
 message), §18 (budgets) and §20 (limitations) reflect the fix-plan release (`5b661a1` deployed, booking ON 10:23 UTC)
-and the DEMO-04 change set (pending deploy; Evidence Register Part D).
+and the DEMO-04 change set (deployed as `d6b20b4`, booking ON 13:49 UTC; Evidence Register Part D3a).
 
 The appendix holds the detail that the slides leave out. File paths are relative to the repository root. Rendered versions of the main diagrams are in `diagrams/`. The Mermaid below is the editable source of the same ideas.
 
@@ -243,6 +243,31 @@ The tables, grouped:
 | Release governance | `deployment_manifests`, `deployment_evidence`, `deployment_gates`, `deployment_exceptions`, `booking_evidence_guard`, `booking_kill_switch`, `provisional_authorizations`, `provisional_authorization_events`, `provisional_expired_recovery_approvals`, `staff_context` |
 
 **Design principle:** the database owns every commitment. The application asks; definer functions decide under locks, and constraints make an invalid state unstorable.
+
+## 8a. Business workflow and appointment states (release `d6b20b4`)
+
+The canonical workflow, by actor, is in `SetuHaul_FDE_Business_Workflow.md` (diagram
+`diagrams/17_business_workflow_by_actor.png`). The appointment states it moves through:
+
+```mermaid
+stateDiagram-v2
+  [*] --> HOLD: driver YES / Accept (≈180 s)
+  HOLD --> PENDING_CONFIRMATION: request created
+  HOLD --> [*]: hold expires / released
+  PENDING_CONFIRMATION --> CONFIRMED: planner approves, or eligible AUTO rule (driver-chat only)
+  PENDING_CONFIRMATION --> REJECTED: planner rejects
+  PENDING_CONFIRMATION --> EXPIRED: no decision in time
+  CONFIRMED --> IN_PROGRESS: at dock (gate arrival recorded first)
+  IN_PROGRESS --> COMPLETED: completed (dock time released)
+  CONFIRMED --> NO_SHOW: no gate arrival by start + grace (automatic)
+  NO_SHOW --> [*]: dispatcher Rebook (shipment back to Needs booking)
+  NO_SHOW --> CANCELLED: cancellation approved by a planner
+  CONFIRMED --> CANCELLED: cancellation approved by a planner
+```
+
+A replacement request (driver change or dispatcher time change) leaves the current CONFIRMED appointment in place
+until it is approved; approval cancels the old one and confirms the new one in one transaction. Gaps against the
+target workflow (W1–W5) are in the workflow document §6 and the Gap Analysis.
 
 ## 9. Data flow
 
@@ -579,7 +604,7 @@ See `SetuHaul_FDE_Cost_Analysis.md` §3.
 3. Latency targets were missed: end to end p95 15.0 s against < 15 s; queue → send ≈ 2.2 s against < 2 s.
 4. The console shows the stored read-back record and the agent reply as two identical rows; only one is sent.
 5. 4 inbound runs have no `thread_id`; offer continuations and proactive notices are not yet in a message's trace tree.
-6. The judge's human calibration rests on one non-blind reviewer. Until DEMO-04 it was always skipped (`budget:shared_daily_cap`, shared cap $0.25); from DEMO-04 it has $0.75 of a $2.00 cap — live scoring to be confirmed after the deploy.
+6. The judge's human calibration rests on one non-blind reviewer. Until DEMO-04 it was always skipped (`budget:shared_daily_cap`, shared cap $0.25); from DEMO-04 it has $0.75 of a $2.00 cap, and live scoring is verified 27 Nov during the 13:30 UTC smoke: 2 sampled smoke turns `SCORED` (agent log).
 7. On p5, replay BB12 and AT02 still fail (as on p3) and h1 option pick fell to 91.7% (BB05). Causes are not established. The p5 re-runs cost $1.0462 across three runs (result files); an aborted first v4 attempt cost ≈ $0.14 by estimate. **The deployed prompt is now p6 (schema v2, requested dates and RESCHEDULE); its paid golden re-run was deferred by the owner, so p6 is not model-validated.**
 8. PostgreSQL 17.9 pilot exception; no live drift detection; `/health` reports version 0.2.0.
 9. Rules-reader findings I14 and I15 remain open (`docs/release/15_RELEASE_NOTES.md`).
