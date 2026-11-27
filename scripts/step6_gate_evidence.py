@@ -462,6 +462,31 @@ def all_executions(sfn_arn: str) -> list[dict]:
             return execs
 
 
+def expired_unconfirmed_facts(out: dict, records: dict[str, dict]) -> dict[str, dict]:
+    """Category X (owner, 27 Nov 2026): for every EXPIRED request, the live facts the exemption needs, read only (owner
+    session, rolled back, pilot facility scope): how many of its dock claims are still active, and whether its
+    appointment was ever confirmed or is current. Empty (nothing exempt) when the read fails."""
+    from setuhaul.ops.renewal import PILOT_FACILITIES
+    ids = [a for a, r in records.items() if r.get("status") == "EXPIRED"]
+    if not ids:
+        return {}
+    try:
+        owner = OwnerSession(c("rds-data"), out["ClusterArn"], out["OwnerSecretArn"])
+        rows = owner.query(
+            "SELECT r.approval_id::text,"
+            " (SELECT count(*) FROM setuhaul.dock_occupancy o WHERE o.active"
+            "    AND o.occupancy_id IN (r.claim_occupancy_id, a.occupancy_id))::int,"
+            " coalesce(a.status IN ('CONFIRMED','IN_PROGRESS','COMPLETED','NO_SHOW') OR a.is_current"
+            "          OR a.warehouse_confirmation_ref IS NOT NULL, false)"
+            "  FROM setuhaul.approval_requests r LEFT JOIN setuhaul.appointments a ON a.appointment_id = r.appointment_id"
+            " WHERE r.approval_id = ANY('{" + ",".join(ids) + "}'::uuid[])",
+            ("SELECT set_config('app.facility_scope', '" + ",".join(PILOT_FACILITIES) + "', true)",))
+    except Exception as e:                                       # noqa: BLE001 — nothing is exempt
+        print(f"  expired-request facts could not be read ({type(e).__name__}); nothing is exempt")
+        return {}
+    return {str(a): {"active_claims": int(n), "confirmed": bool(conf)} for a, n, conf in rows}
+
+
 def evidence_records(out: dict, approval_ids: list[str]) -> tuple[dict[str, dict], str | None]:
     """The approval records behind the executions, through approval_execution_evidence (migration 0029) as the
     pipeline's evidence identity: READ ONLY transaction, facility scope = the two pilot facilities, rolled back. RLS still
@@ -683,7 +708,8 @@ def renewal_gate(out, fns, res, approval_ref: str, release_sha: str, fresh_smoke
     origin = [json.loads(f.read_text(encoding="utf-8")) for f in sorted(EVIDENCE.glob("owner_test_origin_*.json"))] or None
     drivers_file = EVIDENCE / "owner_test_drivers_20261126.json"        # Category E (owner's test-driver rule)
     drivers = json.loads(drivers_file.read_text(encoding="utf-8")) if drivers_file.exists() else None
-    attribution = R.attribute_executions(execs, records, smokes, owner, api_log, origin, drivers)
+    attribution = R.attribute_executions(execs, records, smokes, owner, api_log, origin, drivers,
+                                         expired_unconfirmed_facts(out, records))
     smoke = R.fresh_smoke_checks(fresh_smoke, release_sha, artifact, now)
     g = R.booking_workflow_renewal(base, config, attribution, smoke, fresh_smoke)
     g["evidence"]["activation_facts"] = {k: ev_act.get(k) for k in ("state_machine", "alias_routes_to_version",

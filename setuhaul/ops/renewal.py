@@ -37,6 +37,11 @@ Attribution categories (an execution must be in exactly one, or the gate does no
                          Telegram-live approval and driver allow-list it covers). Never equivalent to B: it never satisfies
                          the fresh-smoke requirement; the hard checks still apply; a TEST-driver request that was rejected,
                          expired or decided any other way is not covered. Changing the rule is a code change.
+  X  expired, never     (owner, 27 Nov 2026, DEMO-03) an execution with no other evidence is exempt ONLY when it is proven
+     confirmed           harmless: the request EXPIRED (decided by the system, no person, no role), its appointment EXPIRED
+                         and was never confirmed (not current, no warehouse confirmation), and no dock time is held (none
+                         of its claims is active), read live by the gate (expired_unconfirmed_facts). Anything else stays
+                         UNRESOLVED. Never smoke evidence; the hard checks still apply.
 Otherwise: UNRESOLVED (no visible record, or no evidence) or FAIL (evidence contradicts the record, a non-synthetic or
 out-of-pilot record, a failed execution, or the same execution claimed twice).
 """
@@ -388,7 +393,8 @@ API_LOG_ACCEPTED = ("verified", "previously_verified")
 def attribute_executions(executions: list[dict], records: dict[str, dict], smoke_records: list[dict],
                          owner_record: dict | None, api_log: dict[str, dict] | None = None,
                          test_origin_record: dict | None = None,
-                         test_driver_record: dict | None = None) -> tuple[list[dict], list[str]]:
+                         test_driver_record: dict | None = None,
+                         expired_facts: dict[str, dict] | None = None) -> tuple[list[dict], list[str]]:
     """executions: [{"name" (= approval id), "status", "start", "arn"}] from Step Functions.
     records: approval_id -> the row from approval_execution_evidence (migration 0029), facility-scoped.
     api_log: approval_id -> the API-log corroboration of the owner record's console requests (Recovery Release A,
@@ -474,6 +480,8 @@ def attribute_executions(executions: list[dict], records: dict[str, dict], smoke
         if aid in origin and not any(c == "D" for c, _ in cats) and not any("test origin does not match" in h
                                                                             for h in hard):
             hard.append("the owner's test-origin record names it, but no committed failed smoke record names it")
+        if not cats and not hard and not expired_unconfirmed_problems(e, row, (expired_facts or {}).get(aid)):
+            cats.append(("X", "expired, never confirmed, no dock time held (owner exemption, 27 Nov 2026)"))
         if len(cats) > 1:
             hard.append("attributed more than once: " + ", ".join(c for c, _ in cats))
         v["reasons"] += hard
@@ -488,6 +496,29 @@ def attribute_executions(executions: list[dict], records: dict[str, dict], smoke
                                 "booking)")
         out.append(v)
     return out, owner_problems
+
+
+def expired_unconfirmed_problems(execution: dict, row: dict, facts: dict | None) -> list[str]:
+    """Why an execution is NOT exempt as expired-and-never-confirmed (Category X; [] when it is). facts: the gate's live
+    read {"active_claims": int, "confirmed": bool}; without it nothing is exempt."""
+    bad = []
+    if execution.get("status") != "SUCCEEDED":
+        bad.append(f"the execution is {execution.get('status')}, not SUCCEEDED")
+    if row.get("status") != "EXPIRED":
+        bad.append(f"the request is {row.get('status')}, not EXPIRED")
+    if (row.get("decided_by_type") != "SYSTEM" or row.get("decided_by_role") not in (None, "system")
+            or row.get("decider_kind") != "system"):
+        bad.append("the request was not expired by the system alone")
+    if row.get("appointment_status") not in (None, "EXPIRED"):
+        bad.append(f"its appointment is {row.get('appointment_status')}")
+    if facts is None:
+        bad.append("no live read of its dock claims and confirmation")
+    else:
+        if facts.get("active_claims") != 0:
+            bad.append(f"{facts.get('active_claims')} of its dock claims are still active")
+        if facts.get("confirmed") is not False:
+            bad.append("its appointment was confirmed or is current")
+    return bad
 
 
 # ------------------------------------------------------------------------------------------------ the gate
@@ -530,7 +561,7 @@ def booking_workflow_renewal(base_checks: dict[str, bool], config: tuple[dict, l
                                + "; ".join(v["reasons"]))
     contradicted = [k for k, ok in checks.items() if not ok and k != ALL_ATTRIBUTED]
     status = FAIL if contradicted else (UNRESOLVED if not all(checks.values()) else PASS)
-    by_cat = {c: sorted(v["execution"] for v in verdicts if v["category"] == c) for c in ("A", "B", "C", "D", "E")}
+    by_cat = {c: sorted(v["execution"] for v in verdicts if v["category"] == c) for c in ("A", "B", "C", "D", "E", "X")}
     return {"mode": "renewal", "status": status, "renewal_status": status, "checks": checks,
             "not_shown": [] if status == PASS else [f"BOOKING_WORKFLOW: {status} — {d}" for d in diagnostics],
             "diagnostics": [f"BOOKING_WORKFLOW: {status} — {d}" for d in diagnostics],
