@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 import time
@@ -118,6 +119,29 @@ def classify_deliveries(rows, env: dict) -> tuple[int, int]:
     return approved, real
 
 
+MIN_CREDENTIAL_MINUTES = 15                   # the smoke takes ~5 min; its requests are unattributable if it dies
+
+
+def aws_credentials_ok(now: datetime | None = None, session=None) -> None:
+    """27 Nov 2026: refuse to start (nothing sent) unless the AWS credentials work now and, when their expiry is known,
+    stay valid for MIN_CREDENTIAL_MINUTES. A smoke that loses its credentials midway has already created requests."""
+    now = now or datetime.now(timezone.utc)
+    session = session or boto3.Session()
+    creds = session.get_credentials()
+    if creds is None:
+        raise SystemExit("REFUSED before any driver message: no AWS credentials (sign in first)")
+    exp = getattr(creds, "_expiry_time", None) or (
+        datetime.fromisoformat(os.environ["AWS_CREDENTIAL_EXPIRATION"].replace("Z", "+00:00"))
+        if os.environ.get("AWS_CREDENTIAL_EXPIRATION") else None)
+    if exp is not None and (exp - now).total_seconds() < MIN_CREDENTIAL_MINUTES * 60:
+        raise SystemExit(f"REFUSED before any driver message: the AWS credentials expire at {exp:%H:%M} UTC, "
+                         f"under {MIN_CREDENTIAL_MINUTES} min away (sign in again)")
+    try:
+        session.client("sts", region_name=REGION).get_caller_identity()
+    except Exception as e:                                           # noqa: BLE001
+        raise SystemExit(f"REFUSED before any driver message: the AWS credentials do not work ({type(e).__name__})")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--release-sha", required=True, help="the git commit the deployed pilot runs (40 hex)")
@@ -125,6 +149,7 @@ def main() -> int:
     a = ap.parse_args()
     if not re.fullmatch(r"[0-9a-f]{40}", a.release_sha):
         raise SystemExit("--release-sha must be the full 40-hex commit")
+    aws_credentials_ok()                     # before ANY driver message: a smoke that dies midway leaves requests behind
     smoke_id = "SMOKE-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8]
     a.out = a.out or str(ROOT / "docs" / "release" / "evidence" / "smoke" / f"option_d_smoke_{smoke_id[6:22]}.json")
     p = Pilot()
