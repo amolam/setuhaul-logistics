@@ -132,6 +132,26 @@ def describe_server(port: int) -> str:
         return "a server this script cannot identify (it refused a trust login as 'postgres', or is not PostgreSQL)"
 
 
+CONF_MARK = "# --- added by scripts/start_local.py (private cluster: TCP on localhost only) ---"
+
+
+def ensure_private_config() -> None:
+    """Make the PRIVATE cluster self-contained. Idempotent; only ever edits .local/pgdata/postgresql.conf.
+
+    Debian/Ubuntu builds put Unix sockets in /var/run/postgresql, which an ordinary user cannot write, so the server
+    would refuse to start there (seen in CI). The script connects over TCP only, so on POSIX the cluster gets no Unix
+    socket at all. Windows keeps its defaults."""
+    conf = PGDATA / "postgresql.conf"
+    text = conf.read_text(encoding="utf-8", errors="replace")
+    if CONF_MARK in text:
+        return
+    lines = ["", CONF_MARK, "listen_addresses = 'localhost'"]
+    if os.name != "nt":
+        lines.append("unix_socket_directories = ''")
+    with conf.open("a", encoding="utf-8", newline="\n") as f:
+        f.write("\n".join(lines) + "\n")
+
+
 def start_db(port: int) -> str:
     dsn = f"host=localhost port={port} user=postgres"
     running = private_cluster_port()
@@ -149,9 +169,10 @@ def start_db(port: int) -> str:
         b = find_bin()
         if not (PGDATA / "PG_VERSION").exists():
             print(f"[db] creating a private cluster in {rel(PGDATA)} with {b}")
-            LOCAL.mkdir(exist_ok=True)
+            LOCAL.mkdir(parents=True, exist_ok=True)
             if run([str(b / f"initdb{EXE}"), "-D", str(PGDATA), "-U", "postgres", "-A", "trust", "-E", "UTF8"]) != 0:
                 sys.exit("[db] initdb failed")
+        ensure_private_config()
         print(f"[db] starting the private cluster on port {port} (log: {rel(LOG)})")
         rc = run([str(b / f"pg_ctl{EXE}"), "-D", str(PGDATA), "-l", str(LOG), "-w", "-t", "30",
                   "-o", f"-p {port} -c listen_addresses=localhost", "start"], timeout=45)
