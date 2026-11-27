@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from setuhaul.aws.data_api import DataApiDb  # noqa: E402
 from setuhaul.aws.migrate_data_api import OwnerSession  # noqa: E402
-from setuhaul.ops.evidence_triggers import QUERY as EVIDENCE_TRIGGER_QUERY, trigger_problems  # noqa: E402
+from setuhaul.ops.evidence_triggers import QUERY as EVIDENCE_TRIGGER_QUERY, pending_triggers, trigger_problems  # noqa: E402
 
 REGION, STACK, ENV = "ap-southeast-2", "SetuHaulPilot", "pilot"
 MASK = re.compile(r"\b\d{12}\b")
@@ -389,7 +389,11 @@ def gate_aurora(out):
     live_n = {k.split("_", 1)[0]: v for k, v in live.items()}
     # D1 (Recovery Release A): every trigger on the evidence and booking-commitment tables, not just two names
     triggers = owner.query(EVIDENCE_TRIGGER_QUERY)
-    trigger_issues = trigger_problems(triggers)
+    # 27 Nov fix plan: migration-aware. The gate runs before the provisional activation applies this release's
+    # migrations, so a trigger a not-yet-applied migration introduces must be absent; once the ledger records that
+    # migration, the trigger is required in full (a missing one is a failure).
+    applied = set(live_n)
+    trigger_issues = trigger_problems(triggers, applied)
     rls = owner.query("""SELECT count(*) FILTER (WHERE c.relrowsecurity AND c.relforcerowsecurity), count(*)
                            FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
                           WHERE n.nspname = 'setuhaul' AND c.relkind = 'r'""")[0]
@@ -400,6 +404,7 @@ def gate_aurora(out):
           "hash_mismatches": sorted(k for k, v in deployed.items() if live_n.get(k) != v),
           "repo_only_migrations": sorted(set(local) - set(live_n)),
           "evidence_triggers": {f"{t}.{n}": [e, f, ty] for t, n, e, f, ty in triggers},
+          "evidence_triggers_pending_migration": pending_triggers(applied),
           "evidence_trigger_problems": trigger_issues, "tables_with_forced_rls": rls[0], "tables": rls[1]}
     major = int(str(cl["EngineVersion"]).split(".")[0])
     checks = {

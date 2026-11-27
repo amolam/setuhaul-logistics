@@ -389,9 +389,21 @@ def agent_handler(event, context, sqs=None):
 
 
 def recovery_handler(event, context):
-    n = runtime().state.relay.recover()
+    app = runtime()
+    n = app.state.relay.recover()
     log.info("recovery re-published %s inbound messages", n)
-    return {"republished": n}
+    # 0048 (D2): the automatic no-show, every minute in this worker (system role). Isolated: a failure here never stops
+    # the inbound recovery above, and the next minute tries again (the job is idempotent).
+    try:
+        ns = app.state.service.process_no_shows()
+        if ns.get("no_shows"):
+            log.info("no-show job: %s of %s due appointments became NO_SHOW (batch %s)", ns["no_shows"], ns["checked"],
+                     ns.get("batch"))
+            _kick("no-show")                                   # the drivers' notices go out now
+    except Exception:                                          # noqa: BLE001
+        log.exception("ALERT no-show job failed; it retries next minute")
+        ns = {"error": True}
+    return {"republished": n, "no_show": ns}
 
 
 @lru_cache(maxsize=1)

@@ -658,8 +658,9 @@ def _readers(tl, lid) -> list[str]:
 
 
 def test_full_activation_langsmith_is_on_by_default_in_the_pilot_for_the_three_tracing_functions(t):
-    """Full Activation (replaces G.1's opt-in for the PILOT): traces on by default, content off, an explicit empty key
-    placeholder, read only by the agent, the api (Telegram inbound) and the sender (Telegram outbound)."""
+    """Full Activation (replaces G.1's opt-in for the PILOT): traces on by default, an explicit empty key placeholder,
+    read only by the agent, the api (Telegram inbound) and the sender (Telegram outbound). 27 Nov 2026 (issue 8, owner
+    decision Q3): content is FULL in the synthetic pilot (redacted: tests/test_trace_content_full.py)."""
     (lid, sec), = [(k, r) for k, r in resources(t, "AWS::SecretsManager::Secret").items() if k.startswith("LangSmith")]
     assert sec["Properties"]["SecretString"] == '{"api_key": ""}' and "GenerateSecretString" not in sec["Properties"]
     fns = functions(t)
@@ -667,11 +668,26 @@ def test_full_activation_langsmith_is_on_by_default_in_the_pilot_for_the_three_t
     for n, f in fns.items():
         v = f["Environment"]["Variables"]
         if n in tracers:
-            assert v["SETUHAUL_LANGSMITH_TRACING"] == "on" and v["SETUHAUL_TRACE_CONTENT"] == "off", n
+            assert v["SETUHAUL_LANGSMITH_TRACING"] == "on" and v["SETUHAUL_TRACE_CONTENT"] == "full", n
             assert v["SETUHAUL_LANGSMITH_PROJECT"] == "setuhaul-synthetic-pilot" and "SETUHAUL_LANGSMITH_SECRET_ID" in v
         else:
             assert not [k for k in v if "LANGSMITH" in k], n
     assert set(_readers(t, lid)) == tracers
+
+
+def test_trace_content_can_be_lowered_and_full_is_pilot_only(tmp_path):
+    """Issue 8: trace_content=off|on lowers the pilot's content export; full is refused outside the pilot."""
+    for tag, mode in (("tcoff", "off"), ("tcon", "on")):
+        tl = Template.from_stack(_stack(tmp_path, tag, trace_content=mode))
+        for n, f in functions(tl).items():
+            v = f.get("Environment", {}).get("Variables", {})
+            if "SETUHAUL_TRACE_CONTENT" in v:
+                assert v["SETUHAUL_TRACE_CONTENT"] == mode, n
+        assert tl.to_json()["Outputs"]["TraceContent"]["Value"] == mode.upper()
+    with pytest.raises(ValueError, match="only in the synthetic pilot"):
+        _stack(tmp_path, "tcstg", trace_content="full", environment_name="staging")
+    with pytest.raises(ValueError, match="off, on or full"):
+        _stack(tmp_path, "tcbad", trace_content="everything")
 
 
 def test_full_activation_langsmith_opt_out_removes_secret_permission_and_variables(tmp_path):
@@ -794,6 +810,7 @@ def test_full_activation_the_workflow_passes_every_control_explicitly_and_its_ch
     assert 'default: "on"' in inputs.split("langsmith:", 1)[1].split("telegram_live_approval:", 1)[0]
     assert "telegram_live_approval:" in inputs and "llm_judge_budget_usd:" in inputs and "ci.yml" not in inputs
     assert "langsmith_tracing: $l" in wf and "release_commit: $c" in wf and "telegram_live_approval: $t" in wf
+    assert "trace_content: $x" in wf and 'default: "full"' in inputs.split("trace_content:", 1)[1]     # 27 Nov, Q3
     assert "live Telegram needs its own approval, not the booking reference" in wf
     check = wf.split("python - <<'PY'\n", 1)[1].split("\n          PY\n", 1)[0]
     check = "\n".join(line[10:] for line in check.splitlines())
@@ -811,7 +828,8 @@ def test_full_activation_the_workflow_passes_every_control_explicitly_and_its_ch
         d.mkdir(parents=True)
         (d / "SetuHaulPilot.template.json").write_text(json.dumps(Template.from_stack(s_).to_json()), encoding="utf-8")
         for g_tag, g_env in given.items():
-            env = {k: v for k, v in os.environ.items() if k not in ("LANGSMITH", "TELEGRAM_LIVE_APPROVAL", "JUDGE_BUDGET", "TELEGRAM_DRIVERS")}
+            env = {k: v for k, v in os.environ.items() if k not in ("LANGSMITH", "TELEGRAM_LIVE_APPROVAL", "JUDGE_BUDGET", "TELEGRAM_DRIVERS",
+                                                                     "TRACE_CONTENT")}
             r = subprocess.run([sys.executable, "-c", check], cwd=d.parent, capture_output=True, text=True,
                                env={**env, **g_env})
             assert (r.returncode == 0) == (g_tag == tag), (tag, g_tag, r.stdout, r.stderr[-300:])

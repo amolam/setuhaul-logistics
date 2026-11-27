@@ -240,6 +240,29 @@ class OfferIn(BaseModel):
     dock_code: str = Field(min_length=1, max_length=20)
     start: AwareDatetime
     idempotency_key: str = Field(min_length=16, max_length=128)
+    # 0048 (issue 5): who the dispatcher chose. ASSIGNED = "This driver", OTHER = "Another driver" (never the assigned
+    # one). Optional for older clients; the console always sends it.
+    target: Literal["ASSIGNED", "OTHER"] | None = None
+
+
+class LifecycleStep(BaseModel):
+    """0048: gate arrival, at dock, completed (operations / ops_lead)."""
+    model_config = {"extra": "forbid"}
+    note: str | None = Field(default=None, max_length=300)
+
+
+class NoShowRebook(BaseModel):
+    model_config = {"extra": "forbid"}
+    note: str = Field(min_length=3, max_length=300)
+
+
+class RescheduleIn(BaseModel):
+    """0048 (issue 6): a dispatcher asks a planner for a new time for a confirmed booking."""
+    model_config = {"extra": "forbid"}
+    dock_code: str = Field(min_length=1, max_length=20)
+    start: AwareDatetime
+    note: str = Field(min_length=3, max_length=300)
+    idempotency_key: str = Field(min_length=16, max_length=128)
 
 
 class ReassignIn(BaseModel):
@@ -353,7 +376,9 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
 
     @app.exception_handler(ServiceError)
     async def _service_error(_req, e: ServiceError):
-        return JSONResponse({"error": e.code, "detail": e.detail}, status_code=e.http)
+        # 0048 (issue 2): a plain sentence for the console next to the code; the code stays for tools and tests
+        from .lifecycle import refusal_text
+        return JSONResponse({"error": e.code, "detail": e.detail, "message": refusal_text(e.code)}, status_code=e.http)
 
     @app.get("/health")
     def health():
@@ -521,9 +546,19 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
                 # identified; never the chat id, the user id, the text or the secret). No-op when tracing is off.
                 # its run id IS the request's correlation id, which the queue event carries to the agent as the
                 # turn's ingest_correlation_id: the agent_turn trace names this inbound trace (Demo release)
+                msg = (update.get("message") or (update.get("callback_query") or {}).get("message") or {}) \
+                    if isinstance(update, dict) else {}
+                frm = ((update.get("message") or update.get("callback_query") or {}).get("from") or {}) \
+                    if isinstance(update, dict) else {}
+                full = tr.full_content
                 with tr.turn(CORRELATION_ID.get() or str(uuid.uuid4()), "telegram_inbound",
+                             # issue 8: in full content mode (synthetic pilot only) the message text, scrubbed
+                             inputs={"text": msg.get("text")} if full and isinstance(msg.get("text"), str) else None,
                              metadata={"channel": "TELEGRAM", "component": "telegram_inbound", "update_kind": kind,
                                        "webhook_received_at": _utcnow_iso()}):
+                    # the account's own identifiers are masked wherever they appear in exported text (every mode)
+                    tracing.safe(lambda: tr.add_pii_terms(frm.get("first_name"), frm.get("last_name"), frm.get("username"),
+                                                          frm.get("id"), (msg.get("chat") or {}).get("id")))
                     out = await run_in_threadpool(svc.handle_telegram_update, update, sessions)
             except Exception:
                 # not stored: answer 5xx so Telegram redelivers; the stored part is deduplicated on the retry
@@ -670,7 +705,7 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
     @app.post("/console/dispatch/offers")
     def dispatch_offer(body: OfferIn, p: Principal = Depends(staff)):
         return svc.create_offer(p, body.shipment_id, body.driver_id, body.vehicle_id, body.dock_code, body.start,
-                                body.idempotency_key)
+                                body.idempotency_key, body.target)
 
     @app.get("/console/dispatch/offers")
     def dispatch_offers(facility_id: str | None = Query(None, max_length=40), limit: int = Query(50, ge=1, le=200),
@@ -731,6 +766,64 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
     @app.post("/console/escalations/{escalation_id}/resolve")
     def escalation_resolve(body: EscalationResolve, escalation_id: uuid.UUID, p: Principal = Depends(staff)):
         return svc.resolve_escalation(p, str(escalation_id), body.resolution)
+
+    # ---------------------------------------------------------------- 0048: the appointment lifecycle (workstream A)
+    @app.post("/console/appointments/{appointment_id}/arrival")
+    def appointment_arrival(body: LifecycleStep, appointment_id: str = Path(min_length=1, max_length=80),
+                            p: Principal = Depends(staff)):
+        """D1: operations or ops_lead record the truck at the gate (only from CONFIRMED, until start + grace)."""
+        return svc.record_arrival(p, appointment_id, body.note)
+
+    @app.post("/console/appointments/{appointment_id}/dock")
+    def appointment_dock(body: LifecycleStep, appointment_id: str = Path(min_length=1, max_length=80),
+                         p: Principal = Depends(staff)):
+        return svc.record_dock(p, appointment_id, body.note)
+
+    @app.post("/console/appointments/{appointment_id}/completion")
+    def appointment_completion(body: LifecycleStep, appointment_id: str = Path(min_length=1, max_length=80),
+                               p: Principal = Depends(staff)):
+        return svc.record_completion(p, appointment_id, body.note)
+
+    @app.post("/console/appointments/{appointment_id}/no-show/rebook")
+    def no_show_rebook(body: NoShowRebook, appointment_id: str = Path(min_length=1, max_length=80),
+                       p: Principal = Depends(staff)):
+        """D3: the dispatcher returns a no-show shipment to Needs booking (a planner approves the new booking)."""
+        return svc.resolve_no_show(p, appointment_id, body.note)
+
+    @app.get("/console/facilities/{facility_id}/arrivals")
+    def arrivals(facility_id: str = Path(min_length=1, max_length=40), hours: int = Query(24, ge=1, le=48),
+                 p: Principal = Depends(staff)):
+        return svc.arrivals(p, facility_id, hours)
+
+    @app.get("/console/holds")
+    def holds(facility_id: str | None = Query(None, max_length=40), include_cleared: bool = False,
+              p: Principal = Depends(staff)):
+        """Issue 1: the open booking holds (ops_lead Controls tab)."""
+        return {"holds": svc.list_holds(p, facility_id, include_cleared)}
+
+    @app.get("/console/controls")
+    def controls(p: Principal = Depends(staff)):
+        """Issue 1: kill switch, automation pause and holds, with who changed each last (ops_lead only)."""
+        return svc.controls(p)
+
+    # ---------------------------------------------------------------- 0048: dispatch (workstream B)
+    @app.get("/console/dispatch/shipments/{shipment_id}/free-drivers")
+    def free_drivers(start: AwareDatetime, end: AwareDatetime,
+                     shipment_id: str = Path(min_length=3, max_length=80, pattern=SHIPMENT_ID_PATTERN),
+                     p: Principal = Depends(staff)):
+        if end <= start:
+            raise HTTPException(422, "end must be after start")
+        return svc.free_drivers(p, shipment_id, start, end)
+
+    @app.get("/console/appointments/{appointment_id}/reschedule-options")
+    def reschedule_options(appointment_id: str = Path(min_length=1, max_length=80), p: Principal = Depends(staff)):
+        return svc.reschedule_options(p, appointment_id)
+
+    @app.post("/console/appointments/{appointment_id}/reschedule-requests")
+    def reschedule_request(body: RescheduleIn, appointment_id: str = Path(min_length=1, max_length=80),
+                           p: Principal = Depends(staff)):
+        """Issue 6 / Q2: always a planner decision; the booking stays confirmed until it is approved."""
+        return svc.request_reschedule(p, appointment_id, body.dock_code, body.start, body.idempotency_key, body.note)
 
     @app.get("/console/me")
     def me(p: Principal = Depends(staff)):

@@ -62,6 +62,7 @@ class Run:
     tags: list = field(default_factory=list)
     error: str | None = None
     end_time: datetime | None = None
+    pii_terms: list = field(default_factory=list)          # root only: the turn's driver identifiers (fix plan, 8)
 
     def set(self, **metadata) -> "Run":
         """Add safe metadata (redacted at the end like everything else)."""
@@ -75,19 +76,20 @@ class Run:
             self.error = error
         return self
 
-    def as_post(self, project: str, content_allowed: bool) -> dict:
-        """The LangSmith run-create body, redacted."""
+    def as_post(self, project: str, content_allowed: bool, mode: str | None = None, pii_terms=()) -> dict:
+        """The LangSmith run-create body, redacted (`mode` off | on | full; see redaction)."""
+        mode = mode or ("on" if content_allowed else "off")
         body = {"id": self.id, "trace_id": self.trace_id, "dotted_order": self.dotted_order, "name": self.name,
                 "run_type": self.run_type, "start_time": self.start_time.isoformat(),
                 "end_time": (self.end_time or _now()).isoformat(), "session_name": project,
-                "inputs": redact(self.inputs, content_allowed=content_allowed),
-                "outputs": redact(self.outputs, content_allowed=content_allowed),
-                "extra": {"metadata": redact(self.metadata, content_allowed=False)},
+                "inputs": redact(self.inputs, mode=mode, pii_terms=pii_terms),
+                "outputs": redact(self.outputs, mode=mode, pii_terms=pii_terms),
+                "extra": {"metadata": redact(self.metadata, mode="off", pii_terms=pii_terms)},
                 "tags": [str(t)[:40] for t in self.tags[:10]]}
         if self.parent_run_id:
             body["parent_run_id"] = self.parent_run_id
         if self.error:
-            body["error"] = redact(str(self.error), content_allowed=False)
+            body["error"] = redact(str(self.error), mode="off", pii_terms=pii_terms)
         return body
 
 
@@ -113,6 +115,8 @@ class TracerConfig:
     project: str = "setuhaul-dev"
     environment: str = "dev"
     content_allowed: bool = False
+    # 27 Nov 2026 (issue 8): off | on | full. full only for the synthetic pilot (langsmith.tracer_from_env enforces it)
+    content_mode: str = "off"
     sample_rate: float = 1.0
     max_queue: int = 200                  # turns waiting to be exported; beyond this new turns are dropped
     max_runs_per_turn: int = 60
@@ -143,6 +147,28 @@ class Tracer:
     @property
     def enabled(self) -> bool:
         return bool(self.config.enabled and self.exporter is not None)
+
+    @property
+    def content_mode(self) -> str:
+        """off | on | full, as configured (full only reaches here for the synthetic pilot)."""
+        m = getattr(self.config, "content_mode", "off")
+        if m in ("on", "full"):
+            return m
+        return "on" if self.config.content_allowed else "off"
+
+    @property
+    def full_content(self) -> bool:
+        return self.enabled and self.content_mode == "full"
+
+    def add_pii_terms(self, *terms) -> None:
+        """Register the current turn's driver identifiers (name, chat id, phone): masked wherever they appear in
+        exported text. Never stored, never exported themselves; a no-op outside a traced turn."""
+        try:
+            buf = _buffer.get()
+            if buf:
+                buf[0].pii_terms.extend(str(t) for t in terms if t is not None and str(t).strip())
+        except Exception:                                   # noqa: BLE001
+            self.stats["tracing_errors"] += 1
 
     # ------------------------------------------------------------ recording (never raises)
     @contextmanager
@@ -264,9 +290,12 @@ class Tracer:
 
     # ------------------------------------------------------------ export (never raises)
     def _enqueue(self, runs: list[Run]) -> None:
-        posts = [r.as_post(self.config.project, self.config.content_allowed) for r in runs]
+        mode = self.content_mode
+        terms = [t for r in runs for t in (r.pii_terms or [])]
+        posts = [r.as_post(self.config.project, self.config.content_allowed, mode, terms) for r in runs]
         # ids, times and dotted_order are generated here (UUIDs, timestamps); the guard checks the payload fields
-        leaks = find_leaks([{k: p.get(k) for k in ("inputs", "outputs", "extra", "error", "name", "tags")} for p in posts])
+        leaks = find_leaks([{k: p.get(k) for k in ("inputs", "outputs", "extra", "error", "name", "tags")} for p in posts],
+                           terms)
         if leaks:                                           # defence in depth: never export what still looks secret
             self.stats["blocked_leaks"] += 1
             log.warning("trace dropped by the export guard (%s pattern(s) still present)", len(leaks))

@@ -19,7 +19,7 @@ import logging
 import os
 import re
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Callable, Literal
 
 import psycopg
@@ -37,6 +37,7 @@ from ..observability import tracing
 from ..observability.identifiers import is_valid as id_is_valid, stored_id
 from ..ops import telemetry
 from .db import CORRELATION_ID, TURN_FENCE, Db
+from .lifecycle import LIFECYCLE_CONFLICTS, LIFECYCLE_PERMISSIONS, LifecycleMixin, refusal_text
 from .security import Principal
 
 log = logging.getLogger("setuhaul.service")
@@ -165,6 +166,8 @@ class FindArgs(_Strict):
     earliest_start: AwareDatetime | None = None
     latest_finish: AwareDatetime | None = None
     max_options: int = Field(default=3, ge=1, le=3)
+    # issue 9: the day the driver asked for (facility-local date). The service re-checks the 7-day limit itself.
+    requested_date: date | None = None
 
     @model_validator(mode="after")
     def _check(self):
@@ -216,7 +219,7 @@ def _answers_offer(text: str) -> bool:
     return bool(set(re.findall(r"[\wऀ-ॿ]+", (text or "").lower())) & _ANSWER_WORDS)
 
 
-class BookingService:
+class BookingService(LifecycleMixin):
     def __init__(self, db: Db, clock: Callable[[], datetime], facilities: tuple[str, ...], hold_ttl_s: int = 180,
                  booking_enabled: bool = False, optimizer_ranking: bool = False,
                  optimizer_config: OptimizerConfig | None = None, option_ttl_s: int | None = None):
@@ -241,10 +244,24 @@ class BookingService:
         have = getattr(self.db, "secret_arns", None)
         return have is None or role in have
 
-    def _engine(self, scope: tuple[str, ...] | None = None) -> FeasibilityEngine:
+    def _engine(self, scope: tuple[str, ...] | None = None, horizon_h: int = 36) -> FeasibilityEngine:
         """Feasibility role, read-only transaction. Facility-wide facts the driver must never see stay inside the service."""
         with self.db.tx("feasibility", scope or self.facilities, readonly=True) as c:
-            return FeasibilityEngine(load_view(c, self.now()))
+            return FeasibilityEngine(load_view(c, self.now(), horizon_h))
+
+    def _requested_day_window(self, fac: str, day: date) -> tuple[object, int, str | None]:
+        """Issue 9: the facility's zone, the view horizon that covers the requested day, and why the day is refused
+        (None = it may be searched). The agent asked; the service applies the 7-day rule itself."""
+        from ..agent import dates
+        with self.db.tx("agent", (fac,), readonly=True) as c:
+            row = c.execute("SELECT timezone FROM facilities WHERE facility_id=%s", (fac,)).fetchone()
+        tz = dates.facility_tz(row[0] if row else None)
+        now = self.now()
+        today = now.astimezone(tz).date()
+        why = ("REQUESTED_DATE_PAST" if day < today else
+               "REQUESTED_DATE_TOO_FAR" if (day - today).days > dates.MAX_DAYS_AHEAD else None)
+        end = datetime(day.year, day.month, day.day, tzinfo=tz) + timedelta(days=1)
+        return tz, max(36, int((end - now).total_seconds() // 3600) + 2), why
 
     def _thread(self, c, p: Principal) -> dict:
         r = c.execute("SELECT thread_id, driver_id, shipment_id, human_active, status FROM chat_threads WHERE thread_id=%s",
@@ -356,9 +373,10 @@ class BookingService:
     def t_get_driver_context(self, p, _args, _key):
         with self.db.tx("agent", driver=p.driver_id, readonly=True) as c:
             th = self._thread(c, p)
-            ships = c.execute("""SELECT shipment_id, order_reference, current_status, destination_facility_id, priority_code,
-                                        original_eta_ts FROM shipments
-                                  WHERE current_status NOT IN ('COMPLETED','CANCELLED') ORDER BY shipment_id""").fetchall()
+            ships = c.execute("""SELECT s.shipment_id, s.order_reference, s.current_status, s.destination_facility_id,
+                                        s.priority_code, s.original_eta_ts, f.timezone
+                                   FROM shipments s LEFT JOIN facilities f ON f.facility_id = s.destination_facility_id
+                                  WHERE s.current_status NOT IN ('COMPLETED','CANCELLED') ORDER BY s.shipment_id""").fetchall()
             ts_row = c.execute("SELECT current_status, order_reference FROM shipments WHERE shipment_id=%s",
                                (th["shipment_id"],)).fetchone() if th["shipment_id"] else None
             # the driver's last few messages, so a short reply ("yes", "2") is answered in the conversation's language
@@ -396,7 +414,8 @@ class BookingService:
                                            WHERE o.thread_id=%s AND o.created_at=%s AND o.expires_at > now() ORDER BY o.rank""",
                                        (p.thread_id, last))]
         live = [{"shipment_id": r[0], "order_reference": r[1], "status": r[2], "facility_id": r[3], "priority": r[4],
-                 "planned_eta": r[5].isoformat(), "current_appointment": appts.get(r[0])} for r in ships]
+                 "planned_eta": r[5].isoformat(), "current_appointment": appts.get(r[0]),
+                 "facility_timezone": r[6]} for r in ships]
         return env("OK", {"driver_id": p.driver_id, "thread_shipment_id": th["shipment_id"], "live_shipments": live,
                           "needs_shipment_choice": len(live) > 1 and th["shipment_id"] is None, "flow": flow,
                           "turn_facts": {"facts": tf[0], "asked": tf[1]} if tf else None,
@@ -405,6 +424,16 @@ class BookingService:
                           "coordinator_note": {"note": hb[0], "at": human_time(hb[1])} if hb else None})
 
     # ---------------------------------------------------------------- orchestrator helpers (not agent tools)
+    def driver_identity_terms(self, p: Principal) -> list[str]:
+        """Issue 8: the turn's driver's own identifiers (name, phone), so full-content traces mask them wherever they
+        appear in free text. Read in the driver's own scope; given only to the trace redactor, never exported."""
+        with self.db.tx("agent", driver=p.driver_id, readonly=True) as c:
+            r = c.execute("SELECT driver_name, phone_e164 FROM drivers WHERE driver_id=%s", (p.driver_id,)).fetchone()
+        terms = [x for x in (r or ()) if x]
+        if r and r[0]:                   # each part of the name too: a driver often writes only their first name
+            terms += [w for w in str(r[0]).split() if len(w) >= 3]
+        return terms
+
     def read_driver_message(self, p: Principal, message_id: int) -> str | None:
         """The stored DRIVER text for a message in the caller's own thread (masked body)."""
         with self.db.tx("agent", driver=p.driver_id, readonly=True) as c:
@@ -473,29 +502,42 @@ class BookingService:
                    say_hint=("Our latest location suggests a later arrival; confirm the time with the driver."
                              if "OPTIMISTIC_DECLARATION" in e.flags else None))
 
-    def _options(self, p, sid, fac, es, lf, n) -> dict:
+    def _options(self, p, sid, fac, es, lf, n, day: date | None = None) -> dict:
         with self.db.tx("agent", (fac,), p.driver_id) as c:              # may create the flow row on first use
             f, _ = self._flow(c, p, self._thread(c, p))
             ok = f.allow("find_feasible_options")
             if not ok.allowed:
                 return env("REQUIRES_HUMAN" if ok.reason == "HUMAN_ACTIVE" else "ERROR", {"code": ok.reason})
+        tz, horizon_h, day_why = (None, 36, None)
+        if day is not None:
+            tz, horizon_h, day_why = self._requested_day_window(fac, day)
+            if day_why:                                   # never silently another day: the agent tells the driver
+                return env("NOT_FEASIBLE", {"reason": day_why, "requested_date": day.isoformat()})
         if self.optimizer_ranking:
             now = self.now()
             with self.db.tx("feasibility", self.facilities, readonly=True) as c:
-                data = load_view(c, now)
+                data = load_view(c, now, horizon_h)
                 sv = c.execute("SELECT schedule_version FROM facilities WHERE facility_id=%s", (fac,)).fetchone()
             eng = FeasibilityEngine(data)
-            res = eng.find_options(sid, now, earliest_start=es, latest_finish=lf, max_options=n)
+            res = eng.find_options(sid, now, earliest_start=es, latest_finish=lf, max_options=n, requested_day=day,
+                                   day_tz=tz)
             if res.outcome_code in ("OPTIONS", "NEEDS_APPROVAL", "NO_FEASIBLE_SLOT"):
                 res = self._rank_with_optimizer(data, eng, res, sid, fac, es, lf, n, now, sv[0] if sv else None)
+                if day is not None:                       # the optimizer ranks; it never adds another day
+                    res.options = [o for o in res.options if o.start.astimezone(tz).date() == day]
         else:
-            res = self._engine().find_options(sid, self.now(), earliest_start=es, latest_finish=lf, max_options=n)
+            res = self._engine(horizon_h=horizon_h).find_options(sid, self.now(), earliest_start=es, latest_finish=lf,
+                                                                 max_options=n, requested_day=day, day_tz=tz)
         if res.outcome_code == "CONTRADICTORY_DATA":
             return env("REQUIRES_HUMAN", {"shipment_id": sid}, requires_human={"reason_code": "CONTRADICTORY_DATA",
                        "detail": "driver or truck is assigned to an overlapping shipment"},
                        say_hint="Say a coordinator will confirm the slot; do not offer times.")
         if res.outcome_code in ("NOT_ELIGIBLE", "FIXED"):
             return env("NOT_FEASIBLE", {"reason": res.outcome})
+        if not res.options and day is not None:
+            # issue 9: nothing free on the day asked for. Said as it is; no other day is offered in its place.
+            return env("NOT_FEASIBLE", {"reason": "NO_SLOT_ON_REQUESTED_DAY", "requested_date": day.isoformat(),
+                                        "rejections": res.rejections})
         if not res.options:
             return env("NOT_FEASIBLE", {"reason": "no feasible slot", "rejections": res.rejections},
                        requires_human={"reason_code": "NO_FEASIBLE_SLOT"})
@@ -514,7 +556,8 @@ class BookingService:
             f, ver = self._flow(c, p, th)
             f.options_shown(shown)
             self._save(c, f, ver)
-        return env("OK", {"shipment_id": sid, "options": out}, schedule_version=sv,
+        return env("OK", {"shipment_id": sid, "options": out,
+                          **({"requested_date": day.isoformat()} if day is not None else {})}, schedule_version=sv,
                    say_hint="List the numbered options exactly as given; ask the driver to choose one.")
 
     def _rank_with_optimizer(self, data, eng, res, sid, fac, es, lf, n, now, sv):
@@ -618,7 +661,7 @@ class BookingService:
         sid, fac, live = self._shipment(p, a.shipment_id)
         if sid is None:
             return env("NEEDS_INFO", {"live_shipments": [r[0] for r in live]}, missing=["shipment_id"])
-        return self._options(p, sid, fac, a.earliest_start, a.latest_finish, a.max_options)
+        return self._options(p, sid, fac, a.earliest_start, a.latest_finish, a.max_options, a.requested_date)
 
     def _driver_tx(self, p):
         sid, fac, _ = self._shipment(p, None)
@@ -1099,7 +1142,7 @@ class BookingService:
     def require(p: Principal, action: str):
         allowed = (PERMISSIONS.get(action) or SCHEDULE_PERMISSIONS.get(action) or PHASE_G_PERMISSIONS.get(action)
                    or DISPATCH_PERMISSIONS.get(action) or APPROVAL_MODE_PERMISSIONS.get(action)
-                   or KILL_SWITCH_PERMISSIONS[action])
+                   or LIFECYCLE_PERMISSIONS.get(action) or KILL_SWITCH_PERMISSIONS[action])
         if not (p.roles & allowed):
             raise ServiceError(403, "FORBIDDEN", f"{action} needs one of: {', '.join(sorted(allowed))}")
 
@@ -1150,10 +1193,14 @@ class BookingService:
     def list_escalations(self, p: Principal) -> list[dict]:
         self.require(p, "list_requests")
         with self.db.tx("console", p.facilities, readonly=True) as c:
-            rows = c.execute("""SELECT escalation_id, reason_code, mode, facility_id, shipment_id, thread_id, status
+            rows = c.execute("""SELECT escalation_id, reason_code, mode, facility_id, shipment_id, thread_id, status,
+                                       ack_due_at, created_at, acknowledged_at, assigned_to
                                   FROM escalations ORDER BY created_at DESC LIMIT 200""").fetchall()
-        return [dict(zip(("escalation_id", "reason_code", "mode", "facility_id", "shipment_id", "thread_id", "status"), r))
-                for r in rows]
+        now = datetime.now(timezone.utc)
+        keys = ("escalation_id", "reason_code", "mode", "facility_id", "shipment_id", "thread_id", "status", "ack_due_at",
+                "created_at", "acknowledged_at", "assigned_to")
+        # 0048 (issue 7): an OPEN escalation past its acknowledgement time is flagged for the Escalations tab
+        return [{**dict(zip(keys, r)), "overdue": r[6] == "OPEN" and r[7] is not None and r[7] < now} for r in rows]
 
     # ---------------------------------------------------------------- read-only conversation views (hosted console)
     THREAD_PAGE_MAX = 50
@@ -1187,7 +1234,7 @@ class BookingService:
         verified Cognito token (groups -> roles, facility_scope claim), and which console actions that allows. Nothing
         the browser sends can change it; the database receives the same roles in begin_staff_context."""
         allowed = {**PERMISSIONS, **SCHEDULE_PERMISSIONS, **KILL_SWITCH_PERMISSIONS, **PHASE_G_PERMISSIONS,
-                   **DISPATCH_PERMISSIONS, **APPROVAL_MODE_PERMISSIONS}
+                   **DISPATCH_PERMISSIONS, **APPROVAL_MODE_PERMISSIONS, **LIFECYCLE_PERMISSIONS}
         return {"principal": f"staff:{p.sub}", "roles": sorted(p.roles), "facilities": list(p.facilities),
                 "permissions": {a: bool(p.roles & r) for a, r in sorted(allowed.items())}}
 
@@ -1694,7 +1741,10 @@ class BookingService:
             if code in ("SHIPMENT_UNKNOWN", "DRIVER_NOT_IN_SCOPE", "APPOINTMENT_UNKNOWN", "REQUEST_UNKNOWN",
                         "ESCALATION_UNKNOWN"):
                 raise ServiceError(404, code) from e
-            raise ServiceError(409 if code in self.DISPATCH_CONFLICTS else 400, code or "ERROR", msg) from e
+            if e.sqlstate == "23P01":                         # 0048: the slot was taken meanwhile (EXCLUDE constraint)
+                raise ServiceError(409, "SLOT_TAKEN", refusal_text("SLOT_TAKEN")) from e
+            raise ServiceError(409 if code in self.DISPATCH_CONFLICTS or code in LIFECYCLE_CONFLICTS else 400,
+                               code or "ERROR", msg) from e
 
     @staticmethod
     def _offer_status(status: str, expires_at: datetime) -> str:
@@ -1711,12 +1761,26 @@ class BookingService:
                        a.appointment_id, a.status, lower(a.during), k.dock_code,
                        o.offer_id, o.kind, o.status, o.expires_at, o.driver_id, o.status_reason,
                        (SELECT c.status FROM cancellation_requests c WHERE c.appointment_id = a.appointment_id
-                         ORDER BY c.created_at DESC LIMIT 1)
+                         ORDER BY c.created_at DESC LIMIT 1),
+                       ns.appointment_id, ns.no_show_at, lower(ns.during), nk.dock_code, ns.no_show_resolution,
+                       (SELECT count(*) FROM escalations e WHERE e.shipment_id = s.shipment_id
+                         AND e.reason_code = 'SAFETY' AND e.status IN ('OPEN','ACKNOWLEDGED')),
+                       (SELECT count(*) FROM escalations e WHERE e.shipment_id = s.shipment_id
+                         AND e.status IN ('OPEN','ACKNOWLEDGED'))
                   FROM shipments s JOIN drivers d ON d.driver_id = s.driver_id JOIN vehicles v ON v.vehicle_id = s.vehicle_id
                   LEFT JOIN LATERAL (SELECT * FROM appointments x WHERE x.shipment_id = s.shipment_id
                                        AND (x.is_current OR x.status = 'PENDING_CONFIRMATION') AND x.status IN ('PENDING_CONFIRMATION','CONFIRMED','IN_PROGRESS')
                                      ORDER BY x.created_at DESC LIMIT 1) a ON true
                   LEFT JOIN docks k ON k.dock_id = a.dock_id
+                  -- 0048 (D3): the latest no-show waits for the dispatcher (and, once a planner approved its
+                  -- cancellation, stays shown as cancelled); it is "Needs booking" only after Rebook, and nothing newer
+                  -- than it may have been booked since
+                  LEFT JOIN LATERAL (SELECT * FROM appointments z WHERE z.shipment_id = s.shipment_id
+                                       AND z.status = 'NO_SHOW' AND z.no_show_resolution IS DISTINCT FROM 'REBOOK'
+                                       AND NOT EXISTS (SELECT 1 FROM appointments y WHERE y.shipment_id = z.shipment_id
+                                                        AND y.created_at > z.no_show_at)
+                                     ORDER BY z.no_show_at DESC LIMIT 1) ns ON true
+                  LEFT JOIN docks nk ON nk.dock_id = ns.dock_id
                   LEFT JOIN LATERAL (SELECT * FROM dispatch_offers y WHERE y.shipment_id = s.shipment_id
                                      ORDER BY y.created_at DESC LIMIT 1) o ON true
                  WHERE s.current_status IN ('PLANNED','ASSIGNED','IN_TRANSIT')
@@ -1734,9 +1798,14 @@ class BookingService:
                                          "status_reason": r[19]} if r[14] else None,
                         "cancellation": r[20],
                         "telegram": links.get(r[6]) or {"linked": False, "linked_at": None, "code_expires_at": None},
-                        "bookable": r[10] is None,
-                        # which workflow applies: a new booking, or the confirmed-appointment workflows
-                        "workflow": "NEW_BOOKING" if r[10] is None else
+                        "bookable": r[10] is None and r[21] is None,
+                        "no_show": {"appointment_id": r[21], "no_show_at": r[22].isoformat(), "start": r[23].isoformat(),
+                                    "dock_code": r[24], "resolution": r[25]} if r[21] else None,
+                        # issue 7: while a safety escalation is open every booking for the shipment needs a person
+                        "open_safety_escalation": bool(r[26]), "open_escalations": r[27],
+                        # which workflow applies: a new booking, the confirmed-appointment workflows, or (0048) the
+                        # dispatcher's decision after a no-show
+                        "workflow": "NO_SHOW" if r[21] else "NEW_BOOKING" if r[10] is None else
                                     ("CONFIRMED" if r[11] == "CONFIRMED" else "PENDING_PLANNER")})
         return out
 
@@ -1766,7 +1835,7 @@ class BookingService:
                 "note": "Options are rechecked when you send the offer and again when the driver accepts."}
 
     def create_offer(self, p: Principal, shipment_id: str, driver_id: str, vehicle_id: str, dock_code: str,
-                     start: datetime, key: str) -> dict:
+                     start: datetime, key: str, target: str | None = None) -> dict:
         """Send a booking offer to a driver (the assigned one: initial booking; another one: pre-confirmation
         reassignment). The slot must be one the engine finds feasible NOW; the database re-checks the shipment, the
         assignment, the driver's conversation and the idempotency key, supersedes any older offer, and delivers the
@@ -1780,9 +1849,17 @@ class BookingService:
             raise ServiceError(409, "OPTION_NOT_FEASIBLE", "that dock and time is not feasible now; reload the options")
         text = (self.OFFER_TEXT if driver_id == cur_drv else self.REASSIGN_TEXT).format(
             ref=ref, dock=hit.dock, start=human_time(hit.start))
-        r = self._staff_fn(p, "SELECT create_dispatch_offer(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                           (shipment_id, driver_id, vehicle_id, docks[hit.dock], hit.start, hit.end, hit.needs_approval,
-                            sv, int(self.option_ttl.total_seconds()), text, key, f"staff:{p.sub}"))
+        args = (shipment_id, driver_id, vehicle_id, docks[hit.dock], hit.start, hit.end, hit.needs_approval,
+                sv, int(self.option_ttl.total_seconds()), text, key, f"staff:{p.sub}")
+        if target is not None:
+            # 0048 (issue 5): the dispatcher said who the offer is for; the database refuses "Another driver" to the
+            # assigned driver and "This driver" to anyone else, so the two choices can never be confused
+            if target == "OTHER" and driver_id == cur_drv:
+                raise ServiceError(409, "SAME_DRIVER", refusal_text("SAME_DRIVER"))
+            r = self._staff_fn(p, "SELECT create_dispatch_offer_to(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                               (target, *args))
+        else:
+            r = self._staff_fn(p, "SELECT create_dispatch_offer(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)", args)
         telemetry.emit("dispatch.offer", CORRELATION_ID.get() or str(r["offer_id"]), offer_id=r["offer_id"],
                        kind=r["kind"], facility_id=fac, replayed=r.get("replayed"))
         return r
@@ -2153,7 +2230,26 @@ class BookingService:
                              "explanation": "total = docks x window minutes; available = total minus confirmed, "
                                             "pending-decision claims, live holds and blocked time"},
                 "pending": self._pending_detail(p, facility),
+                "escalations_needing_decision": self._decision_escalations(p, facility),
                 "cancellations": [x for x in self.list_cancellations(p, facility) if x["status"] == "OPEN"]}
+
+    def _decision_escalations(self, p: Principal, facility: str) -> list[dict]:
+        """0048 (issue 7): open escalations at this facility that need a person's decision, with their due time. While a
+        SAFETY escalation is open every booking for that shipment goes to a person, so a driver's yes appears here and
+        not as a request."""
+        now = datetime.now(timezone.utc)
+        with self.db.tx("console", (facility,), readonly=True) as c:
+            rows = c.execute("""SELECT e.escalation_id, e.reason_code, e.mode, e.status, e.shipment_id, s.order_reference,
+                                       e.ack_due_at, e.resolve_by, e.created_at, e.thread_id
+                                  FROM escalations e LEFT JOIN shipments s ON s.shipment_id = e.shipment_id
+                                 WHERE e.facility_id = %s AND e.status IN ('OPEN','ACKNOWLEDGED')
+                                 ORDER BY e.ack_due_at""", (facility,)).fetchall()
+        return [{"escalation_id": str(r[0]), "reason_code": r[1], "mode": r[2], "status": r[3], "shipment_id": r[4],
+                 "order_reference": r[5], "due": (r[6] if r[3] == "OPEN" else (r[7] or r[6])).isoformat(),
+                 "overdue": (r[3] == "OPEN" and r[6] < now) or (r[7] is not None and r[7] < now),
+                 "created_at": r[8].isoformat(), "thread_id": r[9],
+                 "banner": "Open safety escalation: every booking needs a person" if r[1] == "SAFETY" else None}
+                for r in rows]
 
     def _pending_detail(self, p: Principal, facility: str) -> list[dict]:
         now = datetime.now(timezone.utc)

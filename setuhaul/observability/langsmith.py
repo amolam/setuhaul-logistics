@@ -13,7 +13,10 @@ Configuration (all optional; tracing is OFF unless SETUHAUL_LANGSMITH_TRACING=on
   SETUHAUL_LANGSMITH_ENDPOINT    https://api.smith.langchain.com (default), https://eu.api.smith.langchain.com or
                                  https://apac.api.smith.langchain.com only
   SETUHAUL_LANGSMITH_UI_URL      the project's page in the LangSmith UI (links only; https://[eu.]smith.langchain.com/…)
-  SETUHAUL_TRACE_CONTENT         on | off (default off): export sanitised driver text. Synthetic data only.
+  SETUHAUL_TRACE_CONTENT         off (default) | on: sanitised driver text | full (27 Nov 2026, issue 8): also the
+                                 model's per-turn input and raw output, tool results and long text, still without
+                                 credentials or driver identifiers. full is honoured ONLY when SETUHAUL_ENV=pilot
+                                 (synthetic data); anywhere else it falls back to off, with one log line.
   SETUHAUL_LANGSMITH_SAMPLE_RATE 0..1 (default 1.0)
 """
 from __future__ import annotations
@@ -167,6 +170,18 @@ class LangSmithExporter(Exporter):
         self.client.post_runs(batch)
 
 
+def content_mode_from_env(env: dict, environment: str) -> str:
+    """SETUHAUL_TRACE_CONTENT as this environment may use it: full only for the synthetic pilot (owner decision Q3,
+    27 Nov 2026); on / off as before anywhere synthetic tracing is allowed."""
+    raw = (env.get("SETUHAUL_TRACE_CONTENT") or "off").strip().lower()
+    if raw == "full":
+        if environment == "pilot" and (env.get("SETUHAUL_DATA_CLASS") or "").strip().lower() == "synthetic":
+            return "full"
+        log.warning("SETUHAUL_TRACE_CONTENT=full is for the synthetic pilot only; content export stays off here")
+        return "off"
+    return "on" if _on(raw) else "off"
+
+
 def tracer_from_env(env: dict | None = None, *, secrets_client: Any = None, http: Any = None) -> Tracer:
     """The process tracer. Off unless SETUHAUL_LANGSMITH_TRACING=on; any configuration problem leaves it off with one
     log line naming the category (tracing is non-critical: the agent never fails because of it)."""
@@ -185,14 +200,15 @@ def tracer_from_env(env: dict | None = None, *, secrets_client: Any = None, http
         cfg.project = project_from_env(env, environment)
         endpoint = endpoint_from_env(env)
         key = load_langsmith_key(env, environment, secrets_client)
-        cfg.content_allowed = _on(env.get("SETUHAUL_TRACE_CONTENT"))
+        cfg.content_mode = content_mode_from_env(env, environment)
+        cfg.content_allowed = cfg.content_mode in ("on", "full")
         try:
             cfg.sample_rate = min(1.0, max(0.0, float(env.get("SETUHAUL_LANGSMITH_SAMPLE_RATE") or 1.0)))
         except ValueError:
             cfg.sample_rate = 1.0
         cfg.enabled = True
         log.info("langsmith tracing on project=%s endpoint=%s key_shape=%s content=%s sample=%s", cfg.project, endpoint,
-                 key_shape(key), cfg.content_allowed, cfg.sample_rate)
+                 key_shape(key), cfg.content_mode, cfg.sample_rate)
         # export timeout 1 s: a flush is bounded by its budget plus at most one in-flight post (LANGSMITH_OBSERVABILITY §5)
         return Tracer(cfg, LangSmithExporter(LangSmithClient(key, endpoint, http=http, timeout_s=EXPORT_TIMEOUT_S)))
     except LangSmithConfigError as e:
