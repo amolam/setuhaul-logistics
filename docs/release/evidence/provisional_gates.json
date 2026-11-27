@@ -1,17 +1,18 @@
 {
- "collected_utc": "2026-11-27T12:52:47+00:00",
+ "collected_utc": "2026-11-27T13:18:55+00:00",
  "stack": "SetuHaulPilot",
  "region": "ap-southeast-2",
- "booking_enabled": true,
+ "booking_enabled": false,
  "booking_observed": {
   "source": "https://w8ptr7w960.execute-api.ap-southeast-2.amazonaws.com/pilot/health",
-  "observed_utc": "2026-11-27T12:52:46+00:00",
+  "observed_utc": "2026-11-27T13:18:53+00:00",
   "http_status": 200,
-  "booking_state": "authorized",
-  "booking_enabled": true,
-  "meaning": "booking enabled and authorized by the database",
+  "booking_state": "refused",
+  "booking_enabled": false,
+  "meaning": "booking enabled but not authorized by the database",
   "format": "D4 (the database's verdict)",
   "booking_switch": "on",
+  "booking_refusal": "EVIDENCE_NOT_CURRENT: BOOKING_WORKFLOW no evidence and the provisional authorization is REVOKED",
   "booking_kill_switch": "disengaged",
   "version": "0.2.0"
  },
@@ -20,10 +21,10 @@
   "WORKLOAD_IDENTITY": {
    "evidence": {
     "login_to_group_roles": {
-     "setuhaul_login_agent_f6978345615c": [
+     "setuhaul_login_agent_fa8f865c616c": [
       "setuhaul_agent"
      ],
-     "setuhaul_login_console_f6978345615c": [
+     "setuhaul_login_console_fa8f865c616c": [
       "setuhaul_console"
      ],
      "setuhaul_login_deploy_evidence": [
@@ -115,7 +116,7 @@
     },
     "reach": [
      {
-      "login": "setuhaul_login_agent_f6978345615c",
+      "login": "setuhaul_login_agent_fa8f865c616c",
       "can_use_console": false,
       "can_use_rpc": false,
       "superuser": false,
@@ -123,7 +124,7 @@
       "can_use_db_owner": false
      },
      {
-      "login": "setuhaul_login_console_f6978345615c",
+      "login": "setuhaul_login_console_fa8f865c616c",
       "can_use_console": true,
       "can_use_rpc": false,
       "superuser": false,
@@ -272,12 +273,10 @@
    "evidence": {
     "engine": "aurora-postgresql 17.9",
     "server_version": "17.9",
-    "migrations_live": 49,
+    "migrations_live": 50,
     "migrations_in_repo": 50,
     "hash_mismatches": [],
-    "repo_only_migrations": [
-     "0050"
-    ],
+    "repo_only_migrations": [],
     "evidence_triggers": {
      "appointments.aa_booking_kill_switch": [
       "O",
@@ -487,8 +486,8 @@
      ]
     },
     "last_48h": {
-     "messages_sent": 114,
-     "messages_deleted": 114,
+     "messages_sent": 117,
+     "messages_deleted": 117,
      "dlq_messages_sent": 0
     },
     "dlq_drill": {
@@ -575,10 +574,10 @@
       "ingest",
       "system"
      ],
-     "code_sha256": "9peDRWFc+GtnAGnRPBPqph3fnDJ3P1/LWpGYfG7saYg="
+     "code_sha256": "+o+GXGFsLO3V87pI94y3igMePNnTefKOWQJ80wM9nL0="
     },
-    "recovery_invocations_last_3_days": 1559,
-    "last_invocation_utc": "2026-11-27T11:57:04.111000+00:00",
+    "recovery_invocations_last_3_days": 1564,
+    "last_invocation_utc": "2026-11-27T13:09:29.595000+00:00",
     "lease_loss_drill": {
      "checks": {
       "clean start: empty queue, no other unprocessed receipt, all data synthetic": true,
@@ -618,7 +617,7 @@
     "config: every other function has booking OFF": true,
     "config: api and agent run in the pilot environment with synthetic data": true,
     "config: every function is synthetic-data only": true,
-    "config: /health answers: status ok, database ok, booking ON": true,
+    "config: /health answers: status ok, database ok, booking ON": false,
     "config: /health environment is the synthetic pilot": true,
     "config: kill switch is in its expected state (disengaged)": true,
     "config: the renewal names a well-formed owner approval reference": true,
@@ -632,9 +631,11 @@
     "every approval execution is attributed (A drill, B smoke, C owner-confirmed, D owner-confirmed test origin, E owner-authorised test-driver booking)": true
    },
    "not_shown": [
+    "BOOKING_WORKFLOW: FAIL \u2014 /health: status 'ok', database 'ok', booking_enabled False",
     "BOOKING_WORKFLOW: FAIL \u2014 no fresh smoke test record (scripts/smoke_option_d.py --release-sha <sha>) was supplied"
    ],
    "diagnostics": [
+    "BOOKING_WORKFLOW: FAIL \u2014 /health: status 'ok', database 'ok', booking_enabled False",
     "BOOKING_WORKFLOW: FAIL \u2014 no fresh smoke test record (scripts/smoke_option_d.py --release-sha <sha>) was supplied"
    ],
    "evidence": {
@@ -704,7 +705,7 @@
      "health": {
       "status": "ok",
       "database": "ok",
-      "booking_enabled": true,
+      "booking_enabled": false,
       "environment": "pilot-ap-southeast-2",
       "booking_kill_switch": "disengaged",
       "gate_exceptions": [
@@ -714,9 +715,9 @@
       ],
       "version": "0.2.0"
      },
-     "deployed_booking_mode": "ON (OWNER-APPROVAL-20261127-DEMO-03)",
-     "deployed_approval_ref": "OWNER-APPROVAL-20261127-DEMO-03",
-     "renewal_approval_ref": "OWNER-APPROVAL-20261127-DEMO-04"
+     "deployed_booking_mode": "ON (OWNER-APPROVAL-20261127-DEMO-04)",
+     "deployed_approval_ref": "OWNER-APPROVAL-20261127-DEMO-04",
+     "renewal_approval_ref": "OWNER-APPROVAL-20261127-DEMO-05"
     },
     "approval_executions": [
      {
@@ -1463,9 +1464,9 @@
  },
  "mode": "renewal",
  "environment": "pilot-ap-southeast-2",
- "release_sha": "5b661a123142615f5c157bae4dd01cb07cb2a13a",
- "approval_ref": "OWNER-APPROVAL-20261127-DEMO-04",
- "artifact_sha256": "f6978345615cf86b670069d13c13eaa61ddf9c32773f5fcb5a91987c6eec6988",
+ "release_sha": "70333a08f2cf2213f9ab4ccf5fe591d0a77ebbd6",
+ "approval_ref": "OWNER-APPROVAL-20261127-DEMO-05",
+ "artifact_sha256": "fa8f865c616c2cedd5f3ba48f78cb78a031e3cd9d379f28e59027cd3033d9cbd",
  "expected_kill_switch": "disengaged",
  "approved_exceptions": [
   "AURORA (T33-P)",
