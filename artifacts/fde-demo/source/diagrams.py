@@ -281,18 +281,17 @@ def d_judge(s, ox=0.5, oy=1.6):
 
 # 9. Observability: trace lifecycle --------------------------------------------------------------------------------
 def d_trace(s, ox=0.5, oy=1.6):
-    box(s, ox, oy, 6.7, 0.5, [[("thread_id", {"bold": True}), ("  opaque conversation ref, shared by the main conversation path", {})]],
+    # 27 Nov 2026 (DEMO-04): one tree per Telegram message; full operational content on the synthetic pilot
+    box(s, ox, oy, 6.7, 0.5, [[("telegram_inbound", {"bold": True}), ("  root of the message's tree · message text", {})]],
         fill=NAVY, line=NAVY, color=WHITE, size=11.5, align="l", margin=0.12)
-    rows = [(1, "telegram_inbound", "run id = request correlation id", EXT_FILL, EXT_LINE),
-            (1, "agent_turn", "driver_id · shipment_id · facility_id · channel · turn_ref · outcome", DET_FILL,
+    rows = [(1, "agent_turn", "child of inbound · driver/shipment/facility ids · decision path · outcome", DET_FILL,
              DET_LINE),
-            (2, "extract (LLM)", "model · input/output tokens · cost_usd · latency · fallback reason", AI_FILL,
+            (2, "model_call (LLM)", "model input + raw output · tokens · cost_usd · latency", AI_FILL,
              AI_LINE),
-            (2, "tool spans", "get_driver_context · find_feasible_options · hold_option … · result code", DET_FILL,
+            (2, "tool spans", "get_driver_context · find_feasible_options · hold_option … · args + result", DET_FILL,
              DET_LINE),
             (2, "llm_judge (child)", "quality:clarity / tone / language_match · advisory", AI_FILL, AI_LINE),
-            (1, "telegram_outbound", "reply_to_message_ref · chat TAG (never the chat id) · status", EXT_FILL,
-             EXT_LINE)]
+            (2, "telegram_outbound", "child of the turn · text sent · outcome", EXT_FILL, EXT_LINE)]
     y = oy + 0.68
     rh, gap = 0.5, 0.1
     spine1 = ox + 0.25
@@ -313,9 +312,9 @@ def d_trace(s, ox=0.5, oy=1.6):
         y += rh + gap
     arrow(s, spine1, oy + 0.5, spine1, last1, color=MUTED, width=1.25, head=False)
     arrow(s, spine2, agent_bottom, spine2, last2, color=MUTED, width=1.25, head=False)
-    text(s, ox, y + 0.0, 6.7, 0.75, "Not exported: message text, names, phone numbers, Telegram chat ids, coordinates. "
-         "Exported: pseudonymous internal ids after a format gate (malformed → [INVALID_ID]). "
-         "4 link-code / button-callback inbound runs lack thread_id.", size=10.5,
+    text(s, ox, y + 0.0, 6.7, 0.75, "Removed before export: the driver's name and phone, every credential. Exported "
+         "(synthetic pilot only): message text, model input/output, tool results, ids. Link-code, callback and "
+         "proactive runs are still their own roots.", size=10.5,
          color=MUTED)
 
 

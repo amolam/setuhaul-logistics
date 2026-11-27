@@ -117,7 +117,7 @@ def build_deck():
              "Held-out h1 (p5): 100% intent; native-speaker review"],
             ["People keep authority over bookings", "Planner approval in Step Functions; requester never decides",
              "Smoke checks 2a–2c, 5"],
-            ["Safe to pilot on a tight budget", "Synthetic data only; $0.25/day LLM cap; kill switch; scale to zero",
+            ["Safe to pilot on a tight budget", "Synthetic data only; $2/day LLM cap; kill switch; scale to zero",
              "Smoke checks 6–7; cost ledger"]]
     table(s, 0.5, 3.45, 12.33, rows, [3.6, 4.83, 3.9], size=12, row_h=0.5)
     text(s, 0.5, 6.1, 12.33, 0.7, [[("Non-functional: ", {"bold": True, "color": NAVY}),
@@ -331,40 +331,41 @@ def build_deck():
           "(6 min)")
 
     # 11 -----------------------------------------------------------------------------------------------------------
-    s = frame(p, 11, "Main conversation path correlated in LangSmith; ids only",
-              "No message text, phone numbers or chat ids exported; 4 link-code and button-callback runs lack thread_id",
-              "setuhaul/observability/tracing.py, identifiers.py, redaction.py, notify/telegram.py, commit ff4076d, "
-              "PR #17")
+    s = frame(p, 11, "One trace tree per message; name and phone masked",
+              "Synthetic pilot: full operational content; driver name, phone and credentials never leave the process",
+              "setuhaul/observability/tracing.py, redaction.py, notify/telegram.py, migration 0050, "
+              "tests/test_trace_content_full.py, commit ff4076d, PR #17")
     D.d_trace(s)
     trio = [("Logs", "CloudWatch agent.turn lines: correlation ids, no text"),
             ("Metrics", "Ops tables + CloudWatch alarms: DLQ, errors, 4xx"),
-            ("Traces", "LangSmith: run tree per turn, thread per conversation")]
+            ("Traces", "LangSmith: inbound → agent turn → outbound, one tree per message")]
     for i, (h, b) in enumerate(trio):
         x = 7.55 + i * 1.78
         box(s, x, 1.6, 1.68, 1.35, [{"t": h, "bold": True, "size": 13, "color": NAVY}, {"t": b, "size": 10.5}],
             fill=LIGHT, line=LINE, align="l", anchor="t", margin=0.1)
     text(s, 7.55, 3.1, 5.3, 0.35, "Investigating a failed booking", size=13.5, bold=True, color=NAVY)
     text(s, 7.55, 3.45, 5.3, 1.6, [
-        {"t": "Filter traces by the internal driver or shipment id", "bullet": True},
-        {"t": "Read agent_turn: outcome and fallback reason", "bullet": True},
-        {"t": "Open the failing tool span: its result code (e.g. slot taken)", "bullet": True},
+        {"t": "Open the message's tree (or filter by driver or shipment id)", "bullet": True},
+        {"t": "Read what the model saw and returned, and the decision path", "bullet": True},
+        {"t": "Open the failing tool span: its arguments and result (e.g. slot taken)", "bullet": True},
         {"t": "Confirm in the database audit trail (hold, request, decision)", "bullet": True}], size=11.5,
         space_after=3)
     box(s, 7.55, 5.15, 5.28, 1.6, [{"t": "Not yet observable", "bold": True, "color": RED, "size": 12.5},
-                                   {"t": "4 inbound runs without thread_id (link codes, button callbacks)",
+                                   {"t": "Link-code, callback, offer-continuation and proactive runs are own roots",
                                     "bullet": True, "size": 11},
                                    {"t": "No alerting on trace data; alarms are CloudWatch only", "bullet": True,
                                     "size": 11},
                                    {"t": "No per-stage breakdown inside the 8.5–11 s agent turn yet", "bullet": True,
                                     "size": 11}],
         fill=RISK_FILL, line=RISK_LINE, align="l", anchor="t", margin=0.12)
-    notes(s, "Since the demo release, the main conversation path (inbound webhook, agent turn, judge and outbound "
-          "send) shares one opaque thread id, so LangSmith groups it. It is not every run: four inbound runs for "
-          "link codes and button callbacks have no thread id yet. The judge is a child of the turn it scored. "
-          "Traces carry pseudonymous internal ids (synthetic driver, shipment and facility ids) after a strict format "
-          "gate; message text, chat ids and phone numbers are not exported. "
-          "Gaps: four inbound runs (link codes and button callbacks) still have no thread id, and we do not alert on "
-          "trace data. (75 s)")
+    notes(s, "Every Telegram message is one tree: the inbound webhook, the agent turn under it, and the outbound send "
+          "under the turn (27 Nov, DEMO-04). Inside the turn: what the model read and returned, with model, tokens, cost "
+          "and latency; each tool with its result; the decision path. The judge is a child of the turn it scored. This "
+          "is a synthetic pilot, so we export full operational content; the driver's name and phone and every "
+          "credential are removed before export, and full content is refused outside the synthetic pilot. On 27 Nov we "
+          "found the export guard had been dropping the test drivers' traces (ordinary words in their names matched ids); "
+          "it now never scans ids, with a regression test. Gaps: link-code, callback, offer-continuation and proactive "
+          "runs are still their own roots, and we do not alert on trace data. (75 s)")
 
     # 12 -----------------------------------------------------------------------------------------------------------
     s = frame(p, 12, "Tests prove the rules; evaluations measure the model",
@@ -430,27 +431,28 @@ def build_deck():
             ["Aborted v4 attempt (≈ 38 calls)", "≈ 0.14", "estimate only"],
             ["Per golden extraction (Haiku 4.5)", "≈ 0.0036", "computed"],
             ["Per pilot judgement", "≈ 0.0033", "reported, 9 turns"],
-            ["Pilot LLM spend since 23 Nov", "not available", "≤ $0.25/day cap"],
+            ["Pilot LLM spend since 23 Nov", "not available", "≤ daily cap"],
             ["AWS and LangSmith bills", "not available", "not in evidence"]]
     table(s, 7.0, 1.6, 5.83, rows, [2.95, 1.25, 1.63], size=10.5, row_h=0.33)
     text(s, 7.0, 4.68, 5.83, 0.35, "Current limits (by design)", size=13.5, bold=True, color=NAVY)
     text(s, 7.0, 5.03, 5.83, 1.95, [
-        {"t": "$0.25/day app cap, reserved in PostgreSQL before each call; when reached → rules reader, booking "
-              "unaffected", "bullet": True},
-        {"t": "OpenRouter key: $10 total, no reset (not a monthly budget); $5.98 used at the 26 Nov check, "
-              "before the replay", "bullet": True},
-        {"t": "Cap alone ≈ 20–42 bookings/day (ESTIMATE: $0.25 ÷ $0.0059–0.0128 per booking incl. judge)",
+        {"t": "$2.00/day app cap (owner, 27 Nov; was $0.25), reserved in PostgreSQL before each call; when "
+              "reached → rules reader, booking unaffected", "bullet": True},
+        {"t": "OpenRouter key: $10 total, no reset; $5.98 used at the 26 Nov check. At $2/day it binds first",
          "bullet": True},
-        {"t": "Judge: 20% sample, no retries, only the shared cap's headroom above the agent reserve",
+        {"t": "Cap alone ≈ 156–339 bookings/day (ESTIMATE: $2.00 ÷ $0.0059–0.0128 per booking incl. judge)",
+         "bullet": True},
+        {"t": "Judge: $0.75/day of the cap, 20% sample, no retries; never above the agent reserve's headroom",
          "bullet": True}], size=10.5, space_after=1)
     notes(s, "Separate actuals from projections. Recorded development and evaluation spend is a few dollars, traceable "
           "to a result file, the usage ledger or a key checkpoint. Current pilot LLM spend, the AWS bill and the "
           "LangSmith bill are not available in the evidence; do not quote them. The p5 re-runs on 26 Nov cost $1.046 across three runs, from their result files; a first v4 attempt crashed in the runner after about 38 paid calls, roughly 14 cents by estimate, and the key's own counter is the authoritative total. The chart is a projection, not "
           "demonstrated AWS capacity: 10k and 100k bookings a month have never been run. At 100 bookings a month fixed AWS cost "
-          "dominates; at 100,000 the LLM dominates at about 1.3 cents per booking. Today the $0.25/day cap alone allows roughly 20 to 42 "
-          "bookings a day, an estimate from the per-booking cost including the judge. The OpenRouter key has a $10 "
-          "limit that never resets, so I do not turn it into a monthly capacity. Any change to those limits is an owner decision. When the budget "
-          "is spent the agent switches to the rules reader; booking keeps working. (75 s)")
+          "dominates; at 100,000 the LLM dominates at about 1.3 cents per booking. Since 27 Nov the cap is $2 a day "
+          "(owner decision, so the judge gets $0.75 and actually runs; at $0.25 it never did); the cap alone would allow "
+          "roughly 156 to 339 bookings a day by estimate. The binding limit is the OpenRouter key: $10 that never "
+          "resets, so I do not turn it into a monthly capacity. When the budget is spent the agent switches to the "
+          "rules reader; booking keeps working. (75 s)")
 
     # 15 -----------------------------------------------------------------------------------------------------------
     s = frame(p, 15, "Four hard problems, and what is still not solved",
@@ -475,12 +477,12 @@ def build_deck():
                                                [("Outcome: ", {"bold": True, "color": GREEN}), (out, {})]],
              size=12.5, space_after=6)
     box(s, 8.95, 1.6, 3.88, 5.07, "", fill=RISK_FILL, line=RISK_LINE, radius=0.04)
-    text(s, 9.1, 1.68, 3.6, 0.4, "Open issues (26 Nov)", size=13.5, bold=True, color=RED)
+    text(s, 9.1, 1.68, 3.6, 0.4, "Open issues (27 Nov)", size=13.5, bold=True, color=RED)
     text(s, 9.1, 2.1, 3.6, 4.55, [
+        {"t": "Prompt p6 (dates, reschedule) deployed; its paid eval deferred: not model-validated", "bullet": True},
         {"t": "Console shows the read-back record and the agent reply as 2 identical rows (1 sent)", "bullet": True},
-        {"t": "4 inbound runs lack thread_id", "bullet": True},
         {"t": "Latency targets missed (15.0 s; ≈ 2.2 s)", "bullet": True},
-        {"t": "Judge skipped after deploy (budget:shared_daily_cap); usage balance unavailable", "bullet": True},
+        {"t": "Two releases stopped by their own gates on 27 Nov; fixed forward (0049, categories D/X)", "bullet": True},
         {"t": "Replay BB12, AT02 fail on p3 and p5; new p5 pick miss BB05; causes not established", "bullet": True},
         {"t": "Judge: 4 disagreements of 2+ points (J13, J14, J17, J20); one non-blind reviewer; pilot rows uncalibrated", "bullet": True},
         {"t": "WhatsApp/Meta deferred; outbound gate under an owner exception", "bullet": True},

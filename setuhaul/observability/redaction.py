@@ -75,14 +75,33 @@ _PATTERNS = [
     (re.compile(r"(?<![\w-])(?:91[\s-]?)?[6-9]\d{4}[\s-]?\d{5}(?![\w-])"), "[PHONE]"),
     (re.compile(r"(?<![0-9A-Fa-f-])\d{12}(?![0-9A-Fa-f-])"), "************"),
 ]
+# 27 Nov 2026 (owner, DEMO-04): FULL mode (synthetic pilot only) removes only the driver's name and phone and every
+# credential; everything else is exported. So full mode scrubs credential and phone shapes only (no e-mail, AWS
+# account-id or ARN masking) and drops only the keys below.
+_CREDENTIAL_PATTERNS = _PATTERNS[:8]
+_PHONE_PATTERNS = _PATTERNS[10:12]
+_FULL_PATTERNS = _CREDENTIAL_PATTERNS + _PHONE_PATTERNS
+FULL_DROP_KEYS = frozenset({
+    "phone", "phone_e164", "driver_phone", "msisdn", "wa_id", "driver_name", "name", "first_name", "last_name",
+    "full_name", "display_name",
+    "session", "session_token", "x_setuhaul_session", "token", "access_token", "id_token", "refresh_token",
+    "authorization", "cookie", "set_cookie", "api_key", "apikey", "x_api_key", "secret", "secret_string",
+    "client_secret", "password", "private_key", "aws_access_key_id", "aws_secret_access_key", "aws_session_token",
+    "meta_app_secret", "session_secret", "whatsapp_token", "openrouter_api_key", "langsmith_api_key",
+    "signature", "x_hub_signature_256", "system",
+})
+# full mode: platform ids exported as they are. A 10-digit Telegram id has a mobile number's shape, so the phone
+# scrub would otherwise mask it; by key it is known to be an id, not a phone.
+FULL_ID_KEYS = frozenset({"chat_id", "telegram_chat_id", "telegram_user_id", "user_id", "external_user_id",
+                          "message_id", "update_id", "external_message_id"})
 
 
-def scrub(s: str, max_len: int = MAX_STR, pii_terms=()) -> str:
-    """Remove credential-, phone-, e-mail- and account-id-shaped substrings from one string, mask the turn's known
-    driver identifiers (`pii_terms`, longest first, case-insensitive), then cut it."""
+def scrub(s: str, max_len: int = MAX_STR, pii_terms=(), patterns=None) -> str:
+    """Remove credential-, phone-, e-mail- and account-id-shaped substrings from one string (full mode: credentials and
+    phones only), mask the turn's known driver identifiers (`pii_terms`, longest first, case-insensitive), cut it."""
     for term in sorted({str(t).strip() for t in pii_terms if t and len(str(t).strip()) >= 3}, key=len, reverse=True):
         s = re.sub(r"(?i)(?<![\w])" + re.escape(term) + r"(?![\w])", "[PII]", s)
-    for rx, rep in _PATTERNS:
+    for rx, rep in (_PATTERNS if patterns is None else patterns):
         s = rx.sub(rep, s)
     return s if len(s) <= max_len else s[:max_len] + "…"
 
@@ -109,7 +128,7 @@ def redact(value, *, content_allowed: bool = False, mode: str | None = None, pii
     if isinstance(value, UUID):
         return str(value)
     if isinstance(value, str):
-        return scrub(value, max_len, pii_terms)
+        return scrub(value, max_len, pii_terms, _FULL_PATTERNS if full else None)
     if isinstance(value, dict):
         out = {}
         for k, v in list(value.items())[:(80 if full else 50)]:
@@ -118,8 +137,11 @@ def redact(value, *, content_allowed: bool = False, mode: str | None = None, pii
                 if full:                                 # the model's per-turn input / raw output, scrubbed
                     out[str(k)] = redact(v, **kw, _depth=_depth + 1)
                 continue                                 # off / on: never exported
-            if nk in DROP_KEYS or "secret" in nk or "password" in nk or nk.endswith("_token") or nk.endswith("_key") \
+            if nk in (FULL_DROP_KEYS if full else DROP_KEYS) or "secret" in nk or "password" in nk or nk.endswith("_token") or nk.endswith("_key") \
                     or nk.startswith("token") or "credential" in nk or "api_key" in nk:
+                continue
+            if full and nk in FULL_ID_KEYS and (isinstance(v, int) or (isinstance(v, str) and len(v) <= 64)):
+                out[str(k)] = v                     # 27 Nov 2026 (DEMO-04): an id, exported as it is
                 continue
             if nk in KEY_KIND:                     # driver traceability: the id itself or [INVALID_ID], never a guess
                 out[str(k)] = export_id(KEY_KIND[nk], v)
@@ -138,12 +160,26 @@ def redact(value, *, content_allowed: bool = False, mode: str | None = None, pii
     return type(value).__name__
 
 
-def find_leaks(obj, pii_terms=()) -> list[str]:
-    """What a redacted object still contains that should not leave (tests and the export guard use it)."""
+def _without_ids(obj):
+    """The object without the values of id keys (driver_id, shipment_id, chat_id, ...): those are exported as ids by
+    design and must never trip the guard (27 Nov 2026: 'SYN-SHP-TEST-1' matched the registered term 'test'; a 10-digit
+    Telegram chat id matched the phone shape)."""
+    if isinstance(obj, dict):
+        return {k: (None if _norm(k) in KEY_KIND or _norm(k) in FULL_ID_KEYS else _without_ids(v))
+                for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_without_ids(v) for v in obj]
+    return obj
+
+
+def find_leaks(obj, pii_terms=(), mode: str | None = None) -> list[str]:
+    """What a redacted object still contains that should not leave (tests and the export guard use it). In full mode
+    it checks what full mode removes (credentials, phones, the turn's registered name and phone); internal-id values
+    are never scanned."""
     import json
-    text = json.dumps(obj, default=str, ensure_ascii=False)
+    text = json.dumps(_without_ids(obj), default=str, ensure_ascii=False)
     leaks = []
-    for rx, _ in _PATTERNS:
+    for rx, _ in (_FULL_PATTERNS if mode == "full" else _PATTERNS):
         if rx.search(text):
             leaks.append(rx.pattern[:40])
     for term in {str(t).strip() for t in pii_terms if t and len(str(t).strip()) >= 3}:

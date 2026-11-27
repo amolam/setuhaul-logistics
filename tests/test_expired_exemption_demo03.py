@@ -117,3 +117,23 @@ def test_the_check_runs_before_the_first_driver_message():
     src = (Path(__file__).resolve().parents[1] / "scripts" / "smoke_option_d.py").read_text(encoding="utf-8")
     main = src[src.index("def main()"):]
     assert main.index("aws_credentials_ok()") < main.index("Pilot()")
+
+
+def test_the_smoke_waits_for_the_kill_switch_log_line_up_to_sixty_seconds():
+    """27 Nov 2026 (DEMO-04): CloudWatch ingestion lag made check 6 miss a refusal that had happened."""
+    from smoke_option_d import KILL_LOG_WAIT_S, wait_for_log
+    assert KILL_LOG_WAIT_S == 60
+    t, reads, slept = [0.0], [], []
+    clock = lambda: t[0]                                                       # noqa: E731
+
+    def sleep(s):
+        slept.append(s)
+        t[0] += s
+
+    answers = iter([[], [], ["escalated:BOOKING_KILLED"]])
+    assert wait_for_log(lambda: reads.append(1) or next(answers), sleep=sleep, clock=clock) == ["escalated:BOOKING_KILLED"]
+    assert len(reads) == 3 and sum(slept) == 10                               # found on the third read
+    reads.clear()
+    t[0], slept[:] = 0.0, []
+    assert wait_for_log(lambda: reads.append(1) or [], sleep=sleep, clock=clock) == []
+    assert t[0] >= 60 and len(reads) == 13                                     # gave up after 60 s, never longer

@@ -1,6 +1,8 @@
 # SetuHaul FDE Demo: Evidence Register
 
 **Prepared:** 26 Nov 2026 · **Source of truth:** `origin/release/fde-sydney-pilot` at `e3c5bbe` (evidence head); deployed release commit `4b9ac56` · **All data synthetic.**
+**Updated 27 Nov 2026:** Part D adds the 27 Nov evidence (fix plan release, recovery releases, DEMO-04). Where a
+26 Nov row below is superseded, the row says so and points to Part D.
 
 Every figure in `SetuHaul_FDE_Demo.pptx`, the playbook, the Q&A guide, the appendix, the cost analysis and the gap analysis appears in this register with its source. A claim that is not here should not be made.
 
@@ -58,7 +60,7 @@ All 36 PRs are merged. None is open. The ones the demo rests on:
 - Booking: feasibility in code (12 hard constraints), per-dock lock plus an EXCLUDE constraint, holds, and requests. A planner approves through a Step Functions approval workflow. Kill switch and expiring provisional authorization are database state.
 - Telegram: live inbound and outbound for two synthetic test drivers only (allowlist). WhatsApp/Meta is deferred.
 - Staff console: served by the API Lambda, with Cognito MFA and four staff roles (planner, ops_lead, operations, dispatcher). It has Dispatch, Schedule, Ops, Optimizer and Observability tabs.
-- Observability: a custom LangSmith exporter. One `thread_id` correlates the main conversation path (inbound, agent turn, judge, outbound); 4 link-code and button-callback inbound runs lack it. Pseudonymous internal ids pass a format gate. No message text, phone numbers or chat ids are exported.
+- Observability: a custom LangSmith exporter. One `thread_id` correlates the main conversation path (inbound, agent turn, judge, outbound); 4 link-code and button-callback inbound runs lack it. Pseudonymous internal ids pass a format gate. No message text, phone numbers or chat ids are exported (26 Nov; **superseded on the synthetic pilot on 27 Nov**: full operational content, name/phone/credentials removed, one tree per message — Part D).
 - Evaluation: golden sets v1–v4, held-out h1, live and scripted replay, the Phase G/G1/G2 deterministic suites, and the offline LLM judge accepted under the owner's two rules. Offline human calibration was completed on 26 Nov (owner-scored, one reviewer, not blind to the AI reference).
 
 **Corrections to the brief:**
@@ -210,7 +212,7 @@ LangSmith project `setuhaul-synthetic-pilot` is on. Since the demo release, the 
 | Online pilot judge rows still record `HUMAN_CALIBRATION_OUTSTANDING`; calibration on pilot rows (`pilot_calibration.py`) not run | Code constant | `setuhaul/agent/online_judge.py` | Gap | High |
 | Online judge: advisory, 20% deterministic sampling, run cap, judge sub-cap inside the shared cap, one attempt, never raises | Code | `setuhaul/agent/online_judge.py` | Deployed | High |
 | After deploy, judge skipped with `budget:shared_daily_cap`; exact usage balance not available | Reported observation | – | Reported | Low |
-| Configured judge budget $0.50/day is the judge's own sub-cap; judge reservations are also checked against the shared $0.25/day cap minus the agent reserve (default half the cap; no override in the stack) | Code and stack output | `setuhaul/agent/online_judge.py` (`JudgeLedger.reserve`, `agent_reserve_usd`); stack output `LlmJudge`; `infra/setuhaul_stack.py` | Deployed | High |
+| Configured judge budget $0.50/day is the judge's own sub-cap; judge reservations are also checked against the shared $0.25/day cap minus the agent reserve (default half the cap; no override in the stack). **Superseded by DEMO-04:** shared $2.00, judge $0.75 (Part D) | Code and stack output | `setuhaul/agent/online_judge.py` (`JudgeLedger.reserve`, `agent_reserve_usd`); stack output `LlmJudge`; `infra/setuhaul_stack.py` | Deployed (until DEMO-04) | High |
 | Invalid model output is not retried; that turn falls back to the rules reader (no separate re-ask path) | Code | `setuhaul/agent/orchestrator.py` `_extract_inner` | CI-validated | High |
 | 9 turns scored earlier on 26 Nov (`quality:clarity/tone/language_match`) at ≈ $0.0033 each | Reported observation | – | Reported | Low |
 
@@ -222,7 +224,7 @@ LangSmith project `setuhaul-synthetic-pilot` is on. Since the demo release, the 
 | `llm_judge` is a child run of `agent_turn`; `quality:*` feedback stays on the turn | same | same | CI-validated | High |
 | Driver, shipment and facility ids plus channel on traces, CloudWatch `agent.turn` lines and the Ops metrics row; malformed id → `[INVALID_ID]` | PR #17 | `setuhaul/observability/identifiers.py`; `tests/test_driver_traceability.py` | CI-validated | High |
 | LLM span carries model, input/output tokens, `cost_usd` | Code | `orchestrator.py` ~line 418 | Implemented | High |
-| No message text, chat id, phone or token in metadata | Commit plus redaction | `ff4076d`; `setuhaul/observability/redaction.py` | CI-validated | High |
+| No message text, chat id, phone or token in metadata. **Superseded on the synthetic pilot (owner, 27 Nov):** content `full` exports message text, model input/output and tool results, and **DEMO-04** masks only the driver's name and phone and removes credentials (Part D). The `off`/`on` modes keep the old rule | Commit plus redaction | `ff4076d`; `setuhaul/observability/redaction.py` | CI-validated | High |
 | Tracing overhead p50 13 ms (1.4%) per turn | Perf file | `evals/results/g1_perf_20261123_1500.json` | Tested (local) | High |
 | 4 inbound runs without `thread_id` | Reported observation | – | Known issue | Low/Medium |
 
@@ -248,11 +250,11 @@ LangSmith project `setuhaul-synthetic-pilot` is on. Since the demo release, the 
 | Offline judge runs $0.205280 (ledger) | Result files | `judge_*.json` `actual.charged_usd_by_ledger` | Actual | High |
 | Per extraction ≈ $0.0036 measured (h1: 326,797 in / 55,289 out tokens for 167 turns at $1/$5 per M → $0.603) | Computed from result file | `golden_h1_model_20261118_0907.json` | Computed | High |
 | Per extraction typical ≈ $0.0013 (900 in / 80 out) | Design estimate | `COSTS.md` | Estimate | Medium |
-| App cap $0.25/day | Owner approval 21 Nov | `COSTS.md` | Deployed (config) | High |
+| App cap $0.25/day. **Superseded by DEMO-04:** $2.00/day, judge $0.75/day (owner, 27 Nov; Part D) | Owner approval 21 Nov | `COSTS.md` | Deployed (config, until DEMO-04) | High |
 | OpenRouter key limit $10 total, no reset (read from the key endpoint, 26 Nov); not a monthly budget; $5.98 used and $4.02 remaining at the 26 Nov check, taken after the two golden re-runs and before the live replay. The owner confirmed the pilot and the evaluation runs use this same key. The 21 Nov approval was $3/month; the setting in force is $10, no reset | Owner-run read of `/api/v1/key`; owner confirmation | `docs/operations/COSTS.md` | Reported | Medium |
 | p5 re-runs, 26 Nov: $1.0462 across the three successful paid runs (v4 $0.1320, h1 $0.6125, replay $0.3017). Calibration was free | `cost.spent_usd` in the result files | three 26 Nov result files | Computed | High |
 | A first v4 attempt crashed in the runner (unreported token count) after ≈ 38 paid calls: ≈ $0.14 ESTIMATE ($0.0036 per call), in no result file; the key counter is authoritative | Cache entries; runner traceback | `evals/cache/model_calls.jsonl` | Estimate | Low |
-| Judge configured $0.50/day but bounded by the shared cap | Stack output plus code | `LlmJudge` output; `online_judge.py` | Deployed | High |
+| Judge configured $0.50/day but bounded by the shared cap (until DEMO-04; then $0.75 within $2.00) | Stack output plus code | `LlmJudge` output; `online_judge.py` | Deployed | High |
 | AWS idle ≈ $6.50–6.90/month; a few hours a week ≈ $8–10; always-on with WAF ≈ $85–100 | Estimates | `docs/release/09_LOW_COST_PILOT_PLAN.md` | Estimate | Medium |
 | Unit economics and scale scenarios | Projection | `SetuHaul_FDE_Cost_Analysis.md` | Projection | – |
 
@@ -280,10 +282,52 @@ LangSmith project `setuhaul-synthetic-pilot` is on. Since the demo release, the 
 - WhatsApp delivery to real phones.
 - The latency targets as met.
 - An AWS cost figure as billed.
-- Any count of "tests" other than 2,080 passed / 1 skipped (full suite, CI on `e3c5bbe`).
+- Any count of "tests" other than the ones recorded with their commit: 2,080 passed / 1 skipped (full suite, CI on `e3c5bbe`, 26 Nov); 2,201 passed / 2 skipped (local full suite, fix plan, 27 Nov); later counts in Part D.
 - Absolute guarantees such as "no dock is ever double-booked". State the tested evidence: 20 concurrent (local proof) and 50 (suite) gave one winner and no overlap, plus live smoke check 4.
 - "Exactly-once" processing. Delivery is at least once; FIFO ordering per driver, de-duplication and idempotent business effects.
 - A latency speed-up multiple ("4×", "45×") or any service level; the after-sample is preliminary and uncommitted.
-- "No personal data" in general. Say: no message text, phone numbers or chat ids are exported; pseudonymous internal ids are.
-- That p5 results from 26 Nov apply to any later prompt version without a re-run.
-- That the judge budget should be raised. Any budget change is an owner decision.
+- "No personal data" in general. Say (DEMO-04, synthetic pilot only): the driver's name and phone and every credential are removed from traces; message text, model input/output, tool results and platform ids are exported for debugging. Other environments keep the stricter `off`/`on` modes.
+- That p5 results from 26 Nov apply to any later prompt version without a re-run. **The deployed prompt is p6 (27 Nov) and its paid golden re-run was deferred by the owner: model-backed extraction on p6/schema v2 is unvalidated.**
+- That the judge scores live turns, until a sampled `llm_judge` run is seen on the pilot after DEMO-04.
+- That the two stopped releases (authorizations 72 and 73) were successful; they were revoked by the runbook's safe-stop rule (Part D).
+
+---
+
+## Part D. 27 Nov 2026 evidence
+
+### D1. What changed and where it is
+
+| Item | Evidence | Status | Confidence |
+|---|---|---|---|
+| 27 Nov fix plan (nine issues): appointment lifecycle gate → dock → completed (operations/ops_lead), automatic no-show at each facility's grace, dispatcher Rebook / cancellation after a no-show, audited history backfill, free drivers, explicit offer target, a dispatcher's new time for a confirmed booking always to a planner, escalations in "Pending your decision", requested dates (facility zone, ≤ 7 days, never another day), full pilot trace content | PR #45 (merge `06f4f25`), migration 0048; `docs/operations/FIX_PLAN_27NOV.md`, `FIX_PLAN_27NOV_EVIDENCE.md` | Deployed (release `5b661a1`) | High |
+| Static-review fixes: no-show job eligibility before the batch limit; migration-aware gate trigger check | commit `a0adbbd`; `tests/test_gate_triggers_0048.py` | Deployed | High |
+| Category D for `a95aaaa1` (owner-confirmed test origin) and category X (an expired, never-confirmed request holding no dock time needs no attribution) | PRs #47, #49; `owner_test_origin_20261127.json`; `tests/test_expired_exemption_demo03.py` | Deployed | High |
+| Migration 0049: one additional recovery from a recovery, pilot only; third hop refused | PR #51; `tests/test_recovery_release_a.py`, `test_recover_expired_0045.py`, `test_readiness.py` | Deployed | High |
+| Smoke credential check before any driver message (refreshable credentials refreshed and proven; fixed ones need 15 min) | PRs #49, #53 | Implemented (operator script) | High |
+| **DEMO-04** (this PR): traces masked to name + phone + credentials only; guard never scans ids; one tree per message (0050); $2/day overall, $0.75 judge (checked activation input); refused request after an accepted offer releases the hold and resets the conversation (reason logged); Resolve… for planners; live holds only on the schedule; smoke waits up to 60 s for the kill-switch log | branch `feat/fde-demo-finalization`; focused tests in `test_trace_content_full.py`, `test_dispatch_offers.py`, `test_infra.py`, `test_expired_exemption_demo03.py` | Implemented and tested locally; **deploy pending** (D3) | High (code) |
+
+### D2. Test and release evidence
+
+| Run | Result | Source |
+|---|---|---|
+| Fix plan, full suite (local, PostgreSQL 18.6) | 2,201 passed, 0 failed, 2 skipped | `FIX_PLAN_27NOV_EVIDENCE.md` |
+| Fix plan, CI's Data API subset | 745 passed | same |
+| Fix plan, CI on `a0adbbd` and the release `1126385` | test and synth passed | GitHub Actions |
+| Release `e7c3a2c` (first attempt): provisional run deployed it and applied 0048 (48 migrations live) | run `45960308726`; smoke 07:54Z 10/11 (check 6 missed the log line by CloudWatch lag; the agent did refuse), 08:00Z 11/11; renewal BOOKING_WORKFLOW FAIL (execution `a95aaaa1` unattributed) → **authorization 72 revoked** (runbook §7.5) | release branch `cb3659d` |
+| Release `326085a` (recovery, DEMO-02): smoke 11/11 | renewal UNRESOLVED (request `3cba692b` from a smoke attempt that crashed on expired AWS credentials) → **authorization 73 revoked** | release branch `9e97744` |
+| Release `5b661a1` (recovery, DEMO-03, 0049 applied) | smoke 11/11 (`option_d_smoke_20261127T100646Z.json`); renewal BOOKING_WORKFLOW **PASS**; renewal run `45980121138` succeeded; `/health` `booking_enabled: true`, `authorized` (10:23 UTC) | release branch `46b49b5` |
+| No-show history backfill | dry run `81cd9dbf` (11 eligible, 0 excluded) reviewed by the owner; apply run `7ad06da7`: 11 transitioned | `no_show_backfill_runs` |
+| DEMO-04 affected tests (local) | 450 + 279 + 132 passed (trace content, infra, dispatch offers, dispatch 0048, outbound, reassignment, traceability, demo reliability, console, orchestrator, migrations, gate triggers, lifecycle, move, recovery, readiness, judge, full activation, concurrency, DB requests, API) | this branch |
+
+### D3. Pending at the time of writing (to be completed by the DEMO-04 deploy)
+
+- PR CI on this branch, owner approval, merge, release, provisional and renewal runs under `OWNER-APPROVAL-20261127-DEMO-04`.
+- On the pilot after the deploy: one Telegram message traced as one tree (inbound → agent_turn → outbound) with message text and the name/phone masked; a sampled `llm_judge` child; stack outputs `LlmJudge` (0.75) and the agent's `SETUHAUL_LLM_DAILY_BUDGET_USD` (2).
+- These results are recorded on the release branch as evidence commits, as for every release.
+
+### D4. Open items (not done)
+
+- **Paid golden extraction re-run for prompt p6 / schema v2: deferred by the owner** (≈ $0.28). Model-backed date and reschedule extraction is unvalidated; the rules-reader baseline is unchanged from `main`.
+- Hindi and Hinglish wording of the new date replies: native review outstanding.
+- OpenRouter key: $10 lifetime limit, no reset; at $2/day it binds first (Cost Analysis §2.5).
+- LangSmith retention and access policy for full-content traces (synthetic data only) is not documented.

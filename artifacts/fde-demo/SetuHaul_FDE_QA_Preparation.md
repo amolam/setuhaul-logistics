@@ -1,12 +1,16 @@
 # SetuHaul FDE Demo: Technical and Leadership Q&A Preparation
 
-**90 questions** in 12 groups, plus 6 rapid-fire hard questions at the end. Each has:
+**96 questions** in 13 groups (group M added 27 Nov), plus 6 rapid-fire hard questions at the end. Each has:
 - **S**: a short answer (about 30 s);
 - **D**: a detailed answer (1–2 min);
 - **E**: implementation evidence;
 - **F**: the likely follow-up challenge, with a pointer to the answer.
 
 Release `4b9ac56` (evidence head `e3c5bbe`); all data synthetic. Numbers come from `SetuHaul_FDE_Evidence_Register.md`. When something is not implemented, the answer says so and gives the recommended approach.
+
+**Updated 27 Nov 2026:** answers E2, G7 and H8 changed (full-content traces on the synthetic pilot, $2/$0.75 budgets),
+and group M below adds the 27 Nov questions (lifecycle, no-show, dates, stopped releases). Where an older answer quotes
+the $0.25 cap or "ids only", group M and the Evidence Register Part D take precedence.
 
 **Rules for answering:**
 - Say "measured", "projected" or "not available" explicitly.
@@ -230,14 +234,14 @@ Release `4b9ac56` (evidence head `e3c5bbe`); all data synthetic. Numbers come fr
 - **F:** "Indirect injection through shipment notes?" → The context includes structured facts only; a red-team is a P1 gap.
 
 **E2. How is PII protected?**
-- **S:** Message text and contact details stay in PostgreSQL. Traces and logs carry internal ids and opaque refs only. The model route has zero data retention.
+- **S:** Message text and contact details stay in PostgreSQL. On the synthetic pilot (owner decision, 27 Nov) traces carry full operational content for debugging, but the driver's name and phone and every credential are removed before export; everywhere else traces carry ids and opaque refs only. The model route has zero data retention.
 - **D:**
-  - Ids pass a format gate.
-  - Redaction runs at the export boundary.
-  - The chat id becomes a tag.
+  - Full content is honoured only for the synthetic pilot (run-time check and CDK refusal).
+  - Redaction runs at the export boundary; a guard re-checks the finished payload and drops a trace that still contains a registered name, a phone shape or a credential.
+  - Ids pass a format gate and are never scanned by the guard (27 Nov fix: ordinary words in test-driver names had matched ids and dropped every trace).
   - Locations are stored as a geohash.
-  - All data is synthetic now; real data needs consent and a retention schedule.
-- **E:** `identifiers.py`, `redaction.py`; commit `ff4076d`; G2 smoke `blocked_leaks: 0`.
+  - All data is synthetic now; real data needs consent, a retention schedule and a return to a reviewed field list.
+- **E:** `identifiers.py`, `redaction.py`, `tests/test_trace_content_full.py`; commit `ff4076d`; G2 smoke `blocked_leaks: 0`.
 - **F:** "Data residency?" → AWS Sydney. The model goes via OpenRouter to Bedrock under ZDR. For real data, a DPIA (Data Protection Impact Assessment) comes first.
 
 **E3. How are business policies enforced?**
@@ -371,13 +375,13 @@ Release `4b9ac56` (evidence head `e3c5bbe`); all data synthetic. Numbers come fr
 
 **G7. What happens when judge evaluation fails?**
 - **S:** A SKIPPED, ERROR or UNPARSEABLE row is written and logged. It never raises into the worker and is never retried.
-- **D:** After the deploy, judgements were skipped with reason `budget:shared_daily_cap` (reported). Two different numbers are involved:
-  - the configured judge budget, $0.50/day (stack output `LlmJudge`), which is the judge's own sub-cap;
-  - the shared application cap, $0.25/day. The judge may only use its headroom above the agent reserve, which defaults to half the cap; no override was found in the stack.
+- **D:** Until 27 Nov judgements were skipped with reason `budget:shared_daily_cap` (seen in the pilot agent log). Two numbers are involved:
+  - the judge's own sub-cap (stack output `LlmJudge`): $0.50/day, **$0.75 from DEMO-04**;
+  - the shared application cap: $0.25/day, **$2.00 from DEMO-04**. The judge may only use its headroom above the agent reserve (half the cap), so at $0.25 it had almost nothing.
 
-  The skip reason means the shared-cap check refused the reservation. The exact usage balance at that moment is not available. Changing either budget is an owner decision; I don't recommend raising anything without that approval.
-- **E:** `online_judge.py`; stack output `LlmJudge`.
-- **F:** "So the judge isn't running?" → It runs when budget allows; 9 turns were scored earlier on 26 Nov (reported).
+  The owner raised both on 27 Nov so the judge actually runs; the overall budget is now a checked deployment input and may never be below the judge's.
+- **E:** `online_judge.py`; stack output `LlmJudge`; `infra/setuhaul_stack.py` (`LLM_DAILY_MAX_USD`); `tests/test_infra.py`.
+- **F:** "So the judge is running?" → Verify after the DEMO-04 deploy: a sampled turn shows an `llm_judge` child in LangSmith. Before that, 9 turns were scored on 26 Nov (reported).
 
 **G8. Can the judge itself hallucinate?**
 - **S:** Yes. That's why it's advisory, validated strictly, and calibrated against baselines and one human reviewer, not yet blind or multi-reviewer.
@@ -436,9 +440,9 @@ Release `4b9ac56` (evidence head `e3c5bbe`); all data synthetic. Numbers come fr
 - **F:** "Alerting on spend?" → The cap enforces it. An AWS Budgets alarm is a P1 action.
 
 **H8. How do you avoid logging sensitive information?**
-- **S:** Allowlisted fields only, an id format gate, redaction at export, and no message text unless explicitly enabled (and then redacted).
-- **D:** `SETUHAUL_TRACE_CONTENT` is off. Chat ids become tags. Tests assert no phone, text or token appears in metadata.
-- **E:** `redaction.py`; `orchestrator._TRACE_FIELDS`.
+- **S:** Three modes. `off` (default): allowlisted fields and ids only. `on`: message text too, scrubbed. `full` (synthetic pilot only, the pilot's setting since 27 Nov): everything operational, with the driver's name and phone and every credential removed.
+- **D:** The mode is `SETUHAUL_TRACE_CONTENT`; full is refused outside the synthetic pilot in code and in CDK. A guard re-checks every payload before export and drops what still looks like a registered name, a phone or a credential (counted as `blocked_leaks`). Tests prove each rule on synthetic examples.
+- **E:** `redaction.py`; `langsmith.content_mode_from_env`; `tests/test_trace_content_full.py`.
 - **F:** "Logs vs metrics vs traces?" → Logs show what a component said, metrics show how often and how fast, traces show what happened to this request.
 
 ## I. Testing and reliability
@@ -661,6 +665,39 @@ Release `4b9ac56` (evidence head `e3c5bbe`); all data synthetic. Numbers come fr
 - **D:** Most of these are queryable from existing tables; a baseline period is needed first.
 - **E:** Technical Appendix §8.
 - **F:** "Targets?" → Set with the customer after the baseline, not before.
+
+---
+
+## M. The 27 Nov releases (added 27 Nov 2026)
+
+**M1. How do you stop a no-show and a late arrival both "winning"?**
+- **S:** One grace boundary function and row locks. Arrival is accepted while now ≤ start + the facility's grace; the minute job marks a no-show only when now > start + grace, takes the row with `SKIP LOCKED`, and its update is conditional (still CONFIRMED, still no arrival).
+- **D:** Tested with both orders and with 12 simultaneous arrivals and jobs; the job filters out ineligible rows before its batch limit so they can never starve due ones (static-review fix). History before the cutover is cleared only by an audited backfill: dry run, owner review, apply exactly that set (11 applied on 27 Nov).
+- **E:** migration 0048; `tests/test_lifecycle_0048.py`; backfill runs `81cd9dbf` / `7ad06da7`.
+- **F:** "Who records the arrival?" → Operations or ops lead in the console (D1). No gate scanner yet (gap).
+
+**M2. What happens after a no-show?**
+- **S:** The database refuses any new hold or offer for that shipment until the dispatcher chooses Rebook or Request cancellation; a cancellation still needs a planner.
+- **E:** `trg_no_show_blocks_booking`; `resolve_no_show`; `tests/test_lifecycle_0048.py`.
+
+**M3. Can a dispatcher move a confirmed booking?**
+- **S:** They can request it. The new slot is claimed at once so nobody else takes it, the original stays confirmed, and a planner always decides (PLANNER_REVIEW); approval moves it in one transaction, and the requester can never approve.
+- **E:** `request_reschedule`, `trg_requester_cannot_approve`; `tests/test_dispatch_0048.py`.
+
+**M4. "Slot on the 29th" — what if there is none?**
+- **S:** It says so and offers nothing else: options only on the requested day, in the facility's time zone, up to 7 days ahead; past, too far, unclear or conflicting days are said plainly. The service re-checks the 7-day rule.
+- **D:** Prompt p6 / schema v2. Its paid golden re-run was deferred by the owner, so model-backed accuracy on dates is **not measured**; the rules reader resolves the same phrases deterministically.
+- **E:** `setuhaul/agent/dates.py`; `tests/test_dates_0048.py`, `test_reschedule_dates_0048.py`.
+
+**M5. Two of your releases failed on 27 Nov. Why should I trust the process?**
+- **S:** Because they failed safe. Each renewal found a booking request it could not account for; the runbook says revoke, so booking went off rather than on unexplained evidence. We fixed the causes and the third release renewed cleanly.
+- **D:** Causes: a smoke run that failed on CloudWatch ingestion lag left a real (synthetic) booking with no passing record; a smoke that died on an expired AWS sign-in had already created a request. Fixes: an owner-confirmed test-origin category; an exemption only for requests that expired without confirmation and hold no dock time (read live); a credential check before the smoke sends anything; a 60 s wait for the log line; migration 0049 allows exactly one more recovery hop. Lesson recorded: after a failed smoke, stop and revoke — never retry.
+- **E:** Evidence Register Part D; PRs #47, #49, #51, #53.
+- **F:** "Couldn't you have just forced it on?" → The database refuses booking without current evidence; forcing would mean switching that guard off, which we deliberately did not do.
+
+**M6. Why did a test driver's booking stop after YES?**
+- **S:** An old SAFETY escalation was still open on the shipment; by design such a booking goes to a person. The bug was that the conversation then stayed stuck at HELD. DEMO-04 releases the hold, resets the conversation and logs the reason; planners can now resolve escalations directly.
+- **E:** `service._book_accepted_offer`, `_reset_offer_flow`; `tests/test_dispatch_offers.py`.
 
 ---
 

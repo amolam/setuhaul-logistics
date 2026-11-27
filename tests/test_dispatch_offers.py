@@ -671,3 +671,47 @@ def test_an_accepted_offer_still_books_exactly_as_before(client, dsn, keys):
     assert "planner" in tg.press(o["offer_id"], "A")
     assert [s for _, s in appointments(dsn, d["sid"])] == ["PENDING_CONFIRMATION"]
     assert _flow(dsn, d["sid"]) == "SUBMITTED"
+
+
+# ================================================================ 27 Nov 2026 (DEMO-04): no stuck HELD after a refusal
+def test_a_refused_request_after_an_accepted_offer_resets_the_conversation(client, dsn, keys, caplog):
+    """An open SAFETY escalation makes the database refuse the request (REQUIRES_PERSON). Before: the hold expired, the
+    conversation stayed HELD, the driver could not search and every new offer was refused (BOOKING_IN_PROGRESS). Now:
+    the reason is logged, the hold is released, the conversation is reset; once a person resolves the escalation (a
+    planner may), the dispatcher's next offer books normally."""
+    d = add_driver(dsn)
+    tg = link(client, keys, dsn, d["drv"])
+    eid = uuid.uuid4()
+    with psycopg.connect(dsn, autocommit=True) as c:
+        c.execute("""INSERT INTO setuhaul.escalations (escalation_id,reason_code,mode,facility_id,shipment_id,handoff,ack_due_at)
+                     VALUES (%s,'SAFETY','TAKE_OVER',%s,%s,'{}',now() + interval '5 minutes')""", (eid, JAI, d["sid"]))
+    o = offer(client, keys, d)
+    with caplog.at_level("WARNING", logger="setuhaul.service"):
+        tg.press(o["offer_id"], "A")
+    assert appointments(dsn, d["sid"]) == []                                   # nothing became a request
+    assert any("booking request refused" in r.getMessage() and "REQUIRES_PERSON" in r.getMessage()
+               for r in caplog.records), [r.getMessage() for r in caplog.records]
+    assert _flow(dsn, d["sid"]) not in ("HELD", "CONFIRMED_BY_DRIVER", "SUBMITTED")
+    assert q(dsn, "SELECT count(*) FROM dock_occupancy WHERE shipment_id=%s AND kind='HOLD' AND active", d["sid"])[0][0] == 0
+    r = client.post(f"/console/escalations/{eid}/resolve", headers=planner(keys),
+                    json={"resolution": "Driver called, confirmed safe"})
+    assert r.status_code == 200, r.text                                      # a planner may resolve it
+    o2 = offer(client, keys, d)                                              # before: 409 BOOKING_IN_PROGRESS
+    assert o2["status"] == "OFFERED"
+    assert "planner" in tg.press(o2["offer_id"], "A")
+    assert [s for _, s in appointments(dsn, d["sid"])] == ["PENDING_CONFIRMATION"]
+
+
+def test_the_schedule_draws_live_holds_only(client, dsn, keys):
+    """An expired hold claims nothing and is no longer drawn (it read as a second booking next to the real one)."""
+    d = add_driver(dsn)
+    with psycopg.connect(dsn, autocommit=True) as c:
+        c.execute("SET search_path = setuhaul")
+        dock = c.execute("SELECT dock_id FROM docks WHERE facility_id=%s ORDER BY dock_id LIMIT 1", (JAI,)).fetchone()[0]
+        s = datetime.now(IST) + timedelta(hours=2)
+        c.execute("""INSERT INTO dock_occupancy (dock_id,facility_id,during,kind,shipment_id,ref_id,created_by,active,expires_at)
+                     VALUES (%s,%s,tstzrange(%s,%s,'[)'),'HOLD',%s,'expired-hold-test','test',false,now() - interval '5 minutes')""",
+                  (dock, JAI, s, s + timedelta(minutes=55), d["sid"]))
+    sched = client.get(f"/console/facilities/{JAI}/schedule", headers=planner(keys)).json()
+    assert not [i for i in sched["items"] if i["kind"] == "HOLD_EXPIRED"]
+    assert not [i for i in sched["items"] if i["kind"].startswith("HOLD") and i.get("start") == s.isoformat()]
