@@ -1,18 +1,17 @@
 {
- "collected_utc": "2026-11-27T09:41:42+00:00",
+ "collected_utc": "2026-11-27T12:52:47+00:00",
  "stack": "SetuHaulPilot",
  "region": "ap-southeast-2",
- "booking_enabled": false,
+ "booking_enabled": true,
  "booking_observed": {
   "source": "https://w8ptr7w960.execute-api.ap-southeast-2.amazonaws.com/pilot/health",
-  "observed_utc": "2026-11-27T09:41:41+00:00",
+  "observed_utc": "2026-11-27T12:52:46+00:00",
   "http_status": 200,
-  "booking_state": "refused",
-  "booking_enabled": false,
-  "meaning": "booking enabled but not authorized by the database",
+  "booking_state": "authorized",
+  "booking_enabled": true,
+  "meaning": "booking enabled and authorized by the database",
   "format": "D4 (the database's verdict)",
   "booking_switch": "on",
-  "booking_refusal": "EVIDENCE_NOT_CURRENT: BOOKING_WORKFLOW no evidence and the provisional authorization is REVOKED",
   "booking_kill_switch": "disengaged",
   "version": "0.2.0"
  },
@@ -21,10 +20,10 @@
   "WORKLOAD_IDENTITY": {
    "evidence": {
     "login_to_group_roles": {
-     "setuhaul_login_agent_23ec68171621": [
+     "setuhaul_login_agent_f6978345615c": [
       "setuhaul_agent"
      ],
-     "setuhaul_login_console_23ec68171621": [
+     "setuhaul_login_console_f6978345615c": [
       "setuhaul_console"
      ],
      "setuhaul_login_deploy_evidence": [
@@ -116,7 +115,7 @@
     },
     "reach": [
      {
-      "login": "setuhaul_login_agent_23ec68171621",
+      "login": "setuhaul_login_agent_f6978345615c",
       "can_use_console": false,
       "can_use_rpc": false,
       "superuser": false,
@@ -124,7 +123,7 @@
       "can_use_db_owner": false
      },
      {
-      "login": "setuhaul_login_console_23ec68171621",
+      "login": "setuhaul_login_console_f6978345615c",
       "can_use_console": true,
       "can_use_rpc": false,
       "superuser": false,
@@ -273,11 +272,11 @@
    "evidence": {
     "engine": "aurora-postgresql 17.9",
     "server_version": "17.9",
-    "migrations_live": 48,
-    "migrations_in_repo": 49,
+    "migrations_live": 49,
+    "migrations_in_repo": 50,
     "hash_mismatches": [],
     "repo_only_migrations": [
-     "0049"
+     "0050"
     ],
     "evidence_triggers": {
      "appointments.aa_booking_kill_switch": [
@@ -488,8 +487,8 @@
      ]
     },
     "last_48h": {
-     "messages_sent": 94,
-     "messages_deleted": 94,
+     "messages_sent": 114,
+     "messages_deleted": 114,
      "dlq_messages_sent": 0
     },
     "dlq_drill": {
@@ -576,10 +575,10 @@
       "ingest",
       "system"
      ],
-     "code_sha256": "I+xoFxYh3pbVmR3r+trSaN7kCG3kOaoDDI/dhjrl6s0="
+     "code_sha256": "9peDRWFc+GtnAGnRPBPqph3fnDJ3P1/LWpGYfG7saYg="
     },
-    "recovery_invocations_last_3_days": 1484,
-    "last_invocation_utc": "2026-11-27T08:42:34.735000+00:00",
+    "recovery_invocations_last_3_days": 1559,
+    "last_invocation_utc": "2026-11-27T11:57:04.111000+00:00",
     "lease_loss_drill": {
      "checks": {
       "clean start: empty queue, no other unprocessed receipt, all data synthetic": true,
@@ -619,7 +618,7 @@
     "config: every other function has booking OFF": true,
     "config: api and agent run in the pilot environment with synthetic data": true,
     "config: every function is synthetic-data only": true,
-    "config: /health answers: status ok, database ok, booking ON": false,
+    "config: /health answers: status ok, database ok, booking ON": true,
     "config: /health environment is the synthetic pilot": true,
     "config: kill switch is in its expected state (disengaged)": true,
     "config: the renewal names a well-formed owner approval reference": true,
@@ -633,11 +632,9 @@
     "every approval execution is attributed (A drill, B smoke, C owner-confirmed, D owner-confirmed test origin, E owner-authorised test-driver booking)": true
    },
    "not_shown": [
-    "BOOKING_WORKFLOW: FAIL \u2014 /health: status 'ok', database 'ok', booking_enabled False",
     "BOOKING_WORKFLOW: FAIL \u2014 no fresh smoke test record (scripts/smoke_option_d.py --release-sha <sha>) was supplied"
    ],
    "diagnostics": [
-    "BOOKING_WORKFLOW: FAIL \u2014 /health: status 'ok', database 'ok', booking_enabled False",
     "BOOKING_WORKFLOW: FAIL \u2014 no fresh smoke test record (scripts/smoke_option_d.py --release-sha <sha>) was supplied"
    ],
    "evidence": {
@@ -707,7 +704,7 @@
      "health": {
       "status": "ok",
       "database": "ok",
-      "booking_enabled": false,
+      "booking_enabled": true,
       "environment": "pilot-ap-southeast-2",
       "booking_kill_switch": "disengaged",
       "gate_exceptions": [
@@ -717,11 +714,57 @@
       ],
       "version": "0.2.0"
      },
-     "deployed_booking_mode": "ON (OWNER-APPROVAL-20261127-DEMO-02)",
-     "deployed_approval_ref": "OWNER-APPROVAL-20261127-DEMO-02",
-     "renewal_approval_ref": "OWNER-APPROVAL-20261127-DEMO-03"
+     "deployed_booking_mode": "ON (OWNER-APPROVAL-20261127-DEMO-03)",
+     "deployed_approval_ref": "OWNER-APPROVAL-20261127-DEMO-03",
+     "renewal_approval_ref": "OWNER-APPROVAL-20261127-DEMO-04"
     },
     "approval_executions": [
+     {
+      "approval_id": "f8b71a99-4b97-4dbd-89db-6c27a52f22f5",
+      "execution": "f8b71a99",
+      "execution_status": "SUCCEEDED",
+      "started": "2026-11-27T16:59:27.933000+05:30",
+      "category": "E",
+      "verdict": "ATTRIBUTED",
+      "reasons": [
+       "owner-authorised Telegram test-driver booking (SYN-SHP-TEST-1), approved by a planner in the hosted console (never smoke evidence)"
+      ],
+      "record": {
+       "kind": "PLANNER_REVIEW",
+       "facility_id": "FAC-JAI-01",
+       "shipment_id": "SYN-SHP-TEST-1",
+       "appointment_id": "APT-1d5052e8ea164c938a70eaf6a4ca9ead",
+       "appointment_status": "CANCELLED",
+       "status": "APPROVED",
+       "decided_by_type": "HUMAN",
+       "decider_kind": "console_user",
+       "created_at": "2026-11-27 11:28:37.076503+00:00",
+       "decided_at": "2026-11-27 11:29:01.287047+00:00"
+      }
+     },
+     {
+      "approval_id": "b06d85c7-7717-448c-8bc5-ebca05eb456c",
+      "execution": "b06d85c7",
+      "execution_status": "SUCCEEDED",
+      "started": "2026-11-27T15:38:06.023000+05:30",
+      "category": "B",
+      "verdict": "ATTRIBUTED",
+      "reasons": [
+       "smoke test SMOKE-20261127T100646Z-de9fc05c on release 5b661a123142"
+      ],
+      "record": {
+       "kind": "STANDARD",
+       "facility_id": "FAC-JAI-01",
+       "shipment_id": "SYN-SHP-05B0AA10",
+       "appointment_id": "APT-28082c58ee44475488709792a4b95ca2",
+       "appointment_status": "CONFIRMED",
+       "status": "APPROVED",
+       "decided_by_type": "HUMAN",
+       "decider_kind": "drill_staff",
+       "created_at": "2026-11-27 10:07:56.916195+00:00",
+       "decided_at": "2026-11-27 10:08:27.399298+00:00"
+      }
+     },
      {
       "approval_id": "3cba692b-dff5-4f56-b8e7-fa78527fa5d3",
       "execution": "3cba692b",
@@ -783,7 +826,7 @@
        "facility_id": "FAC-JAI-01",
        "shipment_id": "SYN-SHP-5608263A",
        "appointment_id": "APT-54731af7b3c64c378680aba637dacac6",
-       "appointment_status": "CONFIRMED",
+       "appointment_status": "NO_SHOW",
        "status": "APPROVED",
        "decided_by_type": "HUMAN",
        "decider_kind": "drill_staff",
@@ -806,7 +849,7 @@
        "facility_id": "FAC-JAI-01",
        "shipment_id": "SYN-SHP-2169480F",
        "appointment_id": "APT-98d97c42b7554b729841508435b1b3e3",
-       "appointment_status": "CONFIRMED",
+       "appointment_status": "NO_SHOW",
        "status": "APPROVED",
        "decided_by_type": "HUMAN",
        "decider_kind": "drill_staff",
@@ -829,7 +872,7 @@
        "facility_id": "FAC-JAI-01",
        "shipment_id": "SYN-SHP-5D76A122",
        "appointment_id": "APT-3ac2677cd59442cf8c22c752c86a29ff",
-       "appointment_status": "CONFIRMED",
+       "appointment_status": "NO_SHOW",
        "status": "APPROVED",
        "decided_by_type": "HUMAN",
        "decider_kind": "drill_staff",
@@ -852,7 +895,7 @@
        "facility_id": "FAC-JAI-01",
        "shipment_id": "SYN-SHP-TEST-2",
        "appointment_id": "APT-12211e413bee40628be4a81afe44d4b2",
-       "appointment_status": "CONFIRMED",
+       "appointment_status": "NO_SHOW",
        "status": "APPROVED",
        "decided_by_type": "HUMAN",
        "decider_kind": "console_user",
@@ -898,7 +941,7 @@
        "facility_id": "FAC-JAI-01",
        "shipment_id": "SYN-SHP-93F72171",
        "appointment_id": "APT-154a148450184bf4873fed4e413bff89",
-       "appointment_status": "CONFIRMED",
+       "appointment_status": "NO_SHOW",
        "status": "APPROVED",
        "decided_by_type": "HUMAN",
        "decider_kind": "drill_staff",
@@ -921,7 +964,7 @@
        "facility_id": "FAC-JAI-01",
        "shipment_id": "SYN-SHP-TEST-1",
        "appointment_id": "APT-5947d86b3d61438d85fb481c1ba6a4bf",
-       "appointment_status": "CONFIRMED",
+       "appointment_status": "NO_SHOW",
        "status": "APPROVED",
        "decided_by_type": "HUMAN",
        "decider_kind": "console_user",
@@ -967,7 +1010,7 @@
        "facility_id": "FAC-JAI-01",
        "shipment_id": "SYN-SHP-A53FED66",
        "appointment_id": "APT-7626c283a0814f118841dbdc4c75ecd1",
-       "appointment_status": "CONFIRMED",
+       "appointment_status": "NO_SHOW",
        "status": "APPROVED",
        "decided_by_type": "HUMAN",
        "decider_kind": "drill_staff",
@@ -990,7 +1033,7 @@
        "facility_id": "FAC-JAI-01",
        "shipment_id": "SYN-SHP-FC78D8F3",
        "appointment_id": "APT-4cdacdcd0d0c4ec98a54cd889b2ceef2",
-       "appointment_status": "CONFIRMED",
+       "appointment_status": "NO_SHOW",
        "status": "APPROVED",
        "decided_by_type": "HUMAN",
        "decider_kind": "drill_staff",
@@ -1013,7 +1056,7 @@
        "facility_id": "FAC-JAI-01",
        "shipment_id": "SYN-SHP-DDD13851",
        "appointment_id": "APT-af0e9d8a19174cd7baf0ea7e7a39d139",
-       "appointment_status": "CONFIRMED",
+       "appointment_status": "NO_SHOW",
        "status": "APPROVED",
        "decided_by_type": "HUMAN",
        "decider_kind": "drill_staff",
@@ -1036,7 +1079,7 @@
        "facility_id": "FAC-JAI-01",
        "shipment_id": "SYN-SHP-446452C7",
        "appointment_id": "APT-4fccf7e5809a456f9ea778722f65c48f",
-       "appointment_status": "CONFIRMED",
+       "appointment_status": "NO_SHOW",
        "status": "APPROVED",
        "decided_by_type": "HUMAN",
        "decider_kind": "drill_staff",
@@ -1059,7 +1102,7 @@
        "facility_id": "FAC-JAI-01",
        "shipment_id": "SYN-SHP-59CDBF7C",
        "appointment_id": "APT-8376d6666f904a8681f8735160519a7d",
-       "appointment_status": "CONFIRMED",
+       "appointment_status": "NO_SHOW",
        "status": "APPROVED",
        "decided_by_type": "HUMAN",
        "decider_kind": "drill_staff",
@@ -1082,7 +1125,7 @@
        "facility_id": "FAC-JAI-01",
        "shipment_id": "SYN-SHP-14B0CA5A",
        "appointment_id": "APT-20ccc80eef2740c59478e617e0f81287",
-       "appointment_status": "CONFIRMED",
+       "appointment_status": "NO_SHOW",
        "status": "APPROVED",
        "decided_by_type": "HUMAN",
        "decider_kind": "drill_staff",
@@ -1105,7 +1148,7 @@
        "facility_id": "FAC-JAI-01",
        "shipment_id": "SYN-SHP-08A355E7",
        "appointment_id": "APT-89027b09ab6449d1acdd5a51c6549bc5",
-       "appointment_status": "CONFIRMED",
+       "appointment_status": "NO_SHOW",
        "status": "APPROVED",
        "decided_by_type": "HUMAN",
        "decider_kind": "console_user",
@@ -1151,7 +1194,7 @@
        "facility_id": "FAC-JAI-01",
        "shipment_id": "SYN-SHP-2172ACB8",
        "appointment_id": "APT-01c31ce02a444ad79d6f43d0fa874cc0",
-       "appointment_status": "CONFIRMED",
+       "appointment_status": "NO_SHOW",
        "status": "APPROVED",
        "decided_by_type": "HUMAN",
        "decider_kind": "drill_staff",
@@ -1266,7 +1309,7 @@
        "facility_id": "FAC-JAI-01",
        "shipment_id": "SYN-STEP6-SHP-4AB620D0",
        "appointment_id": "APT-996682f395a24fb4af2852e35b83b004",
-       "appointment_status": "CONFIRMED",
+       "appointment_status": "NO_SHOW",
        "status": "APPROVED",
        "decided_by_type": "HUMAN",
        "decider_kind": "drill_staff",
@@ -1313,6 +1356,7 @@
       "73cac501",
       "94d01eed",
       "9ed447a4",
+      "b06d85c7",
       "bb952e8f",
       "bead0aff",
       "cdc497bd",
@@ -1331,7 +1375,8 @@
       "251b0c87",
       "3e1786bf",
       "453358af",
-      "7c539fb9"
+      "7c539fb9",
+      "f8b71a99"
      ],
      "X": [
       "3cba692b"
@@ -1346,7 +1391,7 @@
      "live_definition_sha256": "d5d970c03393afa647027e6f43c5c37dbfcb46cea9731b4b3b9b67181c45f908",
      "repo_definition_sha256": "d5d970c03393afa647027e6f43c5c37dbfcb46cea9731b4b3b9b67181c45f908"
     },
-    "executions_total": 25,
+    "executions_total": 27,
     "api_log_corroboration": {
      "87915a37-918e-46b5-8872-8ecaa4fc7a24": {
       "status": "verified",
@@ -1418,9 +1463,9 @@
  },
  "mode": "renewal",
  "environment": "pilot-ap-southeast-2",
- "release_sha": "326085a9ef0b6eaf080dc26274ab20b4b1250156",
- "approval_ref": "OWNER-APPROVAL-20261127-DEMO-03",
- "artifact_sha256": "23ec68171621de96d5991debfadad268dee4086de439aa030c8fdd863ae5eacd",
+ "release_sha": "5b661a123142615f5c157bae4dd01cb07cb2a13a",
+ "approval_ref": "OWNER-APPROVAL-20261127-DEMO-04",
+ "artifact_sha256": "f6978345615cf86b670069d13c13eaa61ddf9c32773f5fcb5a91987c6eec6988",
  "expected_kill_switch": "disengaged",
  "approved_exceptions": [
   "AURORA (T33-P)",
