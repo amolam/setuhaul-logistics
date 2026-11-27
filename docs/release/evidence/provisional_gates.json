@@ -1,17 +1,18 @@
 {
- "collected_utc": "2026-11-27T07:41:36+00:00",
+ "collected_utc": "2026-11-27T08:20:09+00:00",
  "stack": "SetuHaulPilot",
  "region": "ap-southeast-2",
- "booking_enabled": true,
+ "booking_enabled": false,
  "booking_observed": {
   "source": "https://w8ptr7w960.execute-api.ap-southeast-2.amazonaws.com/pilot/health",
-  "observed_utc": "2026-11-27T07:41:34+00:00",
+  "observed_utc": "2026-11-27T08:20:08+00:00",
   "http_status": 200,
-  "booking_state": "authorized",
-  "booking_enabled": true,
-  "meaning": "booking enabled and authorized by the database",
+  "booking_state": "refused",
+  "booking_enabled": false,
+  "meaning": "booking enabled but not authorized by the database",
   "format": "D4 (the database's verdict)",
   "booking_switch": "on",
+  "booking_refusal": "EVIDENCE_NOT_CURRENT: BOOKING_WORKFLOW no evidence and the provisional authorization is REVOKED",
   "booking_kill_switch": "disengaged",
   "version": "0.2.0"
  },
@@ -20,10 +21,10 @@
   "WORKLOAD_IDENTITY": {
    "evidence": {
     "login_to_group_roles": {
-     "setuhaul_login_agent_090f95bda669": [
+     "setuhaul_login_agent_66af2f03d4ad": [
       "setuhaul_agent"
      ],
-     "setuhaul_login_console_090f95bda669": [
+     "setuhaul_login_console_66af2f03d4ad": [
       "setuhaul_console"
      ],
      "setuhaul_login_deploy_evidence": [
@@ -115,7 +116,7 @@
     },
     "reach": [
      {
-      "login": "setuhaul_login_agent_090f95bda669",
+      "login": "setuhaul_login_agent_66af2f03d4ad",
       "can_use_console": false,
       "can_use_rpc": false,
       "superuser": false,
@@ -123,7 +124,7 @@
       "can_use_db_owner": false
      },
      {
-      "login": "setuhaul_login_console_090f95bda669",
+      "login": "setuhaul_login_console_66af2f03d4ad",
       "can_use_console": true,
       "can_use_rpc": false,
       "superuser": false,
@@ -272,12 +273,10 @@
    "evidence": {
     "engine": "aurora-postgresql 17.9",
     "server_version": "17.9",
-    "migrations_live": 47,
+    "migrations_live": 48,
     "migrations_in_repo": 48,
     "hash_mismatches": [],
-    "repo_only_migrations": [
-     "0048"
-    ],
+    "repo_only_migrations": [],
     "evidence_triggers": {
      "appointments.aa_booking_kill_switch": [
       "O",
@@ -364,6 +363,11 @@
       "trg_check_claim_approval",
       17
      ],
+     "dock_occupancy.no_show_blocks_hold": [
+      "O",
+      "trg_no_show_blocks_booking",
+      7
+     ],
      "dock_occupancy.occupancy_compat": [
       "O",
       "trg_occupancy_compat",
@@ -375,12 +379,10 @@
       29
      ]
     },
-    "evidence_triggers_pending_migration": [
-     "dock_occupancy.no_show_blocks_hold (migration 0048 not yet applied)"
-    ],
+    "evidence_triggers_pending_migration": [],
     "evidence_trigger_problems": [],
-    "tables_with_forced_rls": 34,
-    "tables": 58,
+    "tables_with_forced_rls": 36,
+    "tables": 60,
     "t33": {
      "production_requirement": "PostgreSQL 18.3+ (T33, unchanged)",
      "engine_major": 17
@@ -484,8 +486,8 @@
      ]
     },
     "last_48h": {
-     "messages_sent": 73,
-     "messages_deleted": 73,
+     "messages_sent": 85,
+     "messages_deleted": 85,
      "dlq_messages_sent": 0
     },
     "dlq_drill": {
@@ -550,19 +552,19 @@
      {
       "name": "setuhaul-pilot-approval-relay-every-minute",
       "expression": "rate(1 minute)",
-      "state": "ENABLED",
+      "state": "DISABLED",
       "target": "setuhaul-pilot-approval-relay"
      },
      {
       "name": "setuhaul-pilot-outbound-every-minute",
       "expression": "rate(1 minute)",
-      "state": "ENABLED",
+      "state": "DISABLED",
       "target": "setuhaul-pilot-outbound"
      },
      {
       "name": "setuhaul-pilot-recovery-every-minute",
       "expression": "rate(1 minute)",
-      "state": "ENABLED",
+      "state": "DISABLED",
       "target": "setuhaul-pilot-recovery"
      }
     ],
@@ -572,10 +574,10 @@
       "ingest",
       "system"
      ],
-     "code_sha256": "CQ+VvaZpNKpWMlE1G77feRG5mEOyhOi8Nh3bjfV6hBo="
+     "code_sha256": "Zq8vA9StqWoMHq7vnhTlY0/QQYGTxzknqsgJSt1Ppig="
     },
-    "recovery_invocations_last_3_days": 1451,
-    "last_invocation_utc": "2026-11-27T07:40:16.388000+00:00",
+    "recovery_invocations_last_3_days": 1475,
+    "last_invocation_utc": "2026-11-27T08:04:20.101000+00:00",
     "lease_loss_drill": {
      "checks": {
       "clean start: empty queue, no other unprocessed receipt, all data synthetic": true,
@@ -591,7 +593,7 @@
       "queue empty afterwards": true
      }
     },
-    "schedules_disabled_while_sleeping": false
+    "schedules_disabled_while_sleeping": true
    },
    "checks": {
     "recovery schedule exists, every minute": true,
@@ -615,7 +617,7 @@
     "config: every other function has booking OFF": true,
     "config: api and agent run in the pilot environment with synthetic data": true,
     "config: every function is synthetic-data only": true,
-    "config: /health answers: status ok, database ok, booking ON": true,
+    "config: /health answers: status ok, database ok, booking ON": false,
     "config: /health environment is the synthetic pilot": true,
     "config: kill switch is in its expected state (disengaged)": true,
     "config: the renewal names a well-formed owner approval reference": true,
@@ -629,9 +631,11 @@
     "every approval execution is attributed (A drill, B smoke, C owner-confirmed, D owner-confirmed test origin, E owner-authorised test-driver booking)": true
    },
    "not_shown": [
+    "BOOKING_WORKFLOW: FAIL \u2014 /health: status 'ok', database 'ok', booking_enabled False",
     "BOOKING_WORKFLOW: FAIL \u2014 no fresh smoke test record (scripts/smoke_option_d.py --release-sha <sha>) was supplied"
    ],
    "diagnostics": [
+    "BOOKING_WORKFLOW: FAIL \u2014 /health: status 'ok', database 'ok', booking_enabled False",
     "BOOKING_WORKFLOW: FAIL \u2014 no fresh smoke test record (scripts/smoke_option_d.py --release-sha <sha>) was supplied"
    ],
    "evidence": {
@@ -701,7 +705,7 @@
      "health": {
       "status": "ok",
       "database": "ok",
-      "booking_enabled": true,
+      "booking_enabled": false,
       "environment": "pilot-ap-southeast-2",
       "booking_kill_switch": "disengaged",
       "gate_exceptions": [
@@ -711,11 +715,57 @@
       ],
       "version": "0.2.0"
      },
-     "deployed_booking_mode": "ON (OWNER-APPROVAL-20261127-FACILITY-APPROVAL-01)",
-     "deployed_approval_ref": "OWNER-APPROVAL-20261127-FACILITY-APPROVAL-01",
-     "renewal_approval_ref": "OWNER-APPROVAL-20261127-SHA-BOOKING-ACTIVATION-01"
+     "deployed_booking_mode": "ON (OWNER-APPROVAL-20261127-SHA-BOOKING-ACTIVATION-01)",
+     "deployed_approval_ref": "OWNER-APPROVAL-20261127-SHA-BOOKING-ACTIVATION-01",
+     "renewal_approval_ref": "OWNER-APPROVAL-20261127-DEMO-02"
     },
     "approval_executions": [
+     {
+      "approval_id": "d68180a3-7a6f-4d43-afcf-ef0f0be344f4",
+      "execution": "d68180a3",
+      "execution_status": "SUCCEEDED",
+      "started": "2026-11-27T13:31:55.677000+05:30",
+      "category": "B",
+      "verdict": "ATTRIBUTED",
+      "reasons": [
+       "smoke test SMOKE-20261127T080020Z-fabbd759 on release e7c3a2c0e3de"
+      ],
+      "record": {
+       "kind": "STANDARD",
+       "facility_id": "FAC-JAI-01",
+       "shipment_id": "SYN-SHP-5608263A",
+       "appointment_id": "APT-54731af7b3c64c378680aba637dacac6",
+       "appointment_status": "CONFIRMED",
+       "status": "APPROVED",
+       "decided_by_type": "HUMAN",
+       "decider_kind": "drill_staff",
+       "created_at": "2026-11-27 08:01:43.247656+00:00",
+       "decided_at": "2026-11-27 08:02:08.055319+00:00"
+      }
+     },
+     {
+      "approval_id": "a95aaaa1-b515-466a-a628-54214b801519",
+      "execution": "a95aaaa1",
+      "execution_status": "SUCCEEDED",
+      "started": "2026-11-27T13:26:15.065000+05:30",
+      "category": "D",
+      "verdict": "ATTRIBUTED",
+      "reasons": [
+       "owner-confirmed test origin: failed smoke SMOKE-20261127T075446Z-f2a4c7a5 on release e7c3a2c0e3de (smoke outcome FAIL; never smoke evidence)"
+      ],
+      "record": {
+       "kind": "STANDARD",
+       "facility_id": "FAC-JAI-01",
+       "shipment_id": "SYN-SHP-2169480F",
+       "appointment_id": "APT-98d97c42b7554b729841508435b1b3e3",
+       "appointment_status": "CONFIRMED",
+       "status": "APPROVED",
+       "decided_by_type": "HUMAN",
+       "decider_kind": "drill_staff",
+       "created_at": "2026-11-27 07:56:08.808443+00:00",
+       "decided_at": "2026-11-27 07:56:40.952041+00:00"
+      }
+     },
      {
       "approval_id": "94d01eed-f947-4fe2-9a90-006a6ccfd68e",
       "execution": "94d01eed",
@@ -1217,6 +1267,7 @@
       "9ed447a4",
       "bb952e8f",
       "cdc497bd",
+      "d68180a3",
       "e95e30a0"
      ],
      "C": [
@@ -1224,7 +1275,8 @@
       "87915a37"
      ],
      "D": [
-      "3c3ff424"
+      "3c3ff424",
+      "a95aaaa1"
      ],
      "E": [
       "251b0c87",
@@ -1242,7 +1294,7 @@
      "live_definition_sha256": "d5d970c03393afa647027e6f43c5c37dbfcb46cea9731b4b3b9b67181c45f908",
      "repo_definition_sha256": "d5d970c03393afa647027e6f43c5c37dbfcb46cea9731b4b3b9b67181c45f908"
     },
-    "executions_total": 21,
+    "executions_total": 23,
     "api_log_corroboration": {
      "87915a37-918e-46b5-8872-8ecaa4fc7a24": {
       "status": "verified",
@@ -1314,9 +1366,9 @@
  },
  "mode": "renewal",
  "environment": "pilot-ap-southeast-2",
- "release_sha": "61b1f3dd4b472a584334b49a90c50b9f433cfd0e",
- "approval_ref": "OWNER-APPROVAL-20261127-SHA-BOOKING-ACTIVATION-01",
- "artifact_sha256": "090f95bda66934aa563251351bbedf7911b99843b284e8bc361ddb8df57a841a",
+ "release_sha": "e7c3a2c0e3de3251be6ffca5a2c91a5a4df59808",
+ "approval_ref": "OWNER-APPROVAL-20261127-DEMO-02",
+ "artifact_sha256": "66af2f03d4ada96a0c1eaeef9e14e5634fd0418193c73927aac8094add4fa628",
  "expected_kill_switch": "disengaged",
  "approved_exceptions": [
   "AURORA (T33-P)",
