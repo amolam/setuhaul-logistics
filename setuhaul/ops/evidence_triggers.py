@@ -42,6 +42,33 @@ EXPECTED: dict[str, dict[str, tuple[str, int]]] = {
     },
 }
 
+# Triggers a migration of THIS release introduces, by migration number. The AURORA gate runs before the release's
+# provisional activation, and the activation is what applies the release's migrations (never by hand), so the gate
+# must judge such a trigger against the migration ledger (setuhaul_meta.schema_migrations):
+#   * migration recorded as applied  -> the trigger is required exactly as listed above (missing is a problem);
+#   * migration not yet applied      -> the pre-migration state is required: the trigger must be ABSENT (a trigger
+#                                       present before its migration is recorded means the schema was changed by hand).
+# Every other trigger is required unconditionally. Without a ledger (applied=None) everything is required.
+INTRODUCED_BY: dict[tuple[str, str], str] = {
+    ("dock_occupancy", "no_show_blocks_hold"): "0048",                    # 27 Nov fix plan (D3)
+}
+
+
+def expected_for(applied: set[str] | None) -> dict[str, dict[str, tuple[str, int]]]:
+    """The trigger set required now: EXPECTED minus the triggers of migrations not yet recorded as applied."""
+    if applied is None:
+        return EXPECTED
+    return {t: {n: v for n, v in want.items() if INTRODUCED_BY.get((t, n), None) in (None, *applied)}
+            for t, want in EXPECTED.items()}
+
+
+def pending_triggers(applied: set[str] | None) -> list[str]:
+    """The triggers the gate expects to be absent because their migration is not applied yet (reported as evidence)."""
+    if applied is None:
+        return []
+    return sorted(f"{t}.{n} (migration {m} not yet applied)" for (t, n), m in INTRODUCED_BY.items() if m not in applied)
+
+
 # The SQL the AURORA gate runs (as the owner): every non-internal trigger on these tables.
 QUERY = """SELECT c.relname::text, t.tgname::text, t.tgenabled::text, p.proname::text, t.tgtype::int
              FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -52,16 +79,22 @@ QUERY = """SELECT c.relname::text, t.tgname::text, t.tgenabled::text, p.proname:
             ORDER BY 1, 2"""
 
 
-def trigger_problems(rows) -> list[str]:
+def trigger_problems(rows, applied: set[str] | None = None) -> list[str]:
     """rows: (table, trigger, tgenabled, function, tgtype). Empty when every table has exactly its expected triggers,
-    each enabled ('O'), on its expected function, timing, level and events."""
+    each enabled ('O'), on its expected function, timing, level and events. `applied`: the migration numbers recorded
+    in the ledger ("0047", "0048", ...); a trigger of a migration not in it must be absent (see INTRODUCED_BY)."""
     seen: dict[str, dict[str, tuple[str, str, int]]] = {t: {} for t in EXPECTED}
     problems = []
     for table, name, enabled, fn, tgtype in rows:
         if table not in EXPECTED:
             continue
         seen[table][name] = (enabled, fn, int(tgtype))
-    for table, want in EXPECTED.items():
+    required = expected_for(applied)
+    for (table, name), m in sorted(INTRODUCED_BY.items()):
+        if applied is not None and m not in applied and name in seen[table]:
+            problems.append(f"{table}.{name}: present, but migration {m} is not recorded as applied")
+            del seen[table][name]                     # reported once, not again as "unexpected"
+    for table, want in required.items():
         got = seen[table]
         for name, (fn, tgtype) in want.items():
             if name not in got:

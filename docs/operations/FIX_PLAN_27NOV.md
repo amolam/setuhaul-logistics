@@ -68,7 +68,12 @@ under **No-show**.
 2. Golden extraction evaluation re-run, if the owner approves the paid run.
 3. PR `main` → `release/fde-sydney-pilot`; then the usual sequence: fresh gate report, provisional
    `activate-booking.yml` run (applies 0047 and 0048 through the pipeline; never by hand), smoke test, renewal report,
-   renewal run. **Needs a new booking approval reference from the owner.**
+   renewal run. **Needs a new booking approval reference from the owner.** The order is unchanged (owner, 27 Nov):
+   the gate stays before the activation. Its trigger check is migration-aware (`setuhaul/ops/evidence_triggers.py`,
+   `INTRODUCED_BY`): while the ledger does not record 0048, `dock_occupancy.no_show_blocks_hold` must be **absent**
+   (the pre-migration state; the report lists it under `evidence_triggers_pending_migration`); once 0048 is recorded,
+   the trigger is required in full, and a missing, disabled or altered one fails the gate. Every other trigger is
+   required unconditionally, as before.
 4. After deploy, check: both facilities still MANUAL and no AUTO; planner approval unchanged (one request decided by a
    planner); `no_show_grace_min` unchanged (Jaipur 30, Gurugram 20); Telegram limited to the two test drivers,
    WhatsApp off, production off; stack output `TraceContent` = `FULL`; one synthetic shipment through gate, dock and

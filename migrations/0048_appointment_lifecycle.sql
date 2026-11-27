@@ -315,6 +315,9 @@ END $$;
 
 -- The minute job. Only appointments whose deadline falls after the cutover (history goes through the backfill).
 -- SKIP LOCKED: an appointment a person is recording an arrival for right now is left for the next minute.
+-- Ineligible appointments (cancellation open, shipment at the gate per the TMS, time change pending...) stay CONFIRMED
+-- and are filtered out before the LIMIT, so they can never fill the batch and starve later due ones; mark_no_show
+-- re-checks under the lock.
 CREATE FUNCTION process_no_shows(p_limit integer DEFAULT 200) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = setuhaul, pg_catalog, pg_temp AS $$
 DECLARE r record; n integer := 0; seen integer := 0; cut timestamptz; old_scope text := current_setting('app.facility_scope', true);
@@ -327,6 +330,7 @@ BEGIN
            WHERE a.status = 'CONFIRMED' AND a.is_current AND a.arrived_at IS NULL
              AND no_show_due(lower(a.during), c.no_show_grace_min, clock_timestamp())
              AND no_show_deadline(lower(a.during), c.no_show_grace_min) > cut
+             AND no_show_ineligibility(a) IS NULL
            ORDER BY lower(a.during), a.appointment_id
            LIMIT greatest(least(coalesce(p_limit, 200), 1000), 1)
            FOR UPDATE OF a SKIP LOCKED LOOP

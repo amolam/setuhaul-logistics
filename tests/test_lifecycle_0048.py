@@ -248,6 +248,22 @@ def test_no_show_never_touches_appointments_with_activity(dsn, exclude):
     assert "NO_SHOW_RECORDED" not in events(dsn, b["sid"])
 
 
+def test_ineligible_appointments_never_starve_the_job(dsn):
+    """Appointments the job must leave alone stay CONFIRMED forever (the TMS shows the truck at the gate, nobody pressed
+    the button). They are filtered before the batch LIMIT, so a later due appointment is still marked."""
+    run_job(dsn)                                                       # drain anything due from earlier tests
+    blockers = [booked(dsn, now() - timedelta(minutes=58)) for _ in range(3)]
+    with psycopg.connect(dsn, autocommit=True) as c:
+        c.execute("SET search_path = setuhaul")
+        for b in blockers:
+            c.execute("UPDATE shipments SET current_status='AT_GATE' WHERE shipment_id=%s", (b["sid"],))
+    due = booked(dsn, now() - timedelta(minutes=50))
+    with Db(dsn).tx("system", (JAI, GGN)) as c:
+        out = c.execute("SELECT process_no_shows(3)").fetchone()[0]    # a batch no bigger than the blockers
+    assert appt_row(dsn, due["appt"])[0] == "NO_SHOW", out
+    assert all(appt_row(dsn, b["appt"])[0] == "CONFIRMED" for b in blockers)
+
+
 def test_history_before_the_cutover_is_left_for_the_backfill(dsn):
     old = booked(dsn, now() - timedelta(days=8))
     run_job(dsn)

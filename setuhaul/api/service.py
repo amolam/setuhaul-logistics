@@ -429,7 +429,10 @@ class BookingService(LifecycleMixin):
         appear in free text. Read in the driver's own scope; given only to the trace redactor, never exported."""
         with self.db.tx("agent", driver=p.driver_id, readonly=True) as c:
             r = c.execute("SELECT driver_name, phone_e164 FROM drivers WHERE driver_id=%s", (p.driver_id,)).fetchone()
-        return [x for x in (r or ()) if x]
+        terms = [x for x in (r or ()) if x]
+        if r and r[0]:                   # each part of the name too: a driver often writes only their first name
+            terms += [w for w in str(r[0]).split() if len(w) >= 3]
+        return terms
 
     def read_driver_message(self, p: Principal, message_id: int) -> str | None:
         """The stored DRIVER text for a message in the caller's own thread (masked body)."""

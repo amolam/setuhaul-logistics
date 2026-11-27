@@ -178,3 +178,19 @@ def test_a_real_turn_in_full_mode_shows_the_whole_decision_without_identifiers(a
     assert by["agent_turn"]["extra"]["metadata"]["correlation_id"] == r.correlation_id
     # ... and none of the driver's identifiers
     assert DRIVER["name"] not in blob and phone not in blob and phone[3:] not in blob
+
+
+def test_a_first_name_alone_is_masked_too(app, client, dsn, full_traced):
+    """The driver writes only part of their registered name: each part is a registered identifier."""
+    drv, phone, _ = add_driver(dsn)
+    d = Driver(client, phone)
+    with __import__("psycopg").connect(dsn, autocommit=True) as c:
+        c.execute("UPDATE setuhaul.drivers SET driver_name=%s WHERE driver_id=%s", (DRIVER["name"], drv))
+    ev = d.say(f"Ramesh here. Reaching around {in_90()}. Any slot?")
+    Orchestrator(app.state.service, app.state.sessions, FakeModel(extractions=[exd(
+        delay_kind="ARRIVAL_TIME", declared_eta_local=in_90(), exception_type="TRAFFIC")])).handle(ev)
+    tracing.tracer().flush(2)
+    runs = [x for b in full_traced.batches for x in b]
+    assert runs, "the turn was not exported (blocked by the guard?)"
+    blob = _blob(runs)
+    assert "Ramesh" not in blob and "[PII] here" in blob
