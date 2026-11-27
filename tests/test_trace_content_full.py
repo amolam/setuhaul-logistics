@@ -94,19 +94,32 @@ def test_full_mode_keeps_what_debugging_needs():
     assert "D2" in out["model_input"] and "ORD-2026-001" in out["model_input"]
 
 
-def test_full_mode_removes_driver_identifiers_and_every_credential():
-    out = redaction.redact(_sample_turn(), mode="full", pii_terms=[DRIVER["name"], DRIVER["chat_id"]])
+def test_full_mode_removes_only_name_phone_and_every_credential():
+    """27 Nov 2026 (owner, DEMO-04): full mode masks the driver's name and phone and removes every credential; nothing
+    else (e-mail, chat id, username, location, account ids are exported)."""
+    out = redaction.redact(_sample_turn(), mode="full", pii_terms=[DRIVER["name"]])
     blob = _blob(out)
-    for v in (DRIVER["name"], DRIVER["phone"], DRIVER["phone"][3:], DRIVER["email"], DRIVER["chat_id"],
-              DRIVER["username"], *SYNTHETIC_SECRETS.values(), "123456789012", "s3ss10n-t0k3n-value",
+    for v in (DRIVER["name"], DRIVER["phone"], DRIVER["phone"][3:], *SYNTHETIC_SECRETS.values(), "s3ss10n-t0k3n-value",
               "telegram-webhook-secret-0123456789", "the fixed instructions"):
         assert v not in blob, v
-    for k in ("phone_e164", "driver_name", "chat_id", "first_name", "username", "latitude", "longitude", "api_key",
-              "authorization", "session_token", "webhook_secret", "system"):
+    for k in ("phone_e164", "driver_name", "first_name", "api_key", "authorization", "session_token", "webhook_secret",
+              "system"):
         assert k not in out, k
-    assert "[PII]" in out["text"] and "[PHONE]" in out["text"] and "[EMAIL]" in out["text"]
+    assert "[PII]" in out["text"] and "[PHONE]" in out["text"]
     assert "[PII]" in out["result"]["data"]["recent_driver_messages"][0][1]      # nested text too
-    assert redaction.find_leaks(out, [DRIVER["name"], DRIVER["chat_id"]]) == []
+    # exported now: operational identifiers that are not the driver's name or phone
+    assert out["chat_id"] == DRIVER["chat_id"] and out["username"] == DRIVER["username"]
+    assert out["latitude"] == 26.91 and DRIVER["email"] in out["text"] and "123456789012" in out["note"]
+    assert redaction.find_leaks(out, [DRIVER["name"]], mode="full") == []
+
+
+def test_ids_with_common_words_never_trip_the_guard():
+    """27 Nov 2026: 'Telegram test driver 1' as a registered term must not drop a trace because of SYN-SHP-TEST-1."""
+    out = redaction.redact({"shipment_id": "SYN-SHP-TEST-1", "driver_id": "SYN-DRV-TEST-1", "text": "slot please"},
+                           mode="full", pii_terms=["Telegram test driver 1"])
+    assert redaction.find_leaks(out, ["Telegram test driver 1", "test"], mode="full") == []
+    assert redaction.find_leaks({"text": "my name is Telegram test driver 1"}, ["Telegram test driver 1"],
+                                mode="full") == ["pii_term"]           # in text it is still caught
 
 
 @pytest.mark.parametrize("mode", ["off", "on"])
@@ -180,17 +193,56 @@ def test_a_real_turn_in_full_mode_shows_the_whole_decision_without_identifiers(a
     assert DRIVER["name"] not in blob and phone not in blob and phone[3:] not in blob
 
 
-def test_a_first_name_alone_is_masked_too(app, client, dsn, full_traced):
-    """The driver writes only part of their registered name: each part is a registered identifier."""
+def test_a_driver_named_with_common_words_is_still_traced(app, client, dsn, full_traced):
+    """27 Nov 2026 (DEMO-04 regression): the pilot's test drivers are named 'Telegram test driver 1'. Their turns were
+    dropped by the export guard (name parts matched ids like SYN-SHP-TEST-1). Now the turn is exported, the full name
+    is masked and the words themselves are not."""
     drv, phone, _ = add_driver(dsn)
     d = Driver(client, phone)
     with __import__("psycopg").connect(dsn, autocommit=True) as c:
-        c.execute("UPDATE setuhaul.drivers SET driver_name=%s WHERE driver_id=%s", (DRIVER["name"], drv))
-    ev = d.say(f"Ramesh here. Reaching around {in_90()}. Any slot?")
+        c.execute("UPDATE setuhaul.drivers SET driver_name=%s WHERE driver_id=%s", ("Telegram test driver 1", drv))
+    ev = d.say(f"Reaching around {in_90()}. Any slot? I am Telegram test driver 1")
     Orchestrator(app.state.service, app.state.sessions, FakeModel(extractions=[exd(
         delay_kind="ARRIVAL_TIME", declared_eta_local=in_90(), exception_type="TRAFFIC")])).handle(ev)
     tracing.tracer().flush(2)
     runs = [x for b in full_traced.batches for x in b]
-    assert runs, "the turn was not exported (blocked by the guard?)"
+    assert runs and tracing.tracer().stats["blocked_leaks"] == 0, "the turn was dropped by the guard"
     blob = _blob(runs)
-    assert "Ramesh" not in blob and "[PII] here" in blob
+    assert "Telegram test driver 1" not in blob and "I am [PII]" in blob
+    assert "Driver message:" in blob                                      # the word 'driver' is not masked elsewhere
+
+
+def test_one_tree_per_message_inbound_agent_outbound(full_traced):
+    """27 Nov 2026 (DEMO-04): the agent_turn nests under the inbound trace (event trace_parent) and the Telegram send
+    nests under the agent_turn (the reply's trace_parent), so LangSmith shows one tree per message."""
+    from setuhaul.notify import outbound as ob
+    from setuhaul.notify.telegram import TracedTelegram
+    t = tracing.tracer()
+    with t.turn(str(uuid.uuid4()), "telegram_inbound"):
+        inbound = t.root_ref()
+    turn_ref = str(uuid.uuid4())
+    with t.child(inbound, turn_ref, "agent_turn", inputs={"message_ref": "m"}):
+        with t.span("decide"):
+            pass
+        agent = t.root_ref()
+
+    class Sink:
+        supports_idempotency, service_window = True, False
+
+        def send(self, to, text, key, reply_markup=None):
+            from setuhaul.notify.outbound import SendResult
+            return SendResult("ACCEPTED", provider_message_id="testsink.1")
+
+    tok = ob.OUTBOUND_TRACE.set({"thread_id": "t", "trace_parent": agent})
+    try:
+        TracedTelegram(Sink(), t).send("12345", "Your slot is confirmed", "notif-1")
+    finally:
+        ob.OUTBOUND_TRACE.reset(tok)
+    t.flush(2)
+    runs = {x["name"]: x for b in full_traced.batches for x in b}
+    assert runs["agent_turn"]["trace_id"] == runs["telegram_inbound"]["id"]
+    assert runs["agent_turn"]["parent_run_id"] == runs["telegram_inbound"]["id"]
+    assert runs["telegram_outbound"]["trace_id"] == runs["telegram_inbound"]["id"]
+    assert runs["telegram_outbound"]["parent_run_id"] == turn_ref
+    assert runs["telegram_outbound"]["dotted_order"].startswith(runs["agent_turn"]["dotted_order"] + ".")
+    assert runs["telegram_outbound"]["inputs"]["text"] == "Your slot is confirmed"     # full mode: the text sent

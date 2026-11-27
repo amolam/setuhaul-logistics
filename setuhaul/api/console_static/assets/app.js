@@ -14,6 +14,12 @@ let CFG = null, TOKEN = null, EXPIRES = 0, tab = "threads", selected = null, nex
 // permits it; otherwise a short note says who can. The server still checks every call (this is a convenience).
 let ME = null;
 function can(a){ return !!(ME && ME.permissions && ME.permissions[a]) }
+// 27 Nov 2026 (DEMO-04): resolve an escalation wherever it is shown, for every role the server allows (operations,
+// planner, ops_lead: permission handle_escalation); others see who can
+function resolveButton(e){
+  if(!e || e.status === "RESOLVED" || e.status === "REROUTED") return "";
+  return can("handle_escalation") ? `<button class="ok" data-resolve="${esc(e.escalation_id)}">Resolve…</button>`
+    : `<span class="muted">Resolved by operations, a planner or an ops lead</span>` }
 const WHO_CAN = {link_driver:"dispatcher, operations or ops lead", send_offer:"dispatcher, operations or ops lead",
   request_cancellation:"dispatcher, operations or ops lead", request_reschedule:"dispatcher, operations or ops lead",
   resolve_no_show:"dispatcher, operations or ops lead", decide:"planner, operations or ops lead",
@@ -168,7 +174,8 @@ async function render(){
     } else if(tab === "escalations"){
       const r = (await api("GET", "/console/escalations")).escalations;
       list.innerHTML = r.length ? r.map(x => `<div class="item" data-open="${esc(x.thread_id || "")}" ${x.overdue ? 'style="border-left:4px solid var(--bad)"' : ""}><div class="top"><b>${esc(x.reason_code)}</b><span>${x.overdue ? chip("Past acknowledgement time", "bad") + " " : ""}${esc(x.status)}</span></div>
-        <div class="muted">${esc(x.facility_id || "CENTRAL")} · ${esc(x.mode)} · <span class="mono">${esc(x.shipment_id || "")}</span></div></div>`).join("")
+        <div class="muted">${esc(x.facility_id || "CENTRAL")} · ${esc(x.mode)} · <span class="mono">${esc(x.shipment_id || "")}</span></div>
+        <div class="row" style="margin-top:4px">${resolveButton(x)}</div></div>`).join("")
         : `<div class="empty">No escalations visible to you.</div>`;
       detail.innerHTML = `<div class="empty">Select an escalation to open its conversation.</div>`;
     } else if(tab === "docks"){
@@ -478,6 +485,11 @@ document.addEventListener("click", async ev => {
   const b = ev.target.closest("button,[data-open]"); if(!b) return;
   try {
     if(b.dataset.t) setTab(b.dataset.t);
+    else if(b.dataset.resolve){                   // 27 Nov 2026 (DEMO-04): Escalations tab and Schedule card
+      const resolution = prompt("What was done? (at least 5 characters)", ""); if(!resolution) return;
+      try { await api("POST", `/console/escalations/${b.dataset.resolve}/resolve`, {resolution}); toast("Resolved.") }
+      catch(e){ if(e.status === 409 || e.status === 403){ toast("Not resolved: " + errText(e)) } else throw e }
+      return render() }
     else if(b.dataset.open !== undefined){ if(b.dataset.open) openThread(b.dataset.open); else toast("No conversation for this escalation.") }
     else if(b.id === "refresh"){ loadStatus(); selected && tab === "threads" ? (await loadThreads(false), openThread(selected)) : render() }
     else if(b.id === "more"){ pagedThreads = true; loadThreads(true) }
@@ -732,8 +744,9 @@ async function renderSchedule(list, detail){
       <div class="top row"><b class="grow">Escalation · ${esc(e.reason_code)} · ${esc(e.order_reference || e.shipment_id || "")}</b>
         ${chip(e.status, e.status === "OPEN" ? "warn" : "info")} ${e.overdue ? chip("overdue", "bad") : ""}</div>
       ${e.banner ? `<div>${chip(e.banner, "bad")}</div>` : ""}
-      <div class="muted">Due ${exact(e.due)} · raised ${exact(e.created_at)} · handled in the Escalations tab</div>
-      ${e.thread_id ? `<div class="row" style="margin-top:6px"><button class="ghost" data-open="${esc(e.thread_id)}">Conversation</button></div>` : ""}</div>`).join("")}
+      <div class="muted">Due ${exact(e.due)} · raised ${exact(e.created_at)}</div>
+      <div class="row" style="margin-top:6px">${e.thread_id ? `<button class="ghost" data-open="${esc(e.thread_id)}">Conversation</button>` : ""}
+        ${resolveButton(e)}</div></div>`).join("")}
     ${s.pending.length ? s.pending.map(p => `<div class="card" style="margin-bottom:8px">
       <div class="top row"><b class="grow">${esc(p.order_reference)} · dock ${esc(p.dock_code)} · ${exact(p.start)}</b>
         ${chip(p.approval_kind, "info")}</div>
@@ -757,10 +770,10 @@ async function renderSchedule(list, detail){
   const t0 = new Date(s.window_start).getTime(), t1 = new Date(s.window_end).getTime(), pct = v => Math.max(0, Math.min(100, (new Date(v).getTime() - t0) / (t1 - t0) * 100));
   const style = {CONFIRMED:"background:var(--accent);color:#fff", IN_PROGRESS:"background:var(--accent);color:#fff",
     PENDING_DECISION:"background:var(--card);border:2px dashed #6d3fc0", HOLD_ACTIVE:"background:#f2c46d;color:#3b2a05",
-    HOLD_EXPIRED:"background:var(--card);border:1px dotted var(--muted);color:var(--muted)",
     BLOCKED:"background:repeating-linear-gradient(45deg,#c9ced8 0 6px,#eef0f4 6px 12px);color:#1d2330"};
+  // 27 Nov 2026 (DEMO-04): only live holds are drawn (the server no longer returns expired ones)
   const label = {CONFIRMED:"Confirmed", IN_PROGRESS:"In dock", PENDING_DECISION:"Pending decision", HOLD_ACTIVE:"Hold (≤180 s)",
-    HOLD_EXPIRED:"Expired hold", BLOCKED:"Blocked"};
+    BLOCKED:"Blocked"};
   const facButtons = (SX.facs || []).length > 1 ? `<div class="row" style="margin-bottom:6px">${SX.facs.map(f =>
       `<button class="${f === SX.fac ? "" : "ghost"}" data-act="sfac" data-arg="${esc(f)}">${esc(f)}</button>`).join(" ")}</div>` : "";
   detail.innerHTML = `${facButtons}<div class="row"><h2 class="grow">${esc(s.facility_id)} · ${exact(s.window_start)} – ${exact(s.window_end)}</h2>

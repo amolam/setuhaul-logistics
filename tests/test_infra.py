@@ -814,22 +814,28 @@ def test_full_activation_the_workflow_passes_every_control_explicitly_and_its_ch
     assert "live Telegram needs its own approval, not the booking reference" in wf
     check = wf.split("python - <<'PY'\n", 1)[1].split("\n          PY\n", 1)[0]
     check = "\n".join(line[10:] for line in check.splitlines())
+    # 27 Nov 2026 (DEMO-04): the overall daily model budget is an input too (default 2), passed and pinned like the rest
+    assert "llm_daily_budget_usd:" in inputs and 'default: "2"' in inputs.split("llm_daily_budget_usd:", 1)[1]
+    assert "llm_daily_budget_usd: $b" in wf and "the judge budget exceeds the overall daily budget" in wf
     cases = {"ls-on": dict(langsmith_tracing="on"), "ls-off": dict(langsmith_tracing="off"),
              "tg": dict(langsmith_tracing="on", telegram_live_approval="OWNER-APPROVAL-20261126-telegram1",
                         telegram_authorized_drivers="DRV-PILOT-A1,DRV-PILOT-B2"),
-             "judge": dict(langsmith_tracing="on", llm_judge_budget_usd="0.25")}
+             "judge": dict(langsmith_tracing="on", llm_judge_budget_usd="0.25"),
+             "budget": dict(langsmith_tracing="on", llm_daily_budget_usd="1")}
     given = {"ls-on": {"LANGSMITH": "on"}, "ls-off": {"LANGSMITH": "off"},
              "tg": {"LANGSMITH": "on", "TELEGRAM_LIVE_APPROVAL": "OWNER-APPROVAL-20261126-telegram1",
                     "TELEGRAM_DRIVERS": "DRV-PILOT-A1,DRV-PILOT-B2"},
-             "judge": {"LANGSMITH": "on", "JUDGE_BUDGET": "0.25"}}
+             "judge": {"LANGSMITH": "on", "JUDGE_BUDGET": "0.25"},
+             "budget": {"LANGSMITH": "on", "LLM_DAILY_BUDGET": "1"}}
     for tag, kw in cases.items():
+        kw = {"llm_daily_budget_usd": "2", **kw}                     # what the workflow passes by default
         s_ = _stack(tmp_path, tag, booking_approval="OWNER-APPROVAL-20261125-test1", **kw)
         d = tmp_path / f"run-{tag}" / "cdk.out"
         d.mkdir(parents=True)
         (d / "SetuHaulPilot.template.json").write_text(json.dumps(Template.from_stack(s_).to_json()), encoding="utf-8")
         for g_tag, g_env in given.items():
             env = {k: v for k, v in os.environ.items() if k not in ("LANGSMITH", "TELEGRAM_LIVE_APPROVAL", "JUDGE_BUDGET", "TELEGRAM_DRIVERS",
-                                                                     "TRACE_CONTENT")}
+                                                                     "TRACE_CONTENT", "LLM_DAILY_BUDGET")}
             r = subprocess.run([sys.executable, "-c", check], cwd=d.parent, capture_output=True, text=True,
                                env={**env, **g_env})
             assert (r.returncode == 0) == (g_tag == tag), (tag, g_tag, r.stdout, r.stderr[-300:])
@@ -870,3 +876,19 @@ def test_readiness_describes_the_stack_through_the_lookup_session_when_given(mon
     with pytest.raises(Stop):
         readiness.collect("pilot-ap-southeast-2", "OWNER-APPROVAL-20261125-X1Y", "missing.json")
     assert seen["client"] == "cloudformation" and seen["session_kw"]["aws_access_key_id"] == "AKIAFAKE"
+
+
+def test_the_overall_model_budget_is_bounded_and_covers_the_judge(tmp_path):
+    """27 Nov 2026 (owner, DEMO-04): $2/day for all model calls, $0.75 of it for the judge. The judge's calls count
+    against the overall budget, so the overall budget may never be below the judge's (0.25 starved the judge)."""
+    s_ = _stack(tmp_path, "b2", booking_approval="OWNER-APPROVAL-20261125-test1", llm_daily_budget_usd="2",
+                llm_judge_budget_usd="0.75")
+    env = {r["Properties"]["FunctionName"]: r["Properties"].get("Environment", {}).get("Variables", {})
+           for r in Template.from_stack(s_).find_resources("AWS::Lambda::Function").values()
+           if "FunctionName" in r["Properties"]}
+    agent = env["setuhaul-pilot-agent"]
+    assert agent["SETUHAUL_LLM_DAILY_BUDGET_USD"] == "2" and agent["SETUHAUL_LLM_JUDGE_DAILY_BUDGET_USD"] == "0.75"
+    for tag, kw in {"over": dict(llm_daily_budget_usd="2.5"), "zero": dict(llm_daily_budget_usd="0"),
+                    "below-judge": dict(llm_daily_budget_usd="0.5", llm_judge_budget_usd="0.75")}.items():
+        with pytest.raises(ValueError):
+            _stack(tmp_path, f"b-{tag}", booking_approval="OWNER-APPROVAL-20261125-test1", **kw)

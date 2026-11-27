@@ -15,6 +15,7 @@ Responses use the tool envelope from `docs/2-design/04_tool_contracts_and_states
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 import re
@@ -42,6 +43,11 @@ from .security import Principal
 
 log = logging.getLogger("setuhaul.service")
 IST = timezone(timedelta(hours=5, minutes=30))
+
+
+def _trace_root_ref() -> dict | None:
+    """The current trace root's reference (tracing never affects behaviour: None on any problem)."""
+    return tracing.safe(lambda: tracing.tracer().root_ref())
 
 
 def option_ttl_s(env: dict | None = None) -> int:
@@ -429,10 +435,10 @@ class BookingService(LifecycleMixin):
         appear in free text. Read in the driver's own scope; given only to the trace redactor, never exported."""
         with self.db.tx("agent", driver=p.driver_id, readonly=True) as c:
             r = c.execute("SELECT driver_name, phone_e164 FROM drivers WHERE driver_id=%s", (p.driver_id,)).fetchone()
-        terms = [x for x in (r or ()) if x]
-        if r and r[0]:                   # each part of the name too: a driver often writes only their first name
-            terms += [w for w in str(r[0]).split() if len(w) >= 3]
-        return terms
+        # 27 Nov 2026 (DEMO-04): the full name and the phone only. Name PARTS were masked too (a1), but common words in
+        # names ("Telegram test driver 1") then matched ids like SYN-SHP-TEST-1 and the export guard dropped every
+        # trace. A first name the driver types is masked when the inbound path registers the Telegram first name.
+        return [x for x in (r or ()) if x]
 
     def read_driver_message(self, p: Principal, message_id: int) -> str | None:
         """The stored DRIVER text for a message in the caller's own thread (masked body)."""
@@ -462,13 +468,16 @@ class BookingService(LifecycleMixin):
         reply_to, at most one reply per inbound message and generation; a re-run turn gets the stored reply's id."""
         with self.db.tx("agent", driver=p.driver_id) as c:
             self._thread(c, p)
+            # 0050 (27 Nov 2026): the agent turn's trace root, so the Telegram send of this reply nests under it
+            tp = _trace_root_ref()
             r = c.execute("""INSERT INTO chat_messages (thread_id,sender_type,channel,content_hash,body_masked,
-                                                        reply_to,reply_generation)
-                             VALUES (%s,'AGENT','WHATSAPP',%s,%s,%s,%s)
+                                                        reply_to,reply_generation,trace_parent)
+                             VALUES (%s,'AGENT','WHATSAPP',%s,%s,%s,%s,%s::jsonb)
                              ON CONFLICT (reply_to, reply_generation) WHERE sender_type='AGENT' AND reply_to IS NOT NULL
                              DO NOTHING RETURNING message_id""",
                           (p.thread_id, hashlib.sha256(text[:2000].encode()).hexdigest(), text[:2000], reply_to,
-                           generation if reply_to is not None else None)).fetchone()
+                           generation if reply_to is not None else None,
+                           json.dumps(tp) if tp else None)).fetchone()
             if r:
                 return r[0]
             return c.execute("""SELECT message_id FROM chat_messages WHERE sender_type='AGENT' AND reply_to=%s
@@ -1545,7 +1554,10 @@ class BookingService(LifecycleMixin):
                 "generation": claimed[0], "session_token": sessions.mint(drv, th[0], fac), "attestation_status": status,
                 "recovered": recovered,
                 # G.1: the webhook request's id rides the queue event so the agent turn logs and traces under it
-                "correlation_id": CORRELATION_ID.get()}
+                "correlation_id": CORRELATION_ID.get(),
+                # 27 Nov 2026 (DEMO-04): the inbound trace's root, so the agent_turn attaches under it (one tree per
+                # message: inbound -> agent_turn -> outbound). None when the inbound was not traced.
+                "trace_parent": _trace_root_ref()}
 
     def record_delivery_status(self, provider_message_id: str | None, correlation: str | None, status: str,
                                error: str | None = None) -> str:
@@ -1980,12 +1992,37 @@ class BookingService(LifecycleMixin):
         if steps["hold"]["status"] != "OK":
             log.warning("accepted offer %s could not be held: %s %s", o["offer_id"], steps["hold"]["status"],
                         (steps["hold"].get("data") or {}).get("code"))
+            self._reset_offer_flow(p, o["offer_id"])                    # never left at CONFIRMED_BY_DRIVER
             res = "SLOT_TAKEN" if steps["hold"]["status"] in ("LOST", "OPTION_EXPIRED") else "ACCEPTED"
             return {"result": res, "offer_id": o["offer_id"], "booking": steps}
         steps["submit"] = self.call_tool(p, "submit_booking_request", mid, {"option_id": o["option_id"]})
         ok = steps["submit"]["status"] == "OK"
+        if not ok:
+            # 27 Nov 2026 (DEMO-04): the request was refused (e.g. REQUIRES_PERSON: an open safety escalation). Say why
+            # in the log, release the hold and reset the conversation, so neither the driver (new options) nor the
+            # dispatcher (a new offer) is blocked by a stale HELD state after the hold expires.
+            log.warning("accepted offer %s: booking request refused: %s %s", o["offer_id"], steps["submit"]["status"],
+                        (steps["submit"].get("data") or {}).get("code"))
+            steps["release"] = self.call_tool(p, "release_hold", mid, {"option_id": o["option_id"]})
+            if steps["release"]["status"] != "OK":
+                self._reset_offer_flow(p, o["offer_id"])
         return {"result": "SUBMITTED" if ok else "ACCEPTED", "offer_id": o["offer_id"], "booking": steps,
                 "appointment_id": steps["submit"]["data"].get("appointment_id") if ok else None}
+
+    def _reset_offer_flow(self, p: Principal, offer_id: str) -> None:
+        """27 Nov 2026 (DEMO-04): an accepted offer that could not become a request leaves the conversation where a new
+        search or offer can start (NO_OPTIONS), never at CONFIRMED_BY_DRIVER or HELD. Only those two states are reset;
+        a conversation a person took over, or one that moved on meanwhile, is left as it is."""
+        try:
+            _, fac = self._driver_tx(p)
+            with self.db.tx("agent", (fac,), p.driver_id) as c:
+                f, ver = self._flow(c, p, self._thread(c, p))
+                if f.state in (S.CONFIRMED_BY_DRIVER, S.HELD):
+                    f.hold_option, f.yes_message_id, f.attestation_id = None, None, None
+                    f.options_shown({})
+                    self._save(c, f, ver)
+        except Exception:                                               # noqa: BLE001 — the reply still goes out
+            log.exception("accepted offer %s: the conversation could not be reset", offer_id)
 
     def continue_accepted_offer(self, event: dict) -> dict:
         """Agent worker: finish an offer the api recorded as ACCEPTED (event from respond_to_offer's continuation).
@@ -2204,7 +2241,9 @@ class BookingService(LifecycleMixin):
                     SELECT x.dock_id, lower(x.during), upper(x.during), x.kind, x.active, x.expires_at, s.order_reference
                       FROM dock_occupancy x LEFT JOIN shipments s ON s.shipment_id = x.shipment_id
                      WHERE x.facility_id = %s AND x.during && tstzrange(%s, %s, '[)')
-                       AND ((x.kind = 'HOLD' AND (x.active OR x.expires_at > now() - interval '2 hours'))
+                       -- 27 Nov 2026 (DEMO-04): live holds only. An expired hold claims nothing and was drawn next to
+                       -- the booking that replaced it, which read as a second booking for the same driver.
+                       AND ((x.kind = 'HOLD' AND x.active AND x.expires_at > now())
                             OR (x.kind IN ('BLOCK','FIXED') AND x.active))""", (facility, start, end)):
                 kind = ("HOLD_ACTIVE" if r[4] and r[5] and r[5] > now else "HOLD_EXPIRED") if r[3] == "HOLD" else "BLOCKED"
                 items.append({"dock_id": r[0], "start": r[1].isoformat(), "end": r[2].isoformat(), "kind": kind,

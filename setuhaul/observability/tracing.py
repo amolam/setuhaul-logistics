@@ -84,12 +84,14 @@ class Run:
                 "end_time": (self.end_time or _now()).isoformat(), "session_name": project,
                 "inputs": redact(self.inputs, mode=mode, pii_terms=pii_terms),
                 "outputs": redact(self.outputs, mode=mode, pii_terms=pii_terms),
-                "extra": {"metadata": redact(self.metadata, mode="off", pii_terms=pii_terms)},
+                # full mode (owner, 27 Nov 2026): metadata and errors follow the same rule as inputs and outputs
+                "extra": {"metadata": redact(self.metadata, mode="full" if mode == "full" else "off",
+                                             pii_terms=pii_terms)},
                 "tags": [str(t)[:40] for t in self.tags[:10]]}
         if self.parent_run_id:
             body["parent_run_id"] = self.parent_run_id
         if self.error:
-            body["error"] = redact(str(self.error), mode="off", pii_terms=pii_terms)
+            body["error"] = redact(str(self.error), mode="full" if mode == "full" else "off", pii_terms=pii_terms)
         return body
 
 
@@ -210,7 +212,8 @@ class Tracer:
                 self.stats["tracing_errors"] += 1
 
     @contextmanager
-    def child(self, parent: dict | None, run_id: str, name: str, metadata: dict | None = None):
+    def child(self, parent: dict | None, run_id: str, name: str, metadata: dict | None = None,
+              inputs: dict | None = None):
         """A run attached AFTER its parent's turn ended (the advisory judge runs once the turn is final): same trace,
         parent_run_id = the parent root, dotted order under it. `parent` = parent_ref(root) of a traced turn; with no
         parent (the turn was not traced or sampled out) it is a no-op, so the child follows its parent's sampling.
@@ -222,6 +225,7 @@ class Tracer:
             rid, start = str(uuid.UUID(str(run_id))), _now()
             run = Run(id=rid, trace_id=str(parent["trace_id"]), name=name[:60], run_type="chain", start_time=start,
                       parent_run_id=str(parent["id"]), dotted_order=f"{parent['dotted_order']}.{_dotted(start, rid)}",
+                      inputs=dict(inputs or {}),
                       metadata={"environment": self.config.environment, "agent_version": self.config.agent_version,
                                 "release_commit": self.config.release_commit, **(metadata or {})},
                       tags=["setuhaul", self.config.environment])
@@ -251,6 +255,15 @@ class Tracer:
         if run is None or isinstance(run, _NullRun) or not getattr(run, "dotted_order", ""):
             return None
         return {"trace_id": run.trace_id, "id": run.id, "dotted_order": run.dotted_order}
+
+    def root_ref(self) -> dict | None:
+        """parent_ref of the run that owns the current buffer (the turn's root, or a child() root): what a later run
+        in another process needs to attach under it (27 Nov 2026: inbound -> agent_turn -> outbound). None outside."""
+        try:
+            buf = _buffer.get()
+            return self.parent_ref(buf[0]) if buf else None
+        except Exception:                                   # noqa: BLE001
+            return None
 
     @contextmanager
     def span(self, name: str, run_type: str = "chain", inputs: dict | None = None, metadata: dict | None = None):
@@ -295,7 +308,7 @@ class Tracer:
         posts = [r.as_post(self.config.project, self.config.content_allowed, mode, terms) for r in runs]
         # ids, times and dotted_order are generated here (UUIDs, timestamps); the guard checks the payload fields
         leaks = find_leaks([{k: p.get(k) for k in ("inputs", "outputs", "extra", "error", "name", "tags")} for p in posts],
-                           terms)
+                           terms, mode)
         if leaks:                                           # defence in depth: never export what still looks secret
             self.stats["blocked_leaks"] += 1
             log.warning("trace dropped by the export guard (%s pattern(s) still present)", len(leaks))
