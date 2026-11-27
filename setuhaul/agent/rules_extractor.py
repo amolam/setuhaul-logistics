@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 
 from ..domain.booking import classify_confirmation
+from .dates import find_date_phrase
 from .extraction import SAFETY_WORDS, Extraction, kind_stated
 
 # S4-R2-08 reading test: drivers spell "pahunch" many ways ("pohonch jaunga", "pohunchuga", "pochunga")
@@ -113,6 +114,13 @@ _ARRIVAL_FILLER = {"i", "we", "have", "has", "had", "just", "already", "now", "f
                    "for", "dock", "number", "no", "hello", "hi", "namaste", "good", "morning"}
 
 
+# issue 9: asking to move a booking to another time or day (not a cancellation, not a first booking)
+_RESCHEDULE = re.compile(r"\b(?:re-?schedul\w*|postpone\w*|prepone\w*|change\s+(?:my\s+|the\s+)?(?:slot|booking|"
+                         r"appointment|time|date|day)|move\s+(?:my\s+|the\s+)?(?:slot|booking|appointment)|another\s+"
+                         r"(?:day|date)|(?:slot|time|date|din|tareekh|tarikh)\s+badal\w*|shift\s+(?:my\s+|the\s+)?"
+                         r"(?:slot|booking))\b|बदल", re.I)
+
+
 def _clause_bounds(t: str, start: int, end: int) -> tuple[int, int]:
     a = max((b.end() for b in _CLAUSE_BREAK.finditer(t, 0, start)), default=0)
     z = next((b.start() for b in _CLAUSE_BREAK.finditer(t, end)), len(t))
@@ -195,6 +203,9 @@ def extract(text: str, shown_option_ids: list[str] | None = None, awaiting_confi
 
     if m := _REF.search(t):
         out["shipment_ref_mentioned"] = m.group(1).upper()
+    # issue 9: the day phrase exactly as written (code resolves it: setuhaul.agent.dates, the same as for the model)
+    if (dp := find_date_phrase(t)) is not None:
+        out["requested_date_local"] = dp[:32]
     if re.search(r"breakdown|broke down|tyre|tire|puncture|repair|engine|kharab", low):
         out["exception_type"] = "BREAKDOWN"
         done = re.search(r"\b(repair\w*|kaam|mistri|mechanic)\b.*\b(ho gaya|ho gayi|hogaya|ho gya|khatam|done|complete\w*)\b", low)
@@ -309,6 +320,8 @@ def extract(text: str, shown_option_ids: list[str] | None = None, awaiting_confi
     # intent
     if out["safety_concern"]:
         out["intent"] = "REPORT_DELAY"
+    elif _RESCHEDULE.search(t) and not re.search(r"\bcancel", low):     # issue 9: a change of a booking's time or day
+        out["intent"] = "RESCHEDULE"
     elif re.search(r"cancel|don.?t need|nahi chahiye", low):
         out["intent"] = "CANCEL"
     elif out["explicit_confirmation"] or out.get("selected_option_id"):

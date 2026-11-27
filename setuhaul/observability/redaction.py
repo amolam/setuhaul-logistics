@@ -15,6 +15,15 @@ Internal ids (driver_id, shipment_id, facility_id; driver traceability) pass a s
 
 Driver message content is never exported by default. `content_allowed=True` (SETUHAUL_TRACE_CONTENT=on, synthetic data
 only) lets a message's text through, after the same scrub. tests/test_phase_g1_tracing.py pins every rule.
+
+27 Nov 2026 (fix plan issue 8, owner decision Q3): `mode="full"` (SETUHAUL_TRACE_CONTENT=full, honoured ONLY for the
+synthetic pilot: langsmith.tracer_from_env) also lets the model's per-turn input and raw output, tool results and long
+text through (up to MAX_STR_FULL), so a turn can be debugged from its trace. It never lets through what `off` and `on`
+remove as credentials or driver identity: the DROP_KEYS below, every key that looks like a secret, token or key, and
+the scrub patterns. On top, a turn may register the driver's own identifiers (`pii_terms`: name, chat id, user id,
+phone, as the inbound path knows them); every occurrence inside free text is masked, in every mode. The fixed system
+instructions are never exported; the trace names their version (prompt_version). tests/test_trace_content_full.py
+proves the rules on synthetic examples.
 """
 from __future__ import annotations
 
@@ -26,19 +35,25 @@ from uuid import UUID
 from .identifiers import KEY_KIND, export_id
 
 MAX_STR, MAX_ITEMS, MAX_DEPTH = 300, 25, 6
+MAX_STR_FULL, MAX_ITEMS_FULL, MAX_DEPTH_FULL = 4000, 60, 8          # full mode: a few KB per value (Q3)
 REDACTED = "[REDACTED]"
+MODES = ("off", "on", "full")
 
 # Keys whose values never leave the process (compared lower-case, '-' as '_').
 DROP_KEYS = frozenset({
     "phone", "phone_e164", "driver_phone", "msisdn", "wa_id", "from", "to", "recipient", "recipient_ref",
     "driver_name", "name", "email", "address",
     "chat_id", "telegram_chat_id", "telegram_user_id", "username", "lat", "lon", "latitude", "longitude", "geohash",
+    "first_name", "last_name", "full_name", "display_name", "contact", "vcard", "user_id", "external_user_id",
+    "chat_ref", "cognito_sub", "ip", "source_ip", "user_agent",
     "session", "session_token", "x_setuhaul_session", "token", "access_token", "id_token", "refresh_token",
     "authorization", "cookie", "set_cookie", "api_key", "apikey", "x_api_key", "secret", "secret_string",
     "client_secret", "password", "private_key", "aws_access_key_id", "aws_secret_access_key", "aws_session_token",
     "meta_app_secret", "session_secret", "whatsapp_token", "openrouter_api_key", "langsmith_api_key",
     "signature", "x_hub_signature_256", "user_block", "prompt", "messages", "system",
 })
+# Model inputs: exported only in full mode (after the scrub); "system" (the fixed instructions) never, by version only.
+MODEL_INPUT_KEYS = frozenset({"user_block", "prompt", "messages", "model_input", "raw_output"})
 # Keys that carry a driver's or a person's free text: dropped unless content export is on.
 CONTENT_KEYS = frozenset({"text", "body", "body_masked", "message", "driver_message", "say", "reply", "note",
                           "summary", "reason", "driver_last_message", "what_driver_was_told", "content"})
@@ -62,19 +77,28 @@ _PATTERNS = [
 ]
 
 
-def scrub(s: str) -> str:
-    """Remove credential-, phone-, e-mail- and account-id-shaped substrings from one string, then cut it."""
+def scrub(s: str, max_len: int = MAX_STR, pii_terms=()) -> str:
+    """Remove credential-, phone-, e-mail- and account-id-shaped substrings from one string, mask the turn's known
+    driver identifiers (`pii_terms`, longest first, case-insensitive), then cut it."""
+    for term in sorted({str(t).strip() for t in pii_terms if t and len(str(t).strip()) >= 3}, key=len, reverse=True):
+        s = re.sub(r"(?i)(?<![\w])" + re.escape(term) + r"(?![\w])", "[PII]", s)
     for rx, rep in _PATTERNS:
         s = rx.sub(rep, s)
-    return s if len(s) <= MAX_STR else s[:MAX_STR] + "…"
+    return s if len(s) <= max_len else s[:max_len] + "…"
 
 
 def _norm(k) -> str:
     return str(k).strip().lower().replace("-", "_")
 
 
-def redact(value, *, content_allowed: bool = False, _depth: int = 0):
-    if _depth > MAX_DEPTH:
+def redact(value, *, content_allowed: bool = False, mode: str | None = None, pii_terms=(), _depth: int = 0):
+    """`mode` off | on | full (None: "on" if content_allowed else "off"). See the module notes."""
+    mode = mode if mode in MODES else ("on" if content_allowed else "off")
+    full = mode == "full"
+    content_allowed = mode in ("on", "full")
+    max_depth, max_items, max_len = (MAX_DEPTH_FULL, MAX_ITEMS_FULL, MAX_STR_FULL) if full else (MAX_DEPTH, MAX_ITEMS, MAX_STR)
+    kw = {"mode": mode, "pii_terms": pii_terms}
+    if _depth > max_depth:
         return "[DEPTH]"
     if value is None or isinstance(value, (bool, int, float)):
         return value
@@ -85,12 +109,17 @@ def redact(value, *, content_allowed: bool = False, _depth: int = 0):
     if isinstance(value, UUID):
         return str(value)
     if isinstance(value, str):
-        return scrub(value)
+        return scrub(value, max_len, pii_terms)
     if isinstance(value, dict):
         out = {}
-        for k, v in list(value.items())[:50]:
+        for k, v in list(value.items())[:(80 if full else 50)]:
             nk = _norm(k)
-            if nk in DROP_KEYS or "secret" in nk or "password" in nk or nk.endswith("_token") or nk.endswith("_key"):
+            if nk in MODEL_INPUT_KEYS:
+                if full:                                 # the model's per-turn input / raw output, scrubbed
+                    out[str(k)] = redact(v, **kw, _depth=_depth + 1)
+                continue                                 # off / on: never exported
+            if nk in DROP_KEYS or "secret" in nk or "password" in nk or nk.endswith("_token") or nk.endswith("_key") \
+                    or nk.startswith("token") or "credential" in nk or "api_key" in nk:
                 continue
             if nk in KEY_KIND:                     # driver traceability: the id itself or [INVALID_ID], never a guess
                 out[str(k)] = export_id(KEY_KIND[nk], v)
@@ -98,23 +127,26 @@ def redact(value, *, content_allowed: bool = False, _depth: int = 0):
             if nk in CONTENT_KEYS and not content_allowed:
                 out[str(k)] = REDACTED
                 continue
-            out[str(k)] = redact(v, content_allowed=content_allowed, _depth=_depth + 1)
+            out[str(k)] = redact(v, **kw, _depth=_depth + 1)
         return out
     if isinstance(value, (list, tuple, set, frozenset)):
         items = list(value)
-        out = [redact(v, content_allowed=content_allowed, _depth=_depth + 1) for v in items[:MAX_ITEMS]]
-        if len(items) > MAX_ITEMS:
-            out.append(f"[+{len(items) - MAX_ITEMS} more]")
+        out = [redact(v, **kw, _depth=_depth + 1) for v in items[:max_items]]
+        if len(items) > max_items:
+            out.append(f"[+{len(items) - max_items} more]")
         return out
     return type(value).__name__
 
 
-def find_leaks(obj) -> list[str]:
+def find_leaks(obj, pii_terms=()) -> list[str]:
     """What a redacted object still contains that should not leave (tests and the export guard use it)."""
     import json
-    text = json.dumps(obj, default=str)
+    text = json.dumps(obj, default=str, ensure_ascii=False)
     leaks = []
     for rx, _ in _PATTERNS:
         if rx.search(text):
             leaks.append(rx.pattern[:40])
+    for term in {str(t).strip() for t in pii_terms if t and len(str(t).strip()) >= 3}:
+        if re.search(r"(?i)(?<![\w])" + re.escape(term) + r"(?![\w])", text):
+            leaks.append("pii_term")
     return leaks

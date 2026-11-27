@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone, tzinfo
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -20,7 +20,7 @@ IST = timezone(timedelta(hours=5, minutes=30))
 # 5 pm") is read in this zone, never in the server's local time (Lambda runs in UTC; Windows dev boxes in anything).
 FACILITY_TZ_NAME = "Asia/Kolkata"
 FACILITY_TZ = IST
-SCHEMA_VERSION = "record_driver_report/v1"
+SCHEMA_VERSION = "record_driver_report/v2"   # v2 (27 Nov 2026, issue 9): requested_date_local and the RESCHEDULE intent
 
 # Verbatim from docs/1-frame/02_variables.md §6c (strict, every field nullable, no extra properties).
 RECORD_DRIVER_REPORT = {
@@ -33,9 +33,9 @@ RECORD_DRIVER_REPORT = {
         "required": ["intent", "shipment_ref_mentioned", "delay_kind", "declared_eta_local", "declared_eta_range_local",
                      "declared_delay_min", "earliest_start_local", "latest_finish_local", "latest_finish_kind",
                      "exception_type", "vehicle_fixed", "safety_concern", "selected_option_id", "explicit_confirmation",
-                     "language"],
+                     "language", "requested_date_local"],
         "properties": {
-            "intent": {"type": "string", "enum": ["REPORT_DELAY", "ASK_OPTIONS", "BOOK", "CHECK_STATUS", "EARLY_ARRIVAL", "CANCEL", "OTHER"]},
+            "intent": {"type": "string", "enum": ["REPORT_DELAY", "ASK_OPTIONS", "BOOK", "CHECK_STATUS", "EARLY_ARRIVAL", "CANCEL", "RESCHEDULE", "OTHER"]},
             "shipment_ref_mentioned": {"type": ["string", "null"], "maxLength": 64, "description": "Order or shipment reference exactly as the driver wrote it"},
             "delay_kind": {"type": "string", "enum": ["ARRIVAL_TIME", "DELAY_DURATION", "REPAIR_DURATION", "RANGE", "UNKNOWN"]},
             "declared_eta_local": {"type": ["string", "null"], "maxLength": 16, "description": "HH:MM 24h IST, only if the driver stated a time"},
@@ -50,6 +50,9 @@ RECORD_DRIVER_REPORT = {
             "selected_option_id": {"type": ["string", "null"], "maxLength": 80, "description": "Only an option_id previously shown in this conversation"},
             "explicit_confirmation": {"type": "boolean", "description": "true only for an unambiguous yes to one specific shown option"},
             "language": {"type": "string", "maxLength": 16},
+            # v2: the day exactly as the driver wrote it; code (setuhaul.agent.dates) turns it into a date
+            "requested_date_local": {"type": ["string", "null"], "maxLength": 32,
+                                     "description": "The day the driver asked for, copied exactly as written ('28 Nov', 'tomorrow', 'kal', 'Friday'); null if no day was named. Never compute a date."},
         },
     },
 }
@@ -57,7 +60,7 @@ RECORD_DRIVER_REPORT = {
 
 # R3 (release follow-up): every free-text field is bounded. An over-long value fails validation like any off-contract
 # answer, so the turn falls back to the rules reader (orchestrator: invalid_schema) instead of carrying it anywhere.
-REF_MAX, TIME_MAX, OPTION_MAX, LANG_MAX = 64, 16, 80, 16
+REF_MAX, TIME_MAX, OPTION_MAX, LANG_MAX, DATE_MAX = 64, 16, 80, 16, 32
 Ref = Annotated[str, Field(max_length=REF_MAX)]
 Time = Annotated[str, Field(max_length=TIME_MAX)]
 
@@ -65,7 +68,7 @@ Time = Annotated[str, Field(max_length=TIME_MAX)]
 class Extraction(BaseModel):
     """The model's output, parsed. Unknown keys are rejected (schema drift is an error, not something to ignore)."""
     model_config = ConfigDict(extra="forbid")
-    intent: Literal["REPORT_DELAY", "ASK_OPTIONS", "BOOK", "CHECK_STATUS", "EARLY_ARRIVAL", "CANCEL", "OTHER"]
+    intent: Literal["REPORT_DELAY", "ASK_OPTIONS", "BOOK", "CHECK_STATUS", "EARLY_ARRIVAL", "CANCEL", "RESCHEDULE", "OTHER"]
     shipment_ref_mentioned: Ref | None = None
     delay_kind: Literal["ARRIVAL_TIME", "DELAY_DURATION", "REPAIR_DURATION", "RANGE", "UNKNOWN"] = "UNKNOWN"
     declared_eta_local: Time | None = None
@@ -80,6 +83,8 @@ class Extraction(BaseModel):
     selected_option_id: Annotated[str, Field(max_length=OPTION_MAX)] | None = None
     explicit_confirmation: bool = False
     language: Annotated[str, Field(max_length=LANG_MAX)] = "en"
+    # v2 (issue 9): optional, so a v1 answer (no such key) still parses; the schema sent to the model requires it
+    requested_date_local: Annotated[str, Field(max_length=DATE_MAX)] | None = None
 
     @field_validator("declared_eta_range_local", mode="before")
     @classmethod
@@ -148,6 +153,8 @@ class Checked:
     selected_option_id: str | None = None
     candidate_eta: datetime | None = None            # computed from a bare delay; used only after the driver confirms
     breakdown: str | None = None                     # OD-2: REPAIRED | UNREPAIRED_SAFE | UNREPAIRED_UNKNOWN
+    requested_date: date | None = None               # issue 9: the day asked for, in the facility's zone (dates.py)
+    requested_date_phrase: str | None = None
     missing: list[str] = field(default_factory=list)
     problems: list[str] = field(default_factory=list)
 
@@ -182,10 +189,48 @@ def local_to_ts(hhmm: str, now: datetime, ambiguous_12h: bool = True, tz: timezo
     return min(cands) if cands else None
 
 
+def _requested_day(ex: Extraction, text: str, now: datetime, tz: tzinfo, c: "Checked") -> None:
+    """Issue 9: the requested day, the same way for the model and the rules reader. The model copies the phrase; code
+    resolves it. Code also reads the driver's own words: a day the model missed is still a day (never silently today),
+    and a model phrase that names another day than the text is a conflict, asked, never guessed."""
+    from . import dates
+    said = dates.find_date_phrase(text)
+    phrase = ex.requested_date_local or said
+    if not phrase:
+        return
+    r = dates.resolve(phrase, now, tz)
+    if r.ok and said and ex.requested_date_local:
+        rs = dates.resolve(said, now, tz)
+        if rs.day is not None and rs.day != r.day:
+            r = dates.Resolved(None, "REQUESTED_DATE_CONFLICT", f"{phrase} | {said}")
+        elif rs.problem and rs.day is None:
+            r = rs
+    c.requested_date_phrase = phrase
+    if r.ok:
+        c.requested_date = r.day
+    else:
+        c.problems.append(r.problem.lower())
+
+
+def _on_day(hhmm: str | None, c: "Checked", now: datetime, tz: tzinfo, pick: str = "earliest") -> datetime | None:
+    """A stated time: on the requested day when one was named, else the next sensible occurrence (unchanged). Today
+    keeps the next-sensible-occurrence rule ("late today, anything after 7" at 16:24 is 19:00, golden BB09)."""
+    if c.requested_date is not None and c.requested_date != now.astimezone(tz).date():
+        from .dates import at_on_day
+        if pick == "next":                       # an arrival: the earliest reading on that day not already past
+            cands = [x for x in (at_on_day(hhmm, c.requested_date, tz, "earliest"),
+                                 at_on_day(hhmm, c.requested_date, tz, "latest")) if x is not None]
+            ok = [x for x in cands if x >= now - timedelta(minutes=15)]
+            return min(ok) if ok else (cands[-1] if cands else None)
+        return at_on_day(hhmm, c.requested_date, tz, pick)
+    return local_to_ts(hhmm, now, tz=tz)
+
+
 def check(ex: Extraction, now: datetime, base_eta: datetime | None, text: str = "",
-          shown_option_ids: list[str] | None = None) -> Checked:
-    """Phase 1 §1 validation rules, in code."""
+          shown_option_ids: list[str] | None = None, tz: tzinfo = FACILITY_TZ) -> Checked:
+    """Phase 1 §1 validation rules, in code. `tz`: the facility's configured zone (dates.facility_tz)."""
     c = Checked(raw=ex, intent=ex.intent, shipment_ref=ex.shipment_ref_mentioned)
+    _requested_day(ex, text, now, tz, c)
     c.safety = bool(ex.safety_concern or SAFETY_WORDS.search(text or ""))
     # Owner decision OD-2 (replaces Phase 1's "breakdown not fixed → safety"): only danger is a safety incident. A truck
     # still broken down is an operational escalation; whether it is somewhere safe is read from the driver's words, and
@@ -201,11 +246,11 @@ def check(ex: Extraction, now: datetime, base_eta: datetime | None, text: str = 
 
     # ETA: an arrival time, a range (plan for the late end), or a duration added to the current ETA
     if ex.delay_kind == "ARRIVAL_TIME" and ex.declared_eta_local:
-        c.declared_eta, c.eta_precision = local_to_ts(ex.declared_eta_local, now), "PRECISE"
+        c.declared_eta, c.eta_precision = _on_day(ex.declared_eta_local, c, now, tz, "next"), "PRECISE"
         if c.declared_eta is None:
             c.problems.append("declared_eta_local")
     elif ex.delay_kind == "RANGE" and ex.declared_eta_range_local and len(ex.declared_eta_range_local) == 2:
-        lo, hi = (local_to_ts(x, now) for x in ex.declared_eta_range_local)
+        lo, hi = (_on_day(x, c, now, tz, "next") for x in ex.declared_eta_range_local)
         if lo is None or hi is None or hi < lo or hi - lo > timedelta(hours=3):
             c.problems.append("declared_eta_range_local")
         else:
@@ -232,11 +277,11 @@ def check(ex: Extraction, now: datetime, base_eta: datetime | None, text: str = 
         c.missing.remove("delay_kind")
 
     if ex.earliest_start_local:
-        c.earliest_start = local_to_ts(ex.earliest_start_local, now)
+        c.earliest_start = _on_day(ex.earliest_start_local, c, now, tz)
         if c.earliest_start is None:
             c.problems.append("earliest_start_local")
     if ex.latest_finish_local:
-        c.latest_finish = local_to_ts(ex.latest_finish_local, now)
+        c.latest_finish = _on_day(ex.latest_finish_local, c, now, tz, "latest")
         if c.latest_finish is None:
             c.problems.append("latest_finish_local")
         elif ex.latest_finish_kind in (None, "UNKNOWN") or not kind_stated(ex.latest_finish_kind, text):

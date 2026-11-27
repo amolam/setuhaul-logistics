@@ -63,7 +63,11 @@ def test_console_me_for_a_dispatcher(client, keys):
     me = client.get("/console/me", headers=disp(keys)).json()
     assert me["roles"] == ["dispatcher"]
     perms = me["permissions"]
-    assert {a for a, ok in perms.items() if ok} == {"view_dispatch", "send_offer", "link_driver", "request_cancellation"}
+    # 0048 (owner decisions D1, D3, Q2; 27 Nov 2026): the dispatcher decides after a no-show, asks a planner for a new
+    # time and lists free drivers; it still records no gate, dock or completion step (D1) and approves nothing
+    assert {a for a, ok in perms.items() if ok} == {"view_dispatch", "send_offer", "link_driver", "request_cancellation",
+                                                    "resolve_no_show", "request_reschedule", "view_free_drivers"}
+    assert not any(perms[a] for a in ("record_arrival", "record_dock", "record_completion", "decide", "view_controls"))
 
 
 def test_dispatcher_runs_the_booking_journey_but_cannot_approve_it(client, dsn, keys):

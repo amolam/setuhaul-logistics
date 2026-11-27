@@ -476,7 +476,8 @@ def test_missing_disabled_unexpected_and_misconfigured_triggers_are_each_reporte
 def test_the_aurora_gate_uses_the_complete_set_not_two_names():
     src = (ROOT / "scripts" / "step6_gate_evidence.py").read_text(encoding="utf-8")
     assert "both evidence triggers enabled" not in src and '"deployment_evidence_append_only": "O"' not in src
-    assert "trigger_problems(triggers)" in src and "EVIDENCE_TRIGGER_QUERY" in src
+    # 27 Nov fix plan: migration-aware (the ledger decides whether 0048's trigger is required; tests/test_gate_triggers_0048.py)
+    assert "trigger_problems(triggers, applied)" in src and "EVIDENCE_TRIGGER_QUERY" in src
 
 
 # ================================================================ D3: automatic revoke, never a silent open window

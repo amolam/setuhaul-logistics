@@ -84,12 +84,21 @@ class SetuHaulPilotStack(Stack):
                  approved_templates: str = "[]", booking_approval: str = "", langsmith_tracing: str = "",
                  langsmith_ui_url: str = "", telegram_live_approval: str = "", llm_judge_budget_usd: str = "0",
                  llm_judge_sample_rate: str = "0.2", release_commit: str = "", telegram_authorized_drivers: str = "",
-                 **kw) -> None:
+                 trace_content: str = "", **kw) -> None:
         super().__init__(scope, cid, **kw)
         # Full Activation: LangSmith tracing is ON by default for the synthetic pilot (context langsmith_tracing=off
         # opts out). Any other environment keeps the G.1 rule: opt-in only. Content stays off (redacted traces).
         ls_ctx = (langsmith_tracing or "").strip().lower()
         self.langsmith = ls_ctx in ("on", "true", "1") or (environment_name == "pilot" and ls_ctx not in ("off", "false", "0"))
+        # 27 Nov 2026 (fix plan issue 8, owner decision Q3): FULL trace content for the synthetic pilot by default
+        # (context trace_content=off|on opts down). Anywhere else content stays off; "full" outside the pilot is refused
+        # here and, again, at run time (observability.langsmith.content_mode_from_env).
+        tc = (trace_content or "").strip().lower()
+        if tc not in ("", "off", "on", "full"):
+            raise ValueError("trace_content must be off, on or full")
+        if tc == "full" and environment_name != "pilot":
+            raise ValueError("full trace content is allowed only in the synthetic pilot")
+        self.trace_content = tc or ("full" if environment_name == "pilot" else "off")
         # Full Activation: live Telegram needs its OWN owner approval reference (never the booking one), pilot only.
         telegram_live_approval = (telegram_live_approval or "").strip()
         if telegram_live_approval and not BOOKING_APPROVAL.fullmatch(telegram_live_approval):
@@ -274,7 +283,7 @@ class SetuHaulPilotStack(Stack):
                                          secret_string_value=SecretValue.unsafe_plain_text('{"api_key": ""}'))
             ls_agent = {"SETUHAUL_LANGSMITH_TRACING": "on", "SETUHAUL_LANGSMITH_SECRET_ID": langsmith_secret.secret_arn,
                         "SETUHAUL_LANGSMITH_PROJECT": f"setuhaul-synthetic-{environment_name}",
-                        "SETUHAUL_TRACE_CONTENT": "off", "SETUHAUL_LANGSMITH_SAMPLE_RATE": "1.0",
+                        "SETUHAUL_TRACE_CONTENT": self.trace_content, "SETUHAUL_LANGSMITH_SAMPLE_RATE": "1.0",
                         "SETUHAUL_TRACE_FLUSH_S": "0.5"}
             # Full Activation: the api (Telegram inbound) and the sender (Telegram outbound) export traces too
             ls_api = {k: v for k, v in ls_agent.items() if k != "SETUHAUL_TRACE_FLUSH_S"}
@@ -446,7 +455,8 @@ class SetuHaulPilotStack(Stack):
                      "BookingMode": f"ON ({booking_approval})" if self.booking_enabled else "OFF",
                      "TelegramMode": f"LIVE ({telegram_live_approval})" if self.telegram_live else "TEST_SINK",
                      "LlmJudge": f"ON budget USD {judge_budget:g}/day sample {judge_rate:g}" if judge else "OFF",
-                     "LangSmithTracing": "ON" if self.langsmith else "OFF"}.items():
+                     "LangSmithTracing": "ON" if self.langsmith else "OFF",
+                     "TraceContent": self.trace_content.upper() if self.langsmith else "OFF"}.items():
             CfnOutput(self, k, value=v)
 
     # ------------------------------------------------------------ database (AURORA gate), docs/release/10_EXPRESS_AURORA.md

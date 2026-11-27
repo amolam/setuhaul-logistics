@@ -19,9 +19,15 @@ def test_an_operations_user_has_operations_only_and_no_lead_or_planner_action(cl
                        "view_dispatch", "send_offer", "link_driver",
                        # 0036: requests a cancellation (a planner or ops_lead decides it), reads the schedule and the
                        # operations board, acknowledges / resolves escalations; still no decide_cancellation
-                       "request_cancellation", "view_schedule", "view_ops", "handle_escalation"}
+                       "request_cancellation", "view_schedule", "view_ops", "handle_escalation",
+                       # 0048 (owner decision D1, 27 Nov 2026): operations records gate arrival, at dock and completed
+                       # and reads the arrivals list; as the dispatcher mapping it also decides after a no-show (D3),
+                       # asks a planner for a new time and lists free drivers. Still no approval of either.
+                       "record_arrival", "record_dock", "record_completion", "view_arrivals", "resolve_no_show",
+                       "request_reschedule", "view_free_drivers"}
     assert not any(body["permissions"][a] for a in ("pause", "booking_hold", "move_appointment", "schedule_proposal",
-                                                     "block_dock", "policy_report", "booking_kill_switch"))
+                                                     "block_dock", "policy_report", "booking_kill_switch",
+                                                     "view_controls", "decide_cancellation"))
     r = client.get(f"/console/facilities/{JAI}/schedule-proposal", headers=H(staff_token(keys, groups=("operations",))))
     assert r.status_code == 403 and "FORBIDDEN" in r.text
 

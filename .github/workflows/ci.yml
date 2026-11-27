@@ -89,6 +89,7 @@ jobs:
           tests/test_data_api.py tests/test_aws.py tests/test_console_threads.py tests/test_move_appointment.py
           tests/test_gate_evidence.py tests/test_scenario_run.py tests/test_option_d.py tests/test_phase_g.py
           tests/test_phase_g1.py tests/test_dispatch_offers.py tests/test_reassign_cancel_telegram_out.py tests/test_dispatcher_role.py tests/test_driver_traceability.py
+          tests/test_lifecycle_0048.py tests/test_dispatch_0048.py tests/test_reschedule_dates_0048.py tests/test_trace_content_full.py
       - name: Dependency audit
         run: python -m pip_audit -r requirements-aws.txt -r requirements-dev.txt -r requirements-infra.txt
 

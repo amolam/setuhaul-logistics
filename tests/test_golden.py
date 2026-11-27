@@ -79,7 +79,8 @@ def test_labels_are_self_consistent_with_the_code_checks():
 
 def test_rules_baseline_runs_and_records_the_dataset_version():
     a, b = run("rules"), run("rules")
-    assert a["run"]["dataset"] == DATASET and a["run"]["schema_version"] == "record_driver_report/v1"
+    # v2 (27 Nov 2026, issue 9): requested_date_local and the RESCHEDULE intent; the dataset's labels are unchanged
+    assert a["run"]["dataset"] == DATASET and a["run"]["schema_version"] == "record_driver_report/v2"
     assert a["metrics"] == b["metrics"]                        # deterministic: the ablation baseline is stable
     assert a["metrics"]["turns"] == sum(1 for s in SCENARIOS for t in s.turns if t.x and t.duplicate_of is None)
     assert a["metrics"]["schema_valid"] == 1.0

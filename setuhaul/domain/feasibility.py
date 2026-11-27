@@ -203,10 +203,14 @@ class FeasibilityEngine:
     # ---- the predicate -------------------------------------------------------------------
     def find_options(self, sid: str, now: datetime, earliest_start: datetime | None = None,
                      latest_finish: datetime | None = None, max_options: int = 3,
-                     operating_days_ahead: int = 1) -> Result:
+                     operating_days_ahead: int = 1, requested_day=None, day_tz=None) -> Result:
         """operating_days_ahead: how many operating days after the ready day are offered. Drivers (the agent) get 1
         (decision T44); a planner view may pass more. Closed days (no open published slot at the facility) are
-        skipped, within SEARCH_WINDOW_DAYS calendar days of the ready day."""
+        skipped, within SEARCH_WINDOW_DAYS calendar days of the ready day.
+
+        requested_day (27 Nov fix plan, issue 9): the day the driver asked for, a date in the facility's zone `day_tz`.
+        Then ONLY that day's slots are considered (never the ready day or the next one instead); no slot that day
+        means no option, and the caller says so. The caller limits it to 7 days ahead."""
         s = self.d.shipments[sid]
         fac = s["destination_facility_id"]
         tm = self.d.timings[fac]
@@ -236,6 +240,9 @@ class FeasibilityEngine:
                             <= ready_day + timedelta(days=SEARCH_WINDOW_DAYS)})
         horizon = open_days[min(operating_days_ahead, len(open_days)) - 1] if open_days and operating_days_ahead > 0 \
             else ready_day
+        dtz = day_tz or tz
+        if requested_day is not None:
+            horizon = requested_day
 
         def day_rules(start: datetime) -> tuple[datetime, datetime]:
             d0 = start.astimezone(tz).date()
@@ -287,7 +294,10 @@ class FeasibilityEngine:
             for i, first in enumerate(dslots):
                 run = dslots[i:i + k]
                 start = ts(first["slot_start_ts"])
-                if start.astimezone(tz).date() > horizon:
+                if requested_day is not None:
+                    if start.astimezone(dtz).date() != requested_day:
+                        continue                                    # issue 9: only the day the driver asked for
+                elif start.astimezone(tz).date() > horizon:
                     continue                                        # beyond the next operating day: not offered
                 end = start + timedelta(minutes=occ)
                 close, last_new_dt = day_rules(start)

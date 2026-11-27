@@ -31,7 +31,8 @@ from ..observability import tracing
 from ..ops import telemetry
 from . import replies, rules_extractor
 from .errors import outcome_class
-from .extraction import SAFE_PLACE, Checked, Extraction, check, kind_stated
+from .extraction import SAFE_PLACE, SCHEMA_VERSION, Checked, Extraction, check, kind_stated
+from .prompts import PROMPT_VERSION
 from .models import ModelClient, ModelError, Trace, with_retry
 
 log = logging.getLogger("setuhaul.agent")
@@ -40,7 +41,7 @@ TURN_NS = uuid.UUID("5e7a3f1c-0d6e-4b55-9a7e-2f1d8c4b6a10")      # G.1: turn_ref
 # SETUHAUL_TRACE_CONTENT=on, and then only after redaction).
 _TRACE_FIELDS = ("intent", "delay_kind", "declared_eta_local", "declared_eta_range_local", "declared_delay_min",
                  "earliest_start_local", "latest_finish_local", "latest_finish_kind", "exception_type", "vehicle_fixed",
-                 "safety_concern", "explicit_confirmation", "language")
+                 "safety_concern", "explicit_confirmation", "language", "requested_date_local")
 _TOOL_OUT_KEYS = ("code", "verdict", "status", "escalation_id", "appointment_id", "approval_id", "shipment_id",
                   "appointment_at_risk", "optimization_status", "solver_status")
 
@@ -233,7 +234,9 @@ class Orchestrator:
                 rh = (r.get("requires_human") or {}).get("reason_code")
                 tracing.safe(lambda: sp.end({"status": r["status"], "requires_human": rh,
                                       **{k: d[k] for k in _TOOL_OUT_KEYS if k in d and not isinstance(d[k], (dict, list))},
-                                      "options": len(d["options"]) if isinstance(d.get("options"), list) else None}))
+                                      "options": len(d["options"]) if isinstance(d.get("options"), list) else None,
+                                      # issue 8 (synthetic pilot, full content only): the whole tool result, redacted
+                                      **({"result": r} if tracing.tracer().full_content else {})}))
                 tracing.safe(lambda: sp.set(tool=name, success=r["status"] in ("OK", "NEEDS_INFO"), latency_ms=ms,
                              policy_outcome=rh))
             res.tools.append((name, r["status"]))
@@ -246,6 +249,8 @@ class Orchestrator:
             return r
 
         ctx = tool("get_driver_context")
+        if tracing.tracer().full_content:                  # issue 8: the driver's own identifiers are masked in text
+            tracing.safe(lambda: tracing.tracer().add_pii_terms(*self.svc.driver_identity_terms(p)))
         bound = ctx.get("data", {}).get("thread_shipment_id")
         res.facility_id = next((x["facility_id"] for x in ctx.get("data", {}).get("live_shipments", [])
                                 if x["shipment_id"] == bound), None)
@@ -297,10 +302,13 @@ class Orchestrator:
         res.expired_pick = (flow["state"] == "OPTIONS_SHOWN" and not shown
                             and (ex.intent == "BOOK" or ex.selected_option_id is not None or _bare_number(text) is not None))
         with tracing.span("parameter_check", "chain") as sc:
-            chk = check(ex, self.clock(), self._base_eta(data, ex.shipment_ref_mentioned), text, shown)
+            chk = check(ex, self.clock(), self._base_eta(data, ex.shipment_ref_mentioned), text, shown,
+                        tz=self._facility_tz(data, ex.shipment_ref_mentioned))
             tracing.safe(lambda: sc.end({"missing": chk.missing, "problems": chk.problems, "safety": chk.safety,
                                   "declared_eta": chk.declared_eta, "latest_finish": chk.latest_finish,
-                                  "earliest_start": chk.earliest_start, "breakdown": chk.breakdown}))
+                                  "earliest_start": chk.earliest_start, "breakdown": chk.breakdown,
+                                  "requested_date": chk.requested_date.isoformat() if chk.requested_date else None,
+                                  "requested_date_phrase": chk.requested_date_phrase}))
         if verdict == "YES":                                         # "yes, around 11:00": the computed time stands
             chk.declared_eta, chk.eta_precision = datetime.fromisoformat(stored["candidate_eta"]), "VAGUE"
             chk.missing = [m for m in chk.missing if m not in ("declared_eta_local", "delay_kind")]
@@ -352,7 +360,7 @@ class Orchestrator:
     # ---------------------------------------------------------------- memory across turns (G3 finding 4)
     _ETA_FIELDS = ("delay_kind", "declared_eta_local", "declared_eta_range_local", "declared_delay_min")
     _CARRIED = _ETA_FIELDS + ("shipment_ref_mentioned", "earliest_start_local", "latest_finish_local",
-                              "latest_finish_kind", "exception_type")
+                              "latest_finish_kind", "exception_type", "requested_date_local")
 
     @classmethod
     def _merge(cls, ex: Extraction, stored: dict, keep_eta: bool = True, answering: bool = False) -> Extraction:
@@ -369,7 +377,7 @@ class Orchestrator:
                 upd[k] = theirs
         continues = ex.intent in ("OTHER", "BOOK") or (answering and ex.intent not in ("CHECK_STATUS", "CANCEL"))
         if continues and not ex.selected_option_id and not own_eta and \
-                stored.get("intent") in ("REPORT_DELAY", "ASK_OPTIONS", "EARLY_ARRIVAL"):
+                stored.get("intent") in ("REPORT_DELAY", "ASK_OPTIONS", "EARLY_ARRIVAL", "RESCHEDULE"):
             upd["intent"] = stored["intent"]                         # an answer to our question continues the request
         return ex.model_copy(update=upd) if upd else ex
 
@@ -382,6 +390,8 @@ class Orchestrator:
             if last.startswith("ask:") or last == "ask-shipment":
                 facts = {k: getattr(ex, k) for k in self._CARRIED + ("intent",)
                          if getattr(ex, k) not in (None, "UNKNOWN")}
+                if any(x.startswith("requested_date_") for x in c.problems):
+                    facts.pop("requested_date_local", None)      # a refused day is asked again, never carried
                 if facts.get("intent") == "BOOK":                    # a pick held back by a question: re-offer after it
                     facts["intent"] = "ASK_OPTIONS"
                 if c.candidate_eta:
@@ -406,10 +416,16 @@ class Orchestrator:
     def _extract_inner(self, text: str, data: dict, res: TurnResult) -> Extraction:
         flow = data["flow"]
         if self.model is not None:
-            with tracing.span("model_call", "llm", inputs={"purpose": "extract", "text": text}) as sm:
+            block = self._user_block(text, data)
+            # issue 8: the model's per-turn input and raw output (exported only in full content mode, after the scrub);
+            # the fixed instructions by their version, never their text
+            with tracing.span("model_call", "llm", inputs={"purpose": "extract", "text": text, "model_input": block,
+                                                           "prompt_version": PROMPT_VERSION,
+                                                           "schema_version": SCHEMA_VERSION}) as sm:
                 try:
-                    raw, tr = with_retry(lambda: self.model.extract(self._user_block(text, data)))
+                    raw, tr = with_retry(lambda: self.model.extract(block))
                     res.traces.append(tr)
+                    tracing.safe(lambda: sm.end({"raw_output": raw}))
                     out = Extraction(**raw)
                     # usage and cost only when the provider reported them (never estimated here)
                     tracing.safe(lambda: sm.set(ls_provider=tr.requested_provider or tr.region, ls_model_name=tr.model_id,
@@ -453,6 +469,45 @@ class Orchestrator:
         lines.append(f"Driver message: {text}")
         return "\n".join(lines)
 
+    def _other_day(self, c: Checked, flow: dict, data: dict) -> bool:
+        """Issue 9: a named day is a new constraint only when it is not the day of the option being picked or
+        confirmed ("yes, 28 Nov" for a 28 Nov read-back books it; "29 Nov instead" re-offers on 29 Nov)."""
+        day = self._search_day(c)
+        if day is None:
+            return False
+        oid = flow.get("selected_option") if flow.get("state") == "SELECTED" else c.selected_option_id
+        o = next((x for x in flow.get("options") or [] if x.get("option_id") == oid), None)
+        if not o or not o.get("start_ts"):
+            return True
+        return datetime.fromisoformat(o["start_ts"]).astimezone(self._facility_tz(data, c.shipment_ref)).date() != day
+
+    @staticmethod
+    def _search_day(c: Checked):
+        """Issue 9: options only on the named day when the driver asks for a slot or a new time. In a delay report a
+        day only places the times ("kal subah 10 baje pahunchunga"); the search follows the arrival as before."""
+        return c.requested_date if c.intent in ("ASK_OPTIONS", "RESCHEDULE", "BOOK") else None
+
+    @classmethod
+    def _facility_tz(cls, data: dict, ref: str | None = None):
+        """Issue 9: the configured zone of the facility this conversation is about (facilities.timezone)."""
+        from .dates import facility_tz
+        sid = cls._resolve_ref(ref, data) or data.get("thread_shipment_id")
+        ships = data.get("live_shipments") or []
+        s = next((x for x in ships if x["shipment_id"] == sid), ships[0] if ships else None)
+        return facility_tz((s or {}).get("facility_timezone"))
+
+    def _date_refusal(self, c: Checked, data: dict, lang: str, res: TurnResult) -> str | None:
+        """Issue 9: a day that is past, too far, unclear or contradictory is answered as such; no other day is used."""
+        code = next((x for x in c.problems if x.startswith("requested_date_")), None)
+        if not code:
+            return None
+        from .dates import day_label, last_bookable_day
+        tz = self._facility_tz(data, c.shipment_ref)
+        key = {"requested_date_past": "date_past", "requested_date_too_far": "date_too_far",
+               "requested_date_conflict": "date_conflict"}.get(code, "date_unclear")
+        res.path.append("ask:requested_date")
+        return replies.t(key, lang, day=c.requested_date_phrase or "", last=day_label(last_bookable_day(self.clock(), tz)))
+
     @classmethod
     def _base_eta(cls, data: dict, ref: str | None = None) -> datetime | None:
         sid = cls._resolve_ref(ref, data) or data.get("thread_shipment_id")
@@ -490,20 +545,26 @@ class Orchestrator:
 
         # Pilot E2E (26 Nov 2026): "reschedule" / "cancel" with nothing booked used to fall into a waiting read-back
         # ("Please reply YES to confirm"). With no current appointment there is nothing to change: say so.
-        if (c.intent == "CANCEL" or CHANGE_REQUEST.search(res.driver_text or "")) and state != "SUBMITTED" and not any(
-                s.get("current_appointment") for s in data["live_shipments"]):
+        if (c.intent in ("CANCEL", "RESCHEDULE") or CHANGE_REQUEST.search(res.driver_text or "")) and state != "SUBMITTED" \
+                and not any(s.get("current_appointment") for s in data["live_shipments"]):
             res.path.append("no-booking")
             return replies.t("no_booking", lang)
 
+        # issue 9: a requested day that cannot be used is said so, before anything is offered or booked
+        refused = self._date_refusal(c, data, lang, res)
+        if refused:
+            return refused
+
         # Review S3-01: a message that brings a new time constraint never selects or confirms in the same turn. The
         # constraint is resolved first (asked if ambiguous), then options are re-offered under it.
-        new_constraint = bool(c.earliest_start or c.latest_finish or "latest_finish_kind" in c.missing)
+        new_constraint = bool(c.earliest_start or c.latest_finish or "latest_finish_kind" in c.missing
+                              or self._other_day(c, flow, data))
         if new_constraint and (state == "SELECTED" or c.selected_option_id):
             res.path.append("constraint-before-select")
             if c.missing:
                 res.path.append(f"ask:{c.missing[0]}")
                 return replies.ask(c.missing[0], lang, refs=self._refs(data))
-            return self._options_turn(c.earliest_start, c.latest_finish, lang, tool, res, data)
+            return self._options_turn(c.earliest_start, c.latest_finish, lang, tool, res, data, self._search_day(c))
 
         if state == "SELECTED":                                     # a read-back is waiting for an answer
             res.path.append("confirmation")
@@ -558,7 +619,7 @@ class Orchestrator:
                 return replies.t("confirm_eta", lang, eta=self._clock_text(c.candidate_eta))
             return replies.ask(c.missing[0], lang, refs=self._refs(data))
 
-        if c.intent in ("REPORT_DELAY", "ASK_OPTIONS", "EARLY_ARRIVAL", "BOOK"):
+        if c.intent in ("REPORT_DELAY", "ASK_OPTIONS", "EARLY_ARRIVAL", "BOOK", "RESCHEDULE"):
             if c.declared_eta or c.delay_reason:
                 r = tool("record_driver_report", **self._report_args(c, turn, data))
                 if r["status"] == "REQUIRES_HUMAN":
@@ -568,7 +629,9 @@ class Orchestrator:
                 keep = self._keep_current(r, c, data, lang, res)
                 if keep:
                     return keep
-            return self._options_turn(c.earliest_start, c.latest_finish, lang, tool, res, data)
+            if c.intent == "RESCHEDULE":
+                res.path.append("reschedule")               # the move is a request: the rules decide who approves
+            return self._options_turn(c.earliest_start, c.latest_finish, lang, tool, res, data, self._search_day(c))
 
         res.path.append("unclear")
         return replies.t("unclear", lang)
@@ -605,7 +668,7 @@ class Orchestrator:
         computed by the feasibility engine). Asking for options, or giving a time window, still gets options."""
         if r["status"] != "OK" or r["data"].get("appointment_at_risk") is not False:
             return None
-        if c.intent == "ASK_OPTIONS" or c.earliest_start or c.latest_finish:
+        if c.intent in ("ASK_OPTIONS", "RESCHEDULE") or c.earliest_start or c.latest_finish or c.requested_date:
             return None
         sid = r["data"].get("shipment_id")
         cur = next((s["current_appointment"] for s in data["live_shipments"] if s["shipment_id"] == sid), None)
@@ -643,19 +706,28 @@ class Orchestrator:
     def _refs(data: dict) -> str:
         return ", ".join(s["order_reference"] for s in data["live_shipments"])
 
-    def _options_turn(self, es, lf, lang, tool, res: TurnResult, data: dict) -> str:
+    def _options_turn(self, es, lf, lang, tool, res: TurnResult, data: dict, day=None) -> str:
         res.path.append("options")
         args = {}
         if es:
             args["earliest_start"] = es.isoformat()
         if lf:
             args["latest_finish"] = lf.isoformat()
+        if day:
+            args["requested_date"] = day.isoformat()          # issue 9: only that day; the service re-checks the limit
         r = tool("find_feasible_options", **args)
         if r["status"] == "ERROR" and r["data"].get("code") == "STALE_SHIPMENT":
             res.path.append("stale-shipment-retry")       # B2-17: another turn moved the conversation; plan for its shipment
             r = tool("find_feasible_options", **args)
         if r["status"] == "OK":
             return self._options_reply(r["data"]["options"], lang, res)
+        why = (r.get("data") or {}).get("reason")
+        if day and why in ("NO_SLOT_ON_REQUESTED_DAY", "REQUESTED_DATE_PAST", "REQUESTED_DATE_TOO_FAR"):
+            from .dates import day_label, last_bookable_day
+            res.path.append("no-slot-on-day" if why == "NO_SLOT_ON_REQUESTED_DAY" else f"date-refused:{why}")
+            key = {"NO_SLOT_ON_REQUESTED_DAY": "no_slot_on_day", "REQUESTED_DATE_PAST": "date_past"}.get(why, "date_too_far")
+            return replies.t(key, lang, day=day_label(day),
+                             last=day_label(last_bookable_day(self.clock(), self._facility_tz(data))))
         if r.get("requires_human"):
             return self._human(r, lang, tool, res, "(asked for a slot)")
         return replies.t("no_slot", lang)
