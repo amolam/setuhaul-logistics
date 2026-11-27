@@ -119,7 +119,21 @@ def classify_deliveries(rows, env: dict) -> tuple[int, int]:
     return approved, real
 
 
-MIN_CREDENTIAL_MINUTES = 15                   # the smoke takes ~5 min; its requests are unattributable if it dies
+KILL_LOG_WAIT_S, KILL_LOG_POLL_S = 60, 5
+
+
+def wait_for_log(read, wait_s: float = KILL_LOG_WAIT_S, poll_s: float = KILL_LOG_POLL_S, sleep=time.sleep,
+                 clock=time.monotonic) -> list:
+    """The log lines `read()` returns, polled until some appear or `wait_s` passes (CloudWatch ingestion lag)."""
+    deadline = clock() + wait_s
+    while True:
+        lines = read()
+        if lines or clock() >= deadline:
+            return lines
+        sleep(poll_s)
+
+
+MIN_CREDENTIAL_MINUTES = 15                  # the smoke takes ~5 min; its requests are unattributable if it dies
 
 
 def aws_credentials_ok(now: datetime | None = None, session=None) -> None:
@@ -305,7 +319,9 @@ def main() -> int:
         r2 = p.rows(f"SELECT count(*) FROM setuhaul.approval_requests WHERE shipment_id = {q(d2['shipment_id'])}")[0][0]
         # the deployed agent's own refusal: its turn log names the path (confirmation->book->escalated:BOOKING_KILLED)
         since = int(time.time() * 1000) - 300_000
-        hold = {"agent_log": p.log_lines("agent", "escalated:BOOKING_KILLED", since)}
+        # 27 Nov 2026: CloudWatch can take several seconds to ingest the line (07:54Z smoke: refused at :30, searched
+        # at :44, not yet visible). Wait up to KILL_LOG_WAIT_S for it; the kill switch stays engaged meanwhile.
+        hold = {"agent_log": wait_for_log(lambda: p.log_lines("agent", "escalated:BOOKING_KILLED", since))}
         hold["refused"] = bool(hold["agent_log"])
         hold["message"] = "BOOKING_KILLED" if hold["refused"] else "no BOOKING_KILLED refusal logged"
         p.db.run(kill_statements(False, "Option D smoke test: kill switch drill over"))

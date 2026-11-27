@@ -42,7 +42,8 @@ REGION = "ap-southeast-2"
 BOOKING_APPROVAL = re.compile(r"OWNER-APPROVAL-20\d{6}-[A-Za-z0-9-]{3,40}")
 RELEASE_COMMIT = re.compile(r"[0-9a-f]{7,40}")
 TELEGRAM_DRIVER_ID = re.compile(r"(?=.*(?:^|-)DRV-)(?!.*[0-9]{7})[A-Za-z0-9][A-Za-z0-9_-]{2,47}")   # identifiers.py rule
-JUDGE_DAILY_MAX_USD = 1.00                       # online judge: the code refuses more (setuhaul/agent/online_judge.py)
+LLM_DAILY_MAX_USD = 2.00                         # all model calls of the pilot, per day (owner, 27 Nov 2026)
+JUDGE_DAILY_MAX_USD = 1.00                      # online judge: the code refuses more (setuhaul/agent/online_judge.py)
 TELEGRAM_BOT_SECRET_NAME = "setuhaul/{env}/telegram/bot"          # created and filled by the OWNER, never by CDK
 LEASE_S = 120                                      # orchestrator processing lease; queue visibility >= 2x
 SYDNEY_AZS = ("ap-southeast-2a", "ap-southeast-2b", "ap-southeast-2c")
@@ -121,6 +122,14 @@ class SetuHaulPilotStack(Stack):
             raise ValueError("llm_judge_budget_usd and llm_judge_sample_rate must be numbers") from None
         if not (0 <= judge_budget <= JUDGE_DAILY_MAX_USD) or not (0 <= judge_rate <= 1):
             raise ValueError(f"llm_judge_budget_usd must be 0..{JUDGE_DAILY_MAX_USD}; sample rate 0..1")
+        # 27 Nov 2026 (owner, DEMO-04): the judge's calls also count against the overall daily model budget, so the
+        # overall budget is bounded and never below the judge's (0.25 left the judge permanently out of budget)
+        try:
+            shared_budget = float(llm_daily_budget_usd or "0.25")
+        except ValueError:
+            raise ValueError("llm_daily_budget_usd must be a number") from None
+        if not (0 < shared_budget <= LLM_DAILY_MAX_USD) or judge_budget > shared_budget:
+            raise ValueError(f"llm_daily_budget_usd must be >0..{LLM_DAILY_MAX_USD} and at least the judge budget")
         release_commit = (release_commit or "").strip().lower()
         if release_commit and not RELEASE_COMMIT.fullmatch(release_commit):
             raise ValueError("release_commit must be a git commit SHA")

@@ -26,6 +26,7 @@ error 131047) end the same way: FAILED plus an escalation, through record_send_r
 from __future__ import annotations
 
 import contextvars
+import json
 import logging
 import threading
 import uuid
@@ -308,11 +309,16 @@ class OutboundRelay:
         from ..observability import tracing
         with self.db.tx("system", self._scope()) as c:
             route = c.execute("SELECT telegram_delivery_for(%s)", (str(nid),)).fetchone()[0] or {}
-            row = c.execute("""SELECT n.thread_id, m.reply_to FROM notifications n
+            row = c.execute("""SELECT n.thread_id, m.reply_to, m.trace_parent FROM notifications n
                                  LEFT JOIN chat_messages m ON m.message_id = n.chat_message_id
                                 WHERE n.notification_id = %s""", (str(nid),)).fetchone()
         if row:
-            OUTBOUND_TRACE.set({"thread_id": tracing.ref(row[0]), "reply_to_message_ref": tracing.ref(row[1])})
+            tp = row[2]
+            if isinstance(tp, str):
+                tp = tracing.safe(lambda: json.loads(tp))
+            # 0050 (27 Nov 2026): the agent turn that wrote the reply, so the send nests under it (one tree per message)
+            OUTBOUND_TRACE.set({"thread_id": tracing.ref(row[0]), "reply_to_message_ref": tracing.ref(row[1]),
+                                "trace_parent": tp if isinstance(tp, dict) else None})
         return route
 
     def _deliver(self, ref: str, template: str | None, payload, body: str | None, nid) -> SendResult:

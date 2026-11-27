@@ -325,9 +325,19 @@ class TelegramBotProvider:
 def _outbound_trace_refs() -> dict:
     try:
         from .outbound import OUTBOUND_TRACE
-        return {k: v for k, v in (OUTBOUND_TRACE.get() or {}).items() if v}
+        return {k: v for k, v in (OUTBOUND_TRACE.get() or {}).items() if v and k != "trace_parent"}
     except Exception:                                         # noqa: BLE001 — metadata only
         return {}
+
+
+def _outbound_trace_parent() -> dict | None:
+    """0050 (27 Nov 2026): the agent_turn that wrote this reply, when it was traced (one tree per message)."""
+    try:
+        from .outbound import OUTBOUND_TRACE
+        tp = (OUTBOUND_TRACE.get() or {}).get("trace_parent")
+        return tp if isinstance(tp, dict) and tp.get("trace_id") and tp.get("dotted_order") and tp.get("id") else None
+    except Exception:                                         # noqa: BLE001
+        return None
 
 
 class TracedTelegram:
@@ -343,13 +353,19 @@ class TracedTelegram:
 
     def send(self, to: str, text: str, idempotency_key: str, reply_markup: dict | None = None) -> SendResult:
         try:
-            ctx = self.tracer.turn(str(uuid.uuid4()), "telegram_outbound", metadata={
+            meta = {
                 "channel": "TELEGRAM", "component": "telegram_outbound", "chat_tag": chat_tag(to),
                 "notification_ref": str(idempotency_key)[:80], "text_chars": len(text or ""),
                 "buttons": bool(reply_markup), "transport": type(self.inner).__name__,
                 # Demo release: the conversation (LangSmith thread_id) and the driver message the reply answers, as
                 # opaque refs: the agent_turn of that message carries the same message_ref
-                **_outbound_trace_refs()})
+                **_outbound_trace_refs()}
+            # full content (synthetic pilot only): the text sent, scrubbed like every other text
+            tin = {"text": text} if getattr(self.tracer, "full_content", False) and isinstance(text, str) else None
+            parent = _outbound_trace_parent()
+            # 27 Nov 2026 (DEMO-04): a reply to a traced agent turn nests under it; any other send is its own root
+            ctx = (self.tracer.child(parent, str(uuid.uuid4()), "telegram_outbound", metadata=meta, inputs=tin)
+                   if parent else self.tracer.turn(str(uuid.uuid4()), "telegram_outbound", inputs=tin, metadata=meta))
             run = ctx.__enter__()
         except Exception:                                     # noqa: BLE001 — tracing never blocks a send
             return self.inner.send(to, text, idempotency_key, reply_markup=reply_markup)

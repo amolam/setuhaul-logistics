@@ -163,10 +163,15 @@ class Orchestrator:
         hb.start()
         t0 = time.perf_counter()
         try:
-            with tracing.tracer().turn(turn_ref, "agent_turn",
-                                       inputs={"message_ref": _ref(mid), "generation": gen,
-                                               "attestation_status": event.get("attestation_status")},
-                                       metadata=self._trace_meta(corr_id, turn_ref, event)) as root:
+            tin = {"message_ref": _ref(mid), "generation": gen, "attestation_status": event.get("attestation_status")}
+            tmeta = self._trace_meta(corr_id, turn_ref, event)
+            tp = event.get("trace_parent")
+            # 27 Nov 2026 (DEMO-04): one tree per message. With the inbound trace's root on the event, the agent_turn is
+            # its child; otherwise (not traced, recovered event, other channel) it is its own root, as before.
+            ctx = (tracing.tracer().child(tp, turn_ref, "agent_turn", metadata=tmeta, inputs=tin)
+                   if isinstance(tp, dict) and tp.get("trace_id") and tp.get("dotted_order")
+                   else tracing.tracer().turn(turn_ref, "agent_turn", inputs=tin, metadata=tmeta))
+            with ctx as root:
                 res = self._turn(p, {**event, "_turn_ref": turn_ref, "_ingest_correlation_id": corr_id})
                 if res is not None:
                     tracing.safe(lambda: root.end({"path": res.path[:20], "extractor": res.extractor,

@@ -1,6 +1,11 @@
 # SetuHaul FDE Demo: Live Demo Runbook
 
-**Length:** 6 minutes on stage, with a 15-minute owner preparation before the session. **Environment:** synthetic pilot `pilot-ap-southeast-2` (AWS Sydney), release `4b9ac56`. **Data:** synthetic only.
+**Length:** 6 minutes on stage, with a 15-minute owner preparation before the session. **Environment:** synthetic pilot `pilot-ap-southeast-2` (AWS Sydney). **Data:** synthetic only.
+
+> **Updated 27 Nov 2026** for the 27 Nov fix plan (PR #45: lifecycle, no-show, dispatch, dates), the recovery releases
+> (0049, category X) and the DEMO-04 release (full operational traces, one trace tree per message, $2/day model
+> budget, planner Resolve, no stuck HELD). Items that depend on the DEMO-04 deploy are marked **(DEMO-04)**; check
+> Evidence Register Part D for whether that deploy and its verification are complete before relying on them.
 
 > **Safety rules for this demo**
 > - Only the owner wakes the pilot, sends Telegram messages and changes switches.
@@ -15,12 +20,13 @@
 | Item | Value |
 |---|---|
 | Stack | `SetuHaulPilot`, ap-southeast-2 |
-| Booking | ON under `OWNER-APPROVAL-20261126-SYNTHETIC-PILOT-DEMO-01` (stack output `BookingMode`) |
-| Telegram | LIVE under `OWNER-APPROVAL-20261126-SYNTHETIC-PILOT-TELEGRAM-LIVE-01`, allowlisted to the two test drivers |
-| LLM | OpenRouter → Claude Haiku 4.5 (Bedrock route, ZDR); app cap $0.25/day; key limit $10 total, no reset |
-| Judge | ON, 20% sampling. **It may be skipped:** after the deploy the observed reason was `budget:shared_daily_cap`. The judge only gets the shared $0.25/day cap's headroom above the agent reserve; the configured $0.50/day judge budget is not the binding limit. The current usage balance is unknown |
-| LangSmith | Project `setuhaul-synthetic-pilot`, tracing ON |
-| Pilot state on 26 Nov | **ASLEEP** (all three one-minute rules DISABLED; checked read-only) |
+| Booking | ON, under the newest owner booking reference (stack output `BookingMode`): `OWNER-APPROVAL-20261127-DEMO-03` on release `5b661a1` (renewal PASS, 27 Nov 10:23 UTC); **(DEMO-04)** `OWNER-APPROVAL-20261127-DEMO-04` once that release is renewed |
+| Telegram | LIVE under `OWNER-APPROVAL-20261126-SYNTHETIC-PILOT-TELEGRAM-LIVE-01`, allowlisted to the two test drivers (unchanged) |
+| LLM | OpenRouter → Claude Haiku 4.5 (Bedrock route, ZDR). App cap **$2.00/day (DEMO-04)**, $0.25 before. Key limit $10 total, no reset: **at $2/day this is the first limit to bind** (Cost Analysis §2.5) |
+| Judge | ON, 20% sampling. **(DEMO-04)** $0.75/day of the $2.00 cap. Before DEMO-04 it was always skipped (`budget:shared_daily_cap`) |
+| LangSmith | Project `setuhaul-synthetic-pilot`, tracing ON, content **full** (synthetic pilot only). **(DEMO-04)** only the driver's name and phone and credentials are removed; message text, model input/output, tool results, ids are exported. One tree per Telegram message: `telegram_inbound` → `agent_turn` → `telegram_outbound` |
+| Database | Migrations 0001–0049 applied (0048 lifecycle, 0049 one extra recovery hop); **(DEMO-04)** 0050 (reply trace link) |
+| Pilot state on 27 Nov | **AWAKE** (booking needs the workers; owner decides when to sleep) |
 
 ## 2. Prerequisites (owner, T−30 to T−15 min)
 
@@ -32,7 +38,8 @@
 | 4 | Console sign-in | Sign in as a **planner** in one browser profile and as a **dispatcher** (or operations) in another; complete MFA | Dispatch, Conversations and Requests tabs visible |
 | 5 | Telegram | Both test accounts are linked; private chats with the bot are open; crop or hide the header | Messages from the earlier test are visible |
 | 6 | LangSmith | Project `setuhaul-synthetic-pilot` open, Threads view; zoom 125% | Recent threads visible |
-| 7 | Budget headroom | Owner check (optional): `model_budget_day` spent today well below $0.25 | The demo needs ≈ 4–8 extractions ≈ $0.01–0.03 |
+| 7 | Budget headroom | Owner check: `model_budget_day` spent today well below the cap ($2.00 with DEMO-04), **and** the OpenRouter key's remaining balance (owner-run key read) | The demo needs ≈ 4–8 extractions ≈ $0.01–0.03 plus judge calls |
+| 7a | No open SAFETY escalation on the demo shipments | Console → Escalations (or Schedule "Pending your decision") | None open for `SYN-SHP-TEST-*`. An open SAFETY escalation makes every booking for that shipment go to a person (by design); resolve it first: **(DEMO-04)** planners can press **Resolve…**; before, only operations/ops_lead from Ops health |
 | 8 | Fallback assets open in tabs | `screenshots/`, this deck (slides 7, 11, 13), `docs/release/evidence/smoke/option_d_smoke_20261126T140741Z.json` (release branch) | Ready |
 
 Have these commands ready. All are owner-run; none was run while preparing this package.
@@ -87,7 +94,7 @@ Agent replies are templates: first a read-back ("Do you mean you will reach the 
 | 3 | 1:15–1:45 | Driver A | Taps **Accept** | Offer ACCEPTED; request PENDING_CONFIRMATION; planner review OPEN; buttons disappear | none | accept → attestation → hold + request (database functions) | **Driver acceptance is never confirmation**; per-dock claim | A slot is held, not promised |
 | 4 | 1:45–2:30 | Planner | Console → Requests → **Approve**; then open Conversations (refreshes every 3 s) | Driver A: "Your dock booking is confirmed by the warehouse." | none | `decide_booking_request` → Step Functions resumes → notice | Requester ≠ decider; approval workflow; event-driven send | The planner keeps authority; the driver is notified (event-driven send) |
 | 5 | 2:30–4:00 | Driver A | Types the Hinglish delay → `haan` → `2` | Read-back, then option list, then "Request sent … NOT confirmed yet" | **LLM extraction** (Haiku 4.5): `intent=REPORT_DELAY`, `delay_kind=DELAY_DURATION`, `language=hi-Latn`; then YES and the pick | `get_driver_context`, `record_driver_report`, `find_feasible_options`, `select_option`, `confirm_selection`, `hold_option`, `submit_booking_request` | Schema; safety-word net; read-back + explicit YES; 12 hard constraints; per-dock lock + EXCLUDE | A late driver is re-slotted without a phone call; a planner still decides |
-| 6 | 4:00–5:00 | Engineer | LangSmith → Threads → newest thread | `telegram_inbound` → `agent_turn` (extract, tool spans) → `telegram_outbound`; `llm_judge` child if sampled and within budget | The trace shows model, tokens, cost, latency | – | Ids only: no text, phone or chat id in traces | Any booking is explainable end to end |
+| 6 | 4:00–5:00 | Engineer | LangSmith → the newest `telegram_inbound` trace | **(DEMO-04)** one tree: `telegram_inbound` (message text) → `agent_turn` (model input and raw output, each tool with its result, the decision path) → `telegram_outbound` (the text sent); `llm_judge` child if sampled | The trace shows model, tokens, cost, latency, and what the model read and returned | – | Driver name and phone masked (`[PII]`, `[PHONE]`); credentials removed; synthetic data only | Any booking is explainable end to end, from the trace alone |
 | 7 | 5:00–5:45 | Exception | **Option A (live):** Driver B taps **Accept** on the pre-staged, now-expired offer | "This offer has expired. Your dispatcher can send a new one." No appointment | none | Refused: the offer is past `expires_at` | Expiry enforced by code and data, not by a model | Stale offers cannot become bookings |
 | | | | **Option B (recorded):** smoke check 6 (kill switch: `BOOKING_KILLED`, escalated, nothing booked) and check 5 (agent cannot approve); migration 0040 (a declined offer can never be booked) | – | – | – | – | Same message, zero live risk |
 
@@ -102,8 +109,17 @@ Optional, if time remains: approve Driver A's new request from step 5 to show th
 | Dispatch | dispatcher / operations | Offer a shipment; offer status; Telegram delivery label |
 | Conversations | planner, operations | Live thread (3 s refresh). Bot replies and notices are labelled. **Known issue:** the stored read-back record and the agent reply may show as two identical rows. Say "one is the stored record the driver's YES is checked against; only one was sent" |
 | Requests | planner | Pending request → Approve |
-| Ops health / Observability | planner, ops_lead | Turns by reader, tool p50/p95, model ledger (tokens, cost), optimizer runs |
+| Ops health / Observability | operations, ops_lead (Ops health); planner, ops_lead (Observability) | Turns by reader, tool p50/p95, model ledger (tokens, cost), optimizer runs; Arrivals: gate → dock → completed (operations, ops_lead) |
 | Optimizer | planner, ops_lead | Ranked options with reasons and rejected alternatives (read-only; books nothing) |
+| Schedule | planner, ops_lead | "Pending your decision": booking requests, a dispatcher's new time for a confirmed booking (PLANNER_REVIEW), and escalations needing a decision (safety banner, overdue highlight). **(DEMO-04)** Resolve… on the escalation card; only live holds are drawn |
+| Escalations | operations, planner, ops_lead | **(DEMO-04)** Resolve… on each open escalation (written outcome required) |
+| Controls | ops_lead only | Kill switch (who/when/why, typed confirmation), booking holds, automation pause |
+| Dispatch: No-show filter | dispatcher | After an automatic no-show (no gate arrival by start + the facility's grace): **Rebook** or **Request cancellation**; until then the database refuses any new hold or offer for that shipment |
+
+**Optional 27 Nov workflows (if time allows, each ≈ 30 s):**
+- *Requested date:* Driver A types "any slot on <day after tomorrow, e.g. 29 Nov>" → options only on that day, the read-out names the day; a day more than 7 days ahead is refused plainly.
+- *Lifecycle:* operations → Ops health → Arrivals → Arrived at gate → At dock → Completed (completion releases the rest of the dock time and tells the driver).
+- *New time for a confirmed booking:* dispatcher → Check slots → request a new time → "sent to a planner, the booking stays confirmed"; planner approves → moved in one step.
 
 ## 7. Telegram interaction notes
 
@@ -113,7 +129,7 @@ Optional, if time remains: approve Driver A's new request from step 5 to show th
 
 ## 8. Trace inspection and evaluation demonstration
 
-- **Trace:** filter by the internal driver id `SYN-DRV-TEST-1`. Expand `agent_turn` → `extract` and show model, input/output tokens, `cost_usd` and latency. Point out the absence of message text.
+- **Trace (DEMO-04):** open the newest `telegram_inbound` trace (or filter by `SYN-DRV-TEST-1`). It holds the whole message: the inbound text, the `agent_turn` with `intent_extraction` → `model_call` (model input and raw output, tokens, `cost_usd`, latency), each tool with its result, `decide`, then `telegram_outbound` with the text sent. Point out what is masked: the driver's registered name and phone (`[PII]`, `[PHONE]`) and any credential. Before DEMO-04 the test drivers' traces were dropped by the export guard (their names "Telegram test driver 1/2" matched ids) — do not demo traces on a release without DEMO-04.
 - **Evaluation (no paid call):** open `evals/results/judge_20261125_172110.json` → `comparison` (5/5 defects; the 95.0% there is against the AI reference), `golden_h1_model_20261126_2242.json` → `metrics` (prompt p5) and `replay_v4_live_20261126_2305.json` → `summary`. The human-calibration figures (93.3% within ±1) come from `python -m evals.langsmith.judge_calibration evals/results/judge_20261125_172110.json`, which is free and local. Do **not** start an eval run live.
 
 ## 9. Fallback plan
@@ -128,6 +144,7 @@ Optional, if time remains: approve Driver A's new request from step 5 to show th
 | LangSmith unavailable | Project does not load | Deck slide 11 (trace tree) + `diagrams/09_langsmith_trace_lifecycle.png` | "Tracing is a no-op when down; nothing depends on it" |
 | Demo account failure (MFA, session) | Sign-in fails | Second pre-signed-in browser profile; else recorded screens | – |
 | Booking authorization expired | `/health` not authorized | Do not demo booking; show steps 3–4 up to "options" and the recorded approval | "The system refuses to book without current evidence: that is the point" |
+| A driver's booking stops after YES ("A coordinator will confirm the next step") | No request in Requests; Escalations shows an open SAFETY escalation for the shipment | Resolve the escalation (Resolve…), then the dispatcher sends the offer again. **Before DEMO-04** the conversation also stayed stuck at HELD: take over and hand back the conversation in the console to reset it | "Safety escalations always go to a person first" |
 
 ## 10. Reset instructions (owner, after the session)
 
@@ -147,4 +164,5 @@ Optional, if time remains: approve Driver A's new request from step 5 to show th
 - [ ] Exact reply texts noted for steps 3, 4 and 7
 - [ ] Recorded screen capture of a full successful run (fallback)
 - [ ] Fresh anonymized screenshots saved to `artifacts/fde-demo/screenshots/` (Telegram cropped, conversation view, LangSmith thread)
-- [ ] If a live judge score is wanted, the owner decides on budgets first. No increase without explicit owner approval; otherwise show the offline judge results
+- [ ] Live judge scores: with DEMO-04 the judge has $0.75/day (owner-approved 27 Nov); confirm one sampled turn shows an `llm_judge` child in LangSmith before relying on it, otherwise show the offline judge results
+- [ ] Confirm one full trace tree (inbound → agent_turn → outbound) for a test driver in LangSmith after the DEMO-04 deploy

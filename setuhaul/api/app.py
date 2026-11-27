@@ -557,8 +557,10 @@ def create_app(settings: Settings, clock: Callable[[], datetime] | None = None, 
                              metadata={"channel": "TELEGRAM", "component": "telegram_inbound", "update_kind": kind,
                                        "webhook_received_at": _utcnow_iso()}):
                     # the account's own identifiers are masked wherever they appear in exported text (every mode)
-                    tracing.safe(lambda: tr.add_pii_terms(frm.get("first_name"), frm.get("last_name"), frm.get("username"),
-                                                          frm.get("id"), (msg.get("chat") or {}).get("id")))
+                    # 27 Nov 2026 (owner, DEMO-04): the account's NAME only; ids and the username are exported
+                    tracing.safe(lambda: tr.add_pii_terms(frm.get("first_name"), frm.get("last_name"),
+                                                          " ".join(x for x in (frm.get("first_name"), frm.get("last_name"))
+                                                                   if isinstance(x, str) and x)))
                     out = await run_in_threadpool(svc.handle_telegram_update, update, sessions)
             except Exception:
                 # not stored: answer 5xx so Telegram redelivers; the stored part is deduplicated on the retry

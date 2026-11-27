@@ -2,6 +2,10 @@
 
 **Release:** `4b9ac56` deployed; evidence head `e3c5bbe` on `release/fde-sydney-pilot` · **Environment:** synthetic pilot `pilot-ap-southeast-2` · **Date:** 26 Nov 2026
 
+**Updated 27 Nov 2026:** §8 (migrations 0048–0050, the lifecycle), §13–§14 (full-content traces, one tree per
+message), §18 (budgets) and §20 (limitations) reflect the fix-plan release (`5b661a1` deployed, booking ON 10:23 UTC)
+and the DEMO-04 change set (pending deploy; Evidence Register Part D).
+
 The appendix holds the detail that the slides leave out. File paths are relative to the repository root. Rendered versions of the main diagrams are in `diagrams/`. The Mermaid below is the editable source of the same ideas.
 
 **Contents:**
@@ -223,7 +227,11 @@ Database roles: `setuhaul_agent`, `setuhaul_console`, `setuhaul_ingest`, `setuha
 
 ## 8. Database architecture
 
-Aurora PostgreSQL 17.9 Serverless v2 (0–2 ACU, auto-pause 300 s), reached through the RDS Data API. 46 forward-only migrations. The tables, grouped:
+Aurora PostgreSQL 17.9 Serverless v2 (0–2 ACU, auto-pause 300 s), reached through the RDS Data API. Forward-only migrations: 0001–0049 applied on the pilot (27 Nov); 0050 (one nullable column, `chat_messages.trace_parent`) comes with DEMO-04. The 27 Nov additions:
+- **0048 appointment lifecycle:** `appointments.arrived_at/docked_at/completed_at/no_show_*`; `lifecycle_cutover`, `no_show_backfill_runs` (append-only); functions `record_gate_arrival`, `record_dock_start`, `record_completion`, `process_no_shows` (minute job, `SKIP LOCKED`), `backfill_no_shows` (dry run, then apply the reviewed set), `resolve_no_show`, `request_reschedule` (PLANNER_REVIEW always), `free_drivers_for`, `create_dispatch_offer_to`; triggers `no_show_blocks_hold` / `no_show_blocks_offer`, `requester_cannot_approve`. The AURORA gate's trigger check is migration-aware (a trigger of a not-yet-applied migration must be absent; once applied it is required).
+- **0049:** one additional recovery from a recovery (pilot only; third hop refused).
+
+The tables, grouped:
 
 | Group | Tables |
 |---|---|
@@ -247,7 +255,7 @@ flowchart LR
   T --> SO[(shown_options)] --> H[(booking_holds + dock_occupancy)] --> AR[(approval_requests)]
   AR --> SF[Step Functions] --> DEC[decide_booking_request] --> AP[(appointments, booking_events)]
   T --> RP[(chat_messages: AGENT reply)] --> N[(notifications)] --> TG[Telegram]
-  T -.ids only.-> LS[LangSmith]
+  T -.pilot: full content minus name/phone/credentials.-> LS[LangSmith]
   T -.no text.-> CWL[CloudWatch agent.turn]
 ```
 
@@ -393,8 +401,8 @@ After the deploy, the observed skip reason was `budget:shared_daily_cap` (report
 ```mermaid
 flowchart LR
   subgraph Process
-    TR[tracing.Tracer<br/>run tree per turn] --> ID[identifiers: format gate<br/>malformed → INVALID_ID]
-    ID --> RD[redaction: no text, phone,<br/>chat id, token]
+    TR[tracing.Tracer<br/>one tree per message] --> ID[identifiers: format gate<br/>malformed → INVALID_ID]
+    ID --> RD[redaction by mode<br/>pilot full: drop name, phone,<br/>credentials only]
     RD --> EX[langsmith exporter<br/>REST, allowed endpoints only]
   end
   EX --> LS[LangSmith project<br/>setuhaul-synthetic-pilot]
@@ -415,6 +423,16 @@ flowchart LR
 | Evaluation score trends | `evaluation_runs`, judge rows | Partly; no trend view |
 | Alerting | CloudWatch alarms only | No trace-based alerts |
 
+**Content modes (`SETUHAUL_TRACE_CONTENT`):**
+
+| Mode | Where | Exported | Removed |
+|---|---|---|---|
+| `off` (default) | everywhere unless set | ids, outcomes, metrics, allowlisted metadata | message text, model input/output, contact data, credentials |
+| `on` | test environments | plus message text (scrubbed) | contact data, credentials, model input/output |
+| `full` | **synthetic pilot only** (run-time check + CDK refusal) | everything operational: message text, model input and raw output, tool results, decision path, platform ids (chat/user ids, usernames), e-mails | **(DEMO-04)** the driver's registered name and phone (and the Telegram account's name), every credential (keys, tokens, secrets, signatures), the fixed system prompt (exported by version only) |
+
+The export guard re-checks each finished payload and drops a trace that still contains a registered name, a phone shape or a credential (`blocked_leaks`). **(DEMO-04)** It never scans id fields: on 27 Nov ordinary words in the test drivers' names ("Telegram test driver 1") matched ids such as `SYN-SHP-TEST-1` and every test-driver trace was dropped.
+
 **Logs vs metrics vs traces:**
 - **Logs** are CloudWatch `agent.turn` / `optimizer.run` lines with correlation ids; they show what one component said.
 - **Metrics** are counts and percentiles in the Ops tables and alarms; they show how often and how fast.
@@ -424,13 +442,19 @@ flowchart LR
 
 ```mermaid
 flowchart TB
-  TH[thread_id = sha256 conversation ref, 16 hex<br/>main conversation path; 4 link-code/callback inbound runs lack it] --- IN[telegram_inbound<br/>run id = ingest correlation id]
-  TH --- AT[agent_turn<br/>driver_id, shipment_id, facility_id, channel, turn_ref, outcome]
-  AT --> EXT[extract (llm)<br/>model, tokens, cost_usd, latency, fallback_reason]
-  AT --> TOOLS[tool spans<br/>result codes]
+  IN[telegram_inbound (root)<br/>run id = ingest correlation id; message text in full mode] --> AT[agent_turn (child, DEMO-04)<br/>driver_id, shipment_id, facility_id, channel, turn_ref, outcome]
+  AT --> EXT[intent_extraction → model_call (llm)<br/>model input + raw output, tokens, cost_usd, latency]
+  AT --> TOOLS[tool spans<br/>arguments and results]
   AT --> JUD[llm_judge (child)<br/>quality:clarity / tone / language_match]
-  TH --- OUT[telegram_outbound<br/>reply_to_message_ref, chat TAG, status]
+  AT --> OUT[telegram_outbound (child, DEMO-04)<br/>text sent, outcome, chat TAG]
+  TH[thread_id = sha256 conversation ref<br/>groups the trees of one conversation] --- IN
 ```
+
+**How the tree crosses processes (DEMO-04):** the API's `telegram_inbound` root reference (trace id, run id, dotted
+order) rides the queue event as `trace_parent`; the agent opens `agent_turn` as its child. When the agent stores its
+reply it records its own root reference in `chat_messages.trace_parent` (migration 0050); the sender reads it and opens
+`telegram_outbound` as a child of that turn. Without a reference (not traced, sampled out, a recovered event, a
+proactive notice) each run is its own root, as before.
 
 **Investigating a failed booking:**
 1. Filter LangSmith by `driver_id` or `shipment_id`, then open the thread.
@@ -453,9 +477,9 @@ The table below maps each layer to the signal that shows the failure there.
 | Telegram | `telegram_outbound` status; notification row |
 
 **Known gaps:**
-- 4 inbound runs without `thread_id` (link codes, button callbacks);
+- 4 inbound runs without `thread_id` (link codes, button callbacks); offer continuations and proactive notices are their own roots;
 - no spans for the internal stages of the 8.5–11 s pilot agent turn;
-- no alerting on traces.
+- no alerting on traces or on export-guard drops (`blocked_leaks`).
 
 ## 15. Failure handling
 
@@ -534,6 +558,8 @@ See `SetuHaul_FDE_Cost_Analysis.md` §3.
 
 **Actual spend:** ≈ $3.16 for evals and dev to 18 Nov, plus $0.205 for offline judge runs, plus $1.0462 for the p5 re-runs on 26 Nov (≈ $0.14 more, by estimate, for an aborted attempt). The OpenRouter key limit is $10 with no reset.
 
+**Budgets (owner, 27 Nov; DEMO-04):** overall model budget $2.00/day (`SETUHAUL_LLM_DAILY_BUDGET_USD`, a checked activation input, 0.25–2), of which the judge may use $0.75/day (`SETUHAUL_LLM_JUDGE_DAILY_BUDGET_USD`) and never more than the headroom above the agent's reserve (half the cap). The stack refuses an overall budget above $2 or below the judge's. At $2/day the $10 lifetime key limit binds first.
+
 ## 19. Performance architecture
 
 | Path | Design choice | Measured |
@@ -552,19 +578,22 @@ See `SetuHaul_FDE_Cost_Analysis.md` §3.
 2. Telegram is live for two test drivers; WhatsApp/Meta is deferred and the outbound gate is BLOCKED under an owner exception.
 3. Latency targets were missed: end to end p95 15.0 s against < 15 s; queue → send ≈ 2.2 s against < 2 s.
 4. The console shows the stored read-back record and the agent reply as two identical rows; only one is sent.
-5. 4 inbound runs have no `thread_id`.
-6. The judge's human calibration rests on one non-blind reviewer. After the deploy it was skipped with `budget:shared_daily_cap`. It only gets the shared $0.25/day cap's headroom above the agent reserve; the configured $0.50 judge budget is not the binding limit. The usage balance at the time is not available.
-7. On p5, replay BB12 and AT02 still fail (as on p3) and h1 option pick fell to 91.7% (BB05). Causes are not established. The p5 re-runs cost $1.0462 across three runs (result files); an aborted first v4 attempt cost ≈ $0.14 by estimate.
+5. 4 inbound runs have no `thread_id`; offer continuations and proactive notices are not yet in a message's trace tree.
+6. The judge's human calibration rests on one non-blind reviewer. Until DEMO-04 it was always skipped (`budget:shared_daily_cap`, shared cap $0.25); from DEMO-04 it has $0.75 of a $2.00 cap — live scoring to be confirmed after the deploy.
+7. On p5, replay BB12 and AT02 still fail (as on p3) and h1 option pick fell to 91.7% (BB05). Causes are not established. The p5 re-runs cost $1.0462 across three runs (result files); an aborted first v4 attempt cost ≈ $0.14 by estimate. **The deployed prompt is now p6 (schema v2, requested dates and RESCHEDULE); its paid golden re-run was deferred by the owner, so p6 is not model-validated.**
 8. PostgreSQL 17.9 pilot exception; no live drift detection; `/health` reports version 0.2.0.
 9. Rules-reader findings I14 and I15 remain open (`docs/release/15_RELEASE_NOTES.md`).
 10. `GET /console/facilities/{id}/schedule-proposal` is expected to return HTTP 500 on the pilot: it needs a feasibility login the API lacks (release notes).
 11. No AWS load test; no DR drill; no automatic chase for silent drivers.
+12. Hindi/Hinglish wording of the new date replies awaits native review.
+13. Gate arrival is recorded by staff in the console; there is no gate scanner or geofence.
+14. Recovery depth: after a failed release, at most two recovery hops (0049); a third requires a full activation.
 
 ## 21. Production readiness gaps
 
 | Gap | Required evidence to close |
 |---|---|
-| Real-data governance (DPDP consent, processors, retention) | DPIA, consent flow, retention schedule |
+| Real-data governance (DPDP consent, processors, retention) | DPIA, consent flow, retention schedule; full-content tracing switched back to a reviewed field list |
 | WhatsApp/Meta | Approved templates (incl. Hinglish), test number, OUTBOUND_DELIVERY gate PASS |
 | PostgreSQL 18 | AURORA gate PASS without exception |
 | Drift detection | WORKLOAD_IDENTITY gate PASS |
