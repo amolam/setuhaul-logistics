@@ -130,15 +130,21 @@ def test_only_a_revoked_window_of_the_previous_release_in_this_environment_quali
     assert a1 and d1
 
 
-def test_a_recovery_cannot_be_recovered_no_second_hop(c):
+def test_a_recovery_can_be_recovered_once_more_but_never_a_third_hop(c):
+    """0049 (owner, 27 Nov 2026): exactly one additional hop; the third is refused, and the default rule still is."""
     env = env_name()
     _, a1 = revoked_release(c, env)
     d2 = new_release(c, env)
     a2 = recover(c, d2, a1)["authorization_id"]
     revoke(c, env)
     d3 = new_release(c, env)
-    refused(lambda: recover(c, d3, a2), "was itself a recovery; no second hop")
-    refused(lambda: issue(c, d3), "has no complete evidence")                         # nor the default rule
+    refused(lambda: issue(c, d3), "has no complete evidence")                         # the default rule is unchanged
+    a3 = recover(c, d3, a2)["authorization_id"]                                         # the one additional hop
+    assert a3
+    revoke(c, env)
+    d4 = new_release(c, env)
+    refused(lambda: recover(c, d4, a3), "already a second recovery; no third hop")
+    refused(lambda: issue(c, d4), "has no complete evidence")
 
 
 def test_a_revoked_window_is_recovered_at_most_once(c):

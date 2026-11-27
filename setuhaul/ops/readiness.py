@@ -174,8 +174,10 @@ def recovery_target_problems(t: dict, running: dict, environment: str, now: date
     p = []
     if t.get("environment") != environment or t.get("deployment_id") != running.get("deployment_id"):
         p.append("it is not the running release's authorization")
-    if t.get("recovery_of") is not None:
-        p.append("it was itself a recovery (no second hop)")
+    if t.get("recovery_of") is not None and t.get("recovery_of_was_recovery") is not False:
+        # 0049: one additional hop only (the authorization it recovered must not itself be a recovery)
+        p.append("it is already a second recovery (no third hop)" if t.get("recovery_of_was_recovery")
+                 else "it was itself a recovery and its own target could not be read")
     if t.get("already_recovered"):
         p.append("it has already been recovered once")
     st, exp = t.get("status"), t.get("expires_at")
@@ -238,12 +240,17 @@ def read_recovery_target(c, authorization_id: int) -> dict:
         approved = PENDING if release_records_expired_approval(authorization_id, row[7], row[8]) else False
     used = bool(c.execute("SELECT EXISTS (SELECT 1 FROM setuhaul.provisional_authorizations WHERE recovery_of = %s)",
                           (authorization_id,)).fetchone()[0])
+    hop = None
+    if row[6] is not None:                         # 0049: was the authorization IT recovered itself a recovery?
+        r2 = c.execute("SELECT recovery_of FROM setuhaul.provisional_authorizations WHERE authorization_id = %s",
+                       (row[6],)).fetchone()
+        hop = (r2[0] is not None) if r2 else None
     ev = [r[0] for r in c.execute("SELECT action FROM setuhaul.provisional_authorization_events "
                                   "WHERE authorization_id = %s ORDER BY event_id", (authorization_id,)).fetchall()]
     return {"authorization_id": row[0], "found": True, "environment": row[1], "deployment_id": row[2],
             "status": row[3], "expires_at": str(row[4]) if row[4] else None,
             "closed_at": str(row[5]) if row[5] else None, "recovery_of": row[6], "owner_approved": approved,
-            "already_recovered": used, "events": ev}
+            "already_recovered": used, "recovery_of_was_recovery": hop, "events": ev}
 
 
 def read_database(c, environment: str, approval_ref: str) -> dict:
