@@ -4,8 +4,8 @@
 
 > **Updated 27 Nov 2026** for the 27 Nov fix plan (PR #45: lifecycle, no-show, dispatch, dates), the recovery releases
 > (0049, category X) and the DEMO-04 release (full operational traces, one trace tree per message, $2/day model
-> budget, planner Resolve, no stuck HELD). Items that depend on the DEMO-04 deploy are marked **(DEMO-04)**; check
-> Evidence Register Part D for whether that deploy and its verification are complete before relying on them.
+> budget, planner Resolve, no stuck HELD). Items introduced by DEMO-04 are marked **(DEMO-04)**; DEMO-04 is deployed as `d6b20b4`
+> (booking ON 13:49 UTC, Evidence Register Part D3a).
 
 > **Safety rules for this demo**
 > - Only the owner wakes the pilot, sends Telegram messages and changes switches.
@@ -20,12 +20,12 @@
 | Item | Value |
 |---|---|
 | Stack | `SetuHaulPilot`, ap-southeast-2 |
-| Booking | ON, under the newest owner booking reference (stack output `BookingMode`): `OWNER-APPROVAL-20261127-DEMO-03` on release `5b661a1` (renewal PASS, 27 Nov 10:23 UTC); **(DEMO-04)** `OWNER-APPROVAL-20261127-DEMO-04` once that release is renewed |
+| Booking | ON, under the newest owner booking reference (stack output `BookingMode`): `OWNER-APPROVAL-20261127-DEMO-05` on release `d6b20b4` (renewal PASS, 27 Nov 13:49 UTC). Both facilities on MANUAL approval |
 | Telegram | LIVE under `OWNER-APPROVAL-20261126-SYNTHETIC-PILOT-TELEGRAM-LIVE-01`, allowlisted to the two test drivers (unchanged) |
 | LLM | OpenRouter → Claude Haiku 4.5 (Bedrock route, ZDR). App cap **$2.00/day (DEMO-04)**, $0.25 before. Key limit $10 total, no reset: **at $2/day this is the first limit to bind** (Cost Analysis §2.5) |
 | Judge | ON, 20% sampling. **(DEMO-04)** $0.75/day of the $2.00 cap. Before DEMO-04 it was always skipped (`budget:shared_daily_cap`) |
 | LangSmith | Project `setuhaul-synthetic-pilot`, tracing ON, content **full** (synthetic pilot only). **(DEMO-04)** only the driver's name and phone and credentials are removed; message text, model input/output, tool results, ids are exported. One tree per Telegram message: `telegram_inbound` → `agent_turn` → `telegram_outbound` |
-| Database | Migrations 0001–0049 applied (0048 lifecycle, 0049 one extra recovery hop); **(DEMO-04)** 0050 (reply trace link) |
+| Database | Migrations 0001–0050 applied (0048 lifecycle, 0049 one extra recovery hop, 0050 reply trace link) |
 | Pilot state on 27 Nov | **AWAKE** (booking needs the workers; owner decides when to sleep) |
 
 ## 2. Prerequisites (owner, T−30 to T−15 min)
@@ -84,6 +84,22 @@ Messages Driver A types in step 5:
 - "This offer has expired. Your dispatcher can send a new one."
 
 Agent replies are templates: first a read-back ("Do you mean you will reach the gate around …? Reply YES"), then a numbered option list, then "Request sent … NOT confirmed yet". **Rehearse once** to see today's times and to confirm the delay flow on an already-confirmed appointment.
+
+## 4a. The workflow the demo shows (canonical; `SetuHaul_FDE_Business_Workflow.md`)
+
+| Canonical step | Shown in the demo | Actor and decision |
+|---|---|---|
+| 1 Shipment ready, no dock slot | Dispatch board, *Needs booking* | — |
+| 2 Dispatcher-led booking | Step 2–4 below: one-slot offer → driver Accept (confirmation) → planner Approve (approval) | Dispatcher offers; planner decides (always, even in AUTO) |
+| 3 Driver-initiated change | Step 5: delay in Hinglish → read-back → options → pick → YES → request | Driver confirms; planner decides (AUTO only if eligible) |
+| 4 Dispatcher time change | Optional: Dispatch → confirmed booking → Check slots → request a new time | Planner decides (always); no driver step today |
+| 5 Cancellation | Optional: Dispatch → Request cancellation; planner decides in Schedule | Staff request; planner decides (drivers cannot request today) |
+| 6 Arrival and unloading | Optional: Ops health → Arrivals → gate → dock → completed | Operations or ops lead |
+| 7 Automatic no-show | Recorded: Dispatch → No-show filter → Rebook | System marks; dispatcher decides |
+
+Say the two separate events out loud at steps 3 and 4: **the driver confirms; the planner approves.** Check that
+both facilities are on **MANUAL** before the session (Facility settings), otherwise a chat booking may be
+auto-confirmed and the planner step will not appear.
 
 ## 5. Exact workflow (about 6 minutes)
 

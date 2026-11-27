@@ -1,6 +1,6 @@
 # SetuHaul FDE Demo: Presenter Playbook
 
-**Deck:** `SetuHaul_FDE_Demo.pptx` (16 slides). **Talk:** about 24 minutes including a 6-minute live demo, then Q&A. **Evidence:** every number below is in `SetuHaul_FDE_Evidence_Register.md`. If you are tempted to say a number that is not there, don't.
+**Deck:** `SetuHaul_FDE_Demo.pptx` (17 slides; slide 17 is an appendix). **Talk:** about 24 minutes including a 6-minute live demo, then Q&A. **Evidence:** every number below is in `SetuHaul_FDE_Evidence_Register.md`. If you are tempted to say a number that is not there, don't.
 
 **The one idea to carry through:** *the AI reads; code and the database decide; people approve.* Every slide is a variation on that sentence, and every hard question has an answer that goes back to it.
 
@@ -19,7 +19,7 @@
 | 1 | Project introduction | 0:30 | 0:30 |
 | 2 | Business problem | 1:15 | 1:45 |
 | 3 | Discovery and requirements | 1:00 | 2:45 |
-| 4 | Solution workflow | 1:15 | 4:00 |
+| 4 | Business workflow by actor | 1:15 | 4:00 |
 | 5 | Technical architecture | 1:30 | 5:30 |
 | 6 | AI architecture | 1:30 | 7:00 |
 | 7 | Tool calling | 1:15 | 8:15 |
@@ -90,18 +90,46 @@
 10. **Evidence:** `setuhaul/api/security.py`; PR #15; `docs/review/TRACEABILITY.md`; smoke JSON checks 2a–2c, 4–7.
 11. **Time:** 1:00.
 
-## Slide 4: AI at the edges, code in the middle, people decide
+## Slide 4: One booking, end to end: who does what, who decides
 
-1. **Purpose:** make the AI/deterministic boundary visible.
-2. **Key message:** amber (AI) appears in one lane only.
-3. **Script:** "Read the colours. Amber is AI; it appears only in the lane that reads the driver's message into a typed form. Blue is code and PostgreSQL: validate, read the time back, wait for an explicit YES, compute feasible slots, hold one and file a request. Green is a person, the planner. Notice that nothing moves until the driver confirms the read-back, and nothing is confirmed until the planner approves. The exceptions are along the bottom: safety words go straight to a coordinator, no fit means escalation with a hand-off note, and if the model is down or the budget is spent, a rules reader takes over."
-4. **Technical concepts:** read-back and explicit confirmation; escalation as a durable record before the driver is promised a person.
-5. **Decisions:** owner decision OD-3, templates for every reply, so no model writes to a driver.
-6. **Business relevance:** each step is auditable, and a planner sees every request in one queue.
+*(27 Nov: this slide now shows the canonical business workflow; detail and status per step in
+`SetuHaul_FDE_Business_Workflow.md`. The AI-reading detail it used to show is on slides 6–7.)*
+
+1. **Purpose:** show the whole lifecycle by actor, with the decision points, before any technology.
+2. **Key message:** drivers confirm, planners approve (or an eligible AUTO rule), operations record arrival, and no-shows go back to dispatch. Automation fills the gaps between people; it never takes their decisions.
+3. **Script:**
+
+   "Here is one booking from start to finish. An order arrives with a driver but no dock slot.
+   The dispatcher checks the docks and offers a slot to the driver on Telegram. The driver taps Accept. That's a
+   confirmation, not a booking: the slot is held and a request goes to a planner. A dispatcher's offer always goes
+   to a planner, even when the facility is in AUTO. AUTO only confirms an eligible, low-risk booking the driver made
+   in the chat.
+
+   If plans change, the driver writes in their own words. The agent reads it back and offers slots, the driver picks
+   one and says YES, and a planner approves. The old booking stands until the new one is confirmed. If the dispatcher
+   wants a new time, a planner always decides.
+
+   At the warehouse, operations records gate, dock and completed, which frees the rest of the dock time and tells the
+   driver. If nobody records the arrival by the slot start plus the facility's grace period, the system marks a
+   no-show by itself, frees the dock and tells the driver. The dispatcher then rebooks or asks a planner to cancel.
+
+   Underneath: safety issues always go to a person, the ops lead's kill switch stops new bookings, and every step is
+   audited."
+4. **Technical concepts:** separation of duties; confirmation vs approval; a state machine enforced by the database; automatic timeouts with a human decision after them.
+5. **Decisions:** dispatcher offers and dispatcher time changes always need a planner (migrations 0035, 0048); AUTO is per facility and only for eligible driver-chat bookings (0047); no-show is automatic, but the next step is a person's (D2, D3).
+6. **Business relevance:** coordinators stop phoning; planners keep authority; the dock never stays blocked by a truck that didn't come.
 7. **Transition:** "Where does each of these boxes run?"
-8. **Likely questions:** "Isn't the read-back annoying?" It costs one message and prevents booking on a misread ETA.
-9. **Do not claim:** that the LLM decides the next step.
-10. **Evidence:** `orchestrator.py` docstring; `docs/challenge/CLIENT_READOUT.md`.
+8. **Likely questions:**
+   - "Can the driver pick from several slots in a dispatcher offer?" Not today: an offer is one slot, and several options come only in the driver's own chat booking (gap W1).
+   - "Can a driver cancel?" Not by themselves today; staff request it and a planner decides (gap W4).
+   - "What does AUTO change?" Slide 17.
+9. **Do not claim:**
+   - multi-option dispatcher offers;
+   - AUTO for dispatcher offers;
+   - a driver confirmation step on dispatcher time changes;
+   - driver-requested cancellation;
+   - that only the ops lead records completion.
+10. **Evidence:** `SetuHaul_FDE_Business_Workflow.md`; migrations 0035, 0037, 0047, 0048; `tests/test_dispatch_offers.py`, `test_dispatch_0048.py`, `test_lifecycle_0048.py`, `test_facility_approval_mode*.py`.
 11. **Time:** 1:15.
 
 ## Slide 5: Serverless on AWS Sydney; PostgreSQL is the source of truth
@@ -309,6 +337,16 @@
 9. **Do not claim:** ROI, savings or adoption.
 10. **Evidence:** Evidence Register Parts B4–B7.
 11. **Time:** 1:00.
+
+---
+
+## Slide 17 (appendix): A real conversation: the driver confirms, the planner approves
+
+1. **Purpose:** answer "what does the driver actually see?" and "what does AUTO change?".
+2. **Key message:** YES is a confirmation; only a planner (or an eligible AUTO rule) makes a booking.
+3. **Script:** "These are the deployed templates, word for word. The driver says they're late, gets two slots, picks one and says YES, and the reply says plainly 'NOT confirmed yet'. Only when the planner approves does the driver read 'confirmed by the warehouse'. In AUTO, an eligible chat booking is confirmed straight away: we saw 'Confirmed: dock D3 at 3:00 PM on 28 Nov' live. Dispatcher offers, time changes and cancellations always need a planner."
+4. **Evidence:** `setuhaul/agent/replies.py`, `notify/telegram.py` (`OFFER_REPLIES`), `notify/outbound.py` (`TEMPLATES`), migration 0047.
+5. **Time:** as needed in Q&A.
 
 ---
 

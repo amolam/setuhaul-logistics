@@ -466,3 +466,107 @@ def d_roadmap(s, ox=0.5, oy=1.6):
         box(s, x, oy, cw - 0.25, 0.6, title, fill=f, line=l, size=14, bold=True, shape="pent" if i < 2 else "rect")
         text(s, x + 0.05, oy + 0.8, cw - 0.4, 3.5, [{"t": it, "bullet": True} for it in items], size=13,
              space_after=8)
+
+
+# 17. Canonical business workflow (27 Nov 2026, deployed release d6b20b4) -----------------------------------------
+def d_business_workflow(s, ox=0.5, oy=1.55):
+    """The end-to-end lifecycle by actor, with the decision points. Every box is implemented in d6b20b4; the notes
+    under the lanes state where the target workflow differs (see SetuHaul_FDE_Business_Workflow.md)."""
+    lanes = [("Dispatcher", HUM_FILL, HUM_LINE), ("Driver\n(Telegram)", EXT_FILL, EXT_LINE),
+             ("Agent + code\n+ database", DET_FILL, DET_LINE), ("Planner", HUM_FILL, HUM_LINE),
+             ("Operations /\nops lead", HUM_FILL, HUM_LINE)]
+    lh, lg, lw = 0.84, 0.05, 1.3
+    for i, (name, f, l) in enumerate(lanes):
+        y = oy + i * (lh + lg)
+        box(s, ox, y, 12.33, lh, "", fill="FAFBFC", line=LINE, shape="rect", line_w=0.75)
+        box(s, ox, y, lw, lh, name, fill=f, line=l, shape="rect", size=11.5, bold=True)
+    steps = [(2, 0, "1  Shipment ready: driver assigned, no dock slot"),
+             (0, 1, "2  Checks docks; offers ONE slot (this / another driver)"),
+             (1, 2, "3  Taps Accept = driver confirmation (not a booking)"),
+             (2, 3, "4  Holds the slot; request; MANUAL / AUTO rule"),
+             (3, 4, "5  Approves or rejects (dispatcher offers: always)"),
+             (1, 5, "6  Told: confirmed / rejected"),
+             (4, 6, "7  Gate → dock → completed (dock time released)"),
+             (2, 7, "8  No gate arrival by start + grace → NO_SHOW"),
+             (0, 8, "9  Rebook (→ 2) or request cancellation (→ planner)")]
+    cw, bw, bh = 1.2, 1.08, 0.7
+    x0 = ox + lw + 0.1
+    pos = []
+    for lane, col, label in steps:
+        x = x0 + col * cw
+        y = oy + lane * (lh + lg) + (lh - bh) / 2
+        f, l = lanes[lane][1], lanes[lane][2]
+        box(s, x, y, bw, bh, label, fill=f, line=l, size=9.5, margin=0.04)
+        pos.append((x, y))
+
+    def link(a, b):
+        (x, y), (nx, ny) = pos[a], pos[b]
+        ym, ncx = y + bh / 2, nx + bw / 2
+        elbow(s, [(x + bw, ym), (ncx, ym), (ncx, ny if ny > y else ny + bh)])
+
+    for a, b in ((0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (7, 8)):
+        link(a, b)
+    link(5, 7)                                              # the alternative: no arrival
+    py = oy + 3 * (lh + lg)                                 # planner lane, empty left of box 5
+    text(s, x0 + 0.1, py + 0.18, 3.55, 0.5, "AUTO: an eligible driver-chat booking is confirmed by rule at step 4 "
+         "and skips the planner; a dispatcher offer never does", size=9, color=GREEN, bold=True)
+    ty = oy + 5 * (lh + lg) + 0.02
+    text(s, ox, ty, 12.33, 0.75, [
+        [("Driver-initiated change: ", {"bold": True}),
+         ("driver writes a delay or a day → agent reads it back, offers feasible slots → driver picks + YES "
+          "→ planner (or AUTO if eligible); the current booking stands until the new one is confirmed.  ", {}),
+         ("Dispatcher time change: ", {"bold": True}),
+         ("dispatcher picks the new slot in the console → planner always (no driver step).", {})],
+        [("Background: ", {"bold": True, "color": RED}),
+         ("safety or contradictory data → a person  ·  ops-lead kill switch stops new bookings  ·  "
+          "every step audited  ·  cancellations: requested by staff, decided by a planner", {})]],
+        size=10, space_after=2)
+
+
+# 18. A real Telegram conversation (templates as deployed) ---------------------------------------------------------
+def d_conversation(s, ox=0.5, oy=1.55):
+    chat = [("D", "Traffic on the highway. Reaching around 1:45 PM, any slot?"),
+            ("B", "Available slots:\n1. Dock D3, 3:00 PM on 28 Nov\n2. Dock D1, 4:00 PM on 28 Nov\n"
+                  "Reply with the number you want."),
+            ("D", "1"),
+            ("B", "You selected dock D3 at 3:00 PM on 28 Nov. Shall I request it? Reply YES to confirm."),
+            ("D", "YES"),
+            ("B", "Request sent for dock D3 at 3:00 PM on 28 Nov. It is NOT confirmed yet; the warehouse will "
+                  "reply and I will tell you."),
+            ("P", "Planner approves in the console (MANUAL)"),
+            ("B", "Your dock booking is confirmed by the warehouse.")]
+    box(s, ox, oy, 5.9, 5.15, "", fill="F4F6F9", line=LINE, radius=0.04)
+    y = oy + 0.12
+    for who, msg in chat:
+        cap = 44 if who == "D" else 60
+        lines = sum(max(1, -(-len(part) // cap)) for part in msg.split("\n"))
+        h = 0.12 + 0.19 * lines
+        if who == "D":
+            box(s, ox + 2.45, y, 3.3, h, msg, fill="DCF2D6", line="B7DDB0", size=9.5, align="l", margin=0.06)
+        elif who == "B":
+            box(s, ox + 0.15, y, 4.2, h, msg, fill=WHITE, line=LINE, size=9.5, align="l", margin=0.06)
+        else:
+            h = 0.3
+            text(s, ox + 0.15, y, 5.6, h, "— " + msg + " —", size=9.5, color=GREEN, bold=True, align="c")
+        y += h + 0.07
+    rx = ox + 6.2
+    rows = [["", "MANUAL", "AUTO"],
+            ["Driver-chat booking", "planner decides", "confirmed by rule if eligible*; else planner"],
+            ["Dispatcher offer accepted", "planner decides", "planner decides (always)"],
+            ["Dispatcher time change", "planner decides", "planner decides (always)"],
+            ["Cancellation", "planner decides", "planner decides"]]
+    table(s, rx, oy, 6.13, rows, [1.9, 1.45, 2.78], size=10, row_h=0.42)
+    text(s, rx, oy + 2.25, 6.13, 1.45, [
+        {"t": "Two separate events: the driver CONFIRMS (YES / Accept), which only holds the slot and asks; the "
+              "PLANNER APPROVES (or an eligible AUTO rule), which alone makes the booking.", "bullet": True},
+        {"t": "*Eligible: a planner-authorised rule, a standard request, no risk flag (earlier, after hours, busier, "
+              "critical, reefer, smaller dock, safety, contradictory data) and not a dispatcher offer.",
+         "bullet": True},
+        {"t": "Seen live on 27 Nov with AUTO on Jaipur: \"Confirmed: dock D3 at 3:00 PM on 28 Nov.\" straight "
+              "after YES.", "bullet": True}], size=10, space_after=3)
+    text(s, rx, oy + 3.85, 6.13, 1.2, [
+        {"t": "No-show (automatic) and completion, as sent:", "bold": True},
+        {"t": "\"You did not reach the gate for order … within the grace period, so the slot was released. "
+              "Your dispatcher will arrange the next step.\"", "size": 9.5, "color": MUTED},
+        {"t": "\"Unloading complete for order …. Thank you. You are free for your next trip.\"", "size": 9.5,
+         "color": MUTED}], size=10)
