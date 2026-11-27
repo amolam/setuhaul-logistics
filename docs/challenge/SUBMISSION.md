@@ -149,14 +149,18 @@ Every command below was run on this branch, against a fresh local PostgreSQL 18.
 | Clean-environment reproduction | In the same clone: `scripts/snapshot_scenario.py`, `scripts/integrity_proof.py 10`, `scripts/frame/run_audit.py` | PASS 6/6; PASS 9/9 (OK = 1, LOST = 9, 0 overlaps); audit regenerated with no diff |
 | `start_local.py` safety | `python -m pytest -q tests/test_start_local.py`, plus `python scripts/start_local.py` on a machine where another PostgreSQL holds port 55432 | 4 passed: a server the script does not own (PostgreSQL or not) is refused with exit 2 and left with the same databases and oids; the private cluster starts, is reused on its port, is refused promptly on another port (the real port is named), stops, and stops again. On the occupied port: exit 2, the other server's version and data directory named, nothing created |
 
-**CI on PR #58** ([run 46040343715](https://github.com/amolam/setuhaul-logistics/actions/runs/46040343715), Ubuntu, Python 3.13, PostgreSQL 17.9):
+**CI on the final verified commit of PR #58, `7824f30`** ([run 46045442429](https://github.com/amolam/setuhaul-logistics/actions/runs/46045442429); Ubuntu, Python 3.13, PostgreSQL 17.9):
 
 | CI job | Result |
 |---|---|
-| Full test suite | **2,229 passed, 1 skipped** |
+| Full test suite | **2,233 passed, 1 skipped** |
 | Database tests through the Data API backend (emulated) | **749 passed** |
 | Synth | passed |
 | Deploy | skipped, as designed (manual, approval-gated) |
+
+**`tests/test_start_local.py` ran in this CI run and was not skipped.**
+- The PostgreSQL server binaries were present on the runner. In the previous run, 46044412665 on `ad7a89c`, the private-cluster test ran against `/usr/lib/postgresql/16/bin` and caught an Ubuntu socket-directory bug, which `7824f30` fixes.
+- In run 46045442429, all 4 tests in the file passed. Against the earlier run 46040343715 (on `479e253`, before the file existed: 2,229 passed, 1 skipped), the suite grew by exactly 4 passes, and the single skip is unchanged: it is the by-design Data API skip.
 
 **Not run for this submission:** anything against AWS, and any paid model evaluation.
 
