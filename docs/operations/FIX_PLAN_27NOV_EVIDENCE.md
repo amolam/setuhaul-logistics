@@ -12,11 +12,12 @@ run) with a **new owner booking approval reference** (`docs/operations/FIX_PLAN_
 
 | Run | Result |
 |---|---|
-| Full suite, final code (`python -m pytest tests -q`) | see "Final full run" below |
+| Full suite on commit `465d59d` (`python -m pytest tests -q`) | **2,199 passed, 0 failed, 2 skipped** (the same two skips as on `main`; one is the fresh-cluster test, run separately below) |
+| CI's Data API emulator subset (`SETUHAUL_TEST_DATA_API=1`, now including the four new database test files) | **743 passed** |
 | New tests, workstream A: `tests/test_lifecycle_0048.py` | lifecycle end to end, step order, idempotency, exact grace boundary (shared function, per facility), no-show eligibility (8 exclusion cases), history left to the backfill, arrival vs job under row locks (both orders), 12 simultaneous arrivals and jobs, D3 rebook and cancellation (approve and reject), backfill dry run / stale refusal / apply / idempotent / append-only / drivers not messaged, RBAC by API and database, facility boundary, arrivals list, ops_lead Controls reads, `/console/me` |
 | New tests, workstream B: `tests/test_dispatch_0048.py` | reschedule goes to a planner and moves atomically on approval, rejection keeps the booking, the pending slot cannot be taken by a competing booking, idempotency (same person replays, another person is refused), two dispatchers racing make one request, the requester cannot approve, roles, kill switch refusal, free drivers (assigned, overlapping, at gate, completed), explicit offer target (API and database), safety escalation visibility |
 | New tests, workstream C: `tests/test_dates_0048.py`, `tests/test_reschedule_dates_0048.py`, `tests/test_trace_content_full.py` | date resolution in the facility zone, 7-day limit, past / unclear / conflicting days, model and rules reader agree, a missed day still counts, times on the named day, unchanged behaviour without a day; through the orchestrator: options only on the day, no slot said plainly with no other day, the service's own 7-day check, reschedule of a confirmed booking as a request with "yes, <day>" confirming; trace content: full / on / off rules on synthetic PII and secrets, export guard, pilot-only setting, a real traced turn |
-| Aurora-like owner (`tests/test_aurora_owner.py`, `SETUHAUL_TEST_FRESH_DSN` = an empty local cluster) | 5 passed: every migration through 0048 applies as a non-superuser owner |
+| Aurora-like owner (`tests/test_aurora_owner.py`, `SETUHAUL_TEST_FRESH_DSN` = an empty local cluster, final 0048) | 5 passed: every migration through 0048 applies as a non-superuser owner |
 | Golden extraction, rules reader (free) | identical to `main` (every metric and every turn); the gates fail on `main` too, as before (the rules reader is the no-model baseline) |
 | Golden extraction, model (paid) | **not run**: needs the owner's approval. Estimate 76 calls, ~$0.28 (`anthropic/claude-haiku-4.5` via OpenRouter, nothing cached after the prompt change) |
 
