@@ -117,7 +117,7 @@ def d_architecture(s, ox=0.5, oy=1.6):
     box(s, c4, r[0], w4, h, [{"t": "OpenRouter → Claude Haiku 4.5", "bold": True}, "pinned Bedrock route · ZDR · "
                              "no fallback model"], fill=AI_FILL, line=AI_LINE, size=11)
     box(s, c4, r[1], w4, h + 0.15, [{"t": "Aurora PostgreSQL 17.9", "bold": True}, "Serverless v2 · Data API · RLS · "
-                                    "46 migrations · definer functions"], fill=DET_FILL, line=NAVY, size=11,
+                                    "50 migrations · definer functions"], fill=DET_FILL, line=NAVY, size=11,
         line_w=2)
     box(s, c4, r[2] + 0.22, w4, 0.8, [{"t": "LangSmith", "bold": True}, "traces · judge feedback"], fill=EXT_FILL,
         line=EXT_LINE, size=11)
@@ -551,14 +551,15 @@ def d_conversation(s, ox=0.5, oy=1.55):
         y += h + 0.07
     rx = ox + 6.2
     rows = [["", "MANUAL", "AUTO"],
-            ["Driver-chat booking", "planner decides", "confirmed by rule if eligible*; else planner"],
-            ["Dispatcher offer accepted", "planner decides", "planner decides (always)"],
-            ["Dispatcher time change", "planner decides", "planner decides (always)"],
-            ["Cancellation", "planner decides", "planner decides"]]
+            ["Driver-chat booking", "authorized staff decide", "confirmed by rule if eligible*; else authorized staff"],
+            ["Dispatcher offer accepted", "authorized staff decide", "authorized staff decide (always)"],
+            ["Dispatcher time change", "authorized staff decide", "authorized staff decide (always)"],
+            ["Cancellation", "authorized staff decide", "authorized staff decide"]]
     table(s, rx, oy, 6.13, rows, [1.9, 1.45, 2.78], size=10, row_h=0.42)
     text(s, rx, oy + 2.25, 6.13, 1.45, [
         {"t": "Two separate events: the driver CONFIRMS (YES / Accept), which only holds the slot and asks; the "
-              "PLANNER APPROVES (or an eligible AUTO rule), which alone makes the booking.", "bullet": True},
+              "AUTHORIZED STAFF APPROVE (or an eligible AUTO rule), which alone makes the booking. Authorized staff: a "
+              "planner or ops lead for every row; operations only for a standard driver-chat booking.", "bullet": True},
         {"t": "*Eligible: a planner-authorised rule, a standard request, no risk flag (earlier, after hours, busier, "
               "critical, reefer, smaller dock, safety, contradictory data) and not a dispatcher offer.",
          "bullet": True},

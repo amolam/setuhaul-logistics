@@ -170,7 +170,7 @@ LangSmith project `setuhaul-synthetic-pilot` is on. Since the demo release, the 
 | Check 5: agent, other-facility and no-identity decisions refused | same | same | Pilot-demonstrated | High |
 | Check 6: kill switch engaged → `BOOKING_KILLED`, escalated, nothing booked | same | same | Pilot-demonstrated | High |
 | Check 7: only synthetic identities; no delivery outside the test sink or Telegram allowlist | same | same | Pilot-demonstrated | High |
-| Integrity proof: 20 concurrent holds → 1 winner, 0 overlaps, 9/9 checks; 50 in the suite | Proof document plus raw output | `docs/challenge/INTEGRITY_PROOF.md`; `docs/challenge/evidence/integrity_proof.txt` | Integration tested (local PG 18.6) | High |
+| Integrity proof: 20 concurrent holds → 1 winner, 0 overlaps, 9/9 checks; 50 in the suite (service answers only: 1 OK, 49 LOST; no database count). N = 10 was added on 27 Nov, and N = 10, 20 and 50 were re-run locally on 28 Nov (`docs/challenge/evidence/rerun_20261128/`) | Proof document plus raw output | `docs/challenge/INTEGRITY_PROOF.md`; `docs/challenge/evidence/integrity_proof.txt` | Integration tested (local PG 18.6) | High |
 | Declined offer can never be held or booked | Migration and test | `migrations/0040_*`; PR #15 | CI-validated | High |
 | Requester cannot decide own request | Migration 0036 | PR #15 | CI-validated | High |
 | Telegram allowlist fails closed | Code | `setuhaul/notify/telegram.py` `AllowlistedTelegram` | Deployed | High |
@@ -283,7 +283,7 @@ LangSmith project `setuhaul-synthetic-pilot` is on. Since the demo release, the 
 - The latency targets as met.
 - An AWS cost figure as billed.
 - Any count of "tests" other than the ones recorded with their commit: 2,080 passed / 1 skipped (full suite, CI on `e3c5bbe`, 26 Nov); 2,201 passed / 2 skipped (local full suite, fix plan, 27 Nov); later counts in Part D.
-- Absolute guarantees such as "no dock is ever double-booked". State the tested evidence: 20 concurrent (local proof) and 50 (suite) gave one winner and no overlap, plus live smoke check 4.
+- Absolute guarantees such as "no dock is ever double-booked". State the tested evidence: 10 and 20 concurrent (local proof) gave one winner and no overlap counted in the database; 50 (suite) gave one winner by the service's answers, with no database count; plus live smoke check 4.
 - "Exactly-once" processing. Delivery is at least once; FIFO ordering per driver, de-duplication and idempotent business effects.
 - A latency speed-up multiple ("4×", "45×") or any service level; the after-sample is preliminary and uncommitted.
 - "No personal data" in general. Say (DEMO-04, synthetic pilot only): the driver's name and phone and every credential are removed from traces; message text, model input/output, tool results and platform ids are exported for debugging. Other environments keep the stricter `off`/`on` modes.

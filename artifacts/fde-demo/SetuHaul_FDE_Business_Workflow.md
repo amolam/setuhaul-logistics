@@ -34,7 +34,7 @@ on the pilot (Jaipur was set back from AUTO at 13:14 UTC on 27 Nov).
 
 | Booking type | MANUAL | AUTO |
 |---|---|---|
-| Driver books in the chat (new booking or time change) | A planner decides | **Confirmed by rule if eligible**; otherwise a planner decides |
+| Driver books in the chat (new booking or time change) | A person decides: a planner or ops lead, or operations for a STANDARD request (see the approval note in §1) | **Confirmed by rule if eligible**; otherwise a planner decides |
 | Driver accepts a dispatcher's offer | A planner decides | A planner decides (**always**) |
 | Dispatcher requests a new time for a confirmed booking | A planner decides | A planner decides (**always**) |
 | Cancellation | A planner decides | A planner decides |

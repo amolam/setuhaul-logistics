@@ -1,6 +1,6 @@
 # SetuHaul FDE Demo: Presenter Playbook
 
-**Deck:** `SetuHaul_FDE_Demo.pptx` (17 slides; slide 17 is an appendix). **Talk:** about 24 minutes including a 6-minute live demo, then Q&A. **Evidence:** every number below is in `SetuHaul_FDE_Evidence_Register.md`. If you are tempted to say a number that is not there, don't.
+**Deck:** `SetuHaul_FDE_Demo.pptx` (17 slides; slide 17 is an appendix). **Talk:** the recommended run is 15 minutes of walkthrough including a 6-minute live demo, plus questions, inside a 20-minute slot (§0); the full 24-minute version is kept below it. **Evidence:** every number below is in `SetuHaul_FDE_Evidence_Register.md`. If you are tempted to say a number that is not there, don't.
 
 **The one idea to carry through:** *the AI reads; code and the database decide; people approve.* Every slide is a variation on that sentence, and every hard question has an answer that goes back to it.
 
@@ -13,6 +13,45 @@
 ---
 
 ## 0. Timing plan
+
+### Recommended run of show: 15–20 minutes (reviewed 28 Nov 2026)
+
+The core walkthrough is about 15 minutes, which leaves 3 to 5 minutes for questions inside a 20-minute slot.
+
+| Order | Slide | Minutes | Cumulative |
+|---|---|---|---|
+| 1 | 1 · Project introduction | 0:30 | 0:30 |
+| 2 | 2 · Business problem | 1:00 | 1:30 |
+| 3 | 4 · Business workflow by actor | 1:15 | 2:45 |
+| 4 | 6 · AI architecture (say the one-line point of slide 7 here: code picks every tool) | 1:30 | 4:15 |
+| 5 | 8 · Guardrails | 1:15 | 5:30 |
+| 6 | 10 · **Live demo** | 6:00 | 11:30 |
+| 7 | 9 · Evaluation and judge (headline numbers only) | 1:15 | 12:45 |
+| 8 | 12 · Testing and the integrity result | 0:45 | 13:30 |
+| 9 | 15 · Challenges and open issues | 1:00 | 14:30 |
+| 10 | 16 · What it proves, and close | 0:45 | 15:15 |
+| | Questions | 3:00–4:45 | 18:15–20:00 |
+
+**Backup slides (show only if asked):** 3 (discovery), 5 (AWS architecture), 7 (tool calling), 11 (observability), 13 (performance), 14 (cost), 17 (a real conversation). Nothing is removed from the deck; skip these with the slide sorter or by typing the slide number.
+
+**If the demo fails:** go to the fallback in the runbook §9 and keep to 6 minutes. **If you are running long:** drop slide 9 to its four headline numbers and take the rest in questions.
+
+**Say these precisely (checked against `main` on 28 Nov 2026):**
+- **Concurrency.** Local tests with 10, 20 and 50 drivers racing for one slot gave exactly one winner each time. For 10 and 20 the claims were also counted in the database: zero overlaps. The 50-driver test checks the service's answers only. The pilot adds live smoke check 4. None of this is a load test at the brief's scale.
+- **Who approves.** In MANUAL a person decides every request. A planner or ops lead can decide any kind; an operations user can also decide a STANDARD request (owner decision, 28 Nov: retained). The demo uses a planner.
+- **Pilot status.** Private, synthetic data, not production. Its state is as recorded on 27 Nov and owner-confirmed on 28 Nov; it was not re-checked in AWS for this review. There is no public demo URL.
+- **WhatsApp.** Outbound is off. Inbound WhatsApp is not verified and is not claimed to work. The pilot channel is Telegram for two synthetic test drivers.
+- **Traces.** On the synthetic pilot, traces carry message text and model input and output; only the driver's name, phone and credentials are removed (slide 11). Slide 3 now says the same.
+- **Counts on the slides are dated.** "2,080 tests" is the CI run on the 26 Nov release; `main` has since recorded 2,233 passed (CI run 46045442429). Slide 12's subtitle now gives both figures; its body still cites the 26 Nov run.
+
+**If asked about the FDE challenge hand-ins** (this deck presents the pilot; the hand-ins are indexed in `docs/challenge/README.md`):
+- All six hand-ins and the optional scheduling tool are on `main`, with limits listed in `docs/challenge/SUBMISSION.md`.
+- The scenario runs use the deterministic rules reader, not the AI model. The model reader is evaluated separately (slide 9).
+- On the supplied snapshot the scenario covers ladder levels 1, 2 and 6 (SHP1015 escalates: no feasible slot). Levels 3 to 5 are shown on synthetic data or as worked examples. Booking is not run on the snapshot, because its date is in the past for the database.
+- Three of the brief's nine measures are not measured: driver waiting after rescheduling, slot utilisation and priority-policy violations.
+- The scheduling tool is a deterministic scoring planner, not a solver. On the Jaipur snapshot, earliest-ETA beats it on waiting.
+
+### Full version (24 minutes)
 
 | # | Slide | Minutes | Cumulative |
 |---|---|---|---|
@@ -52,7 +91,7 @@
 
 1. **Purpose:** the audience understands the product in 15 seconds.
 2. **Key message:** drivers report delays in their own words; SetuHaul offers only slots that work; a planner approves; in concurrency tests competing requests for one slot produced exactly one booking.
-3. **Script:** "SetuHaul runs inbound freight into six warehouses with 32 dock doors. When a truck runs late, the driver sends a message, in English, Hindi or Hinglish. The system reads it, offers dock slots that are actually feasible, and a planner approves. The design rule is simple: the AI reads, the code and the database decide, people approve. When we fired competing requests for one slot at the same moment, 20 in a local proof and 50 in the test suite, exactly one won and nothing overlapped. This is a synthetic pilot; production is switched off by the system itself."
+3. **Script:** "SetuHaul runs inbound freight into six warehouses with 32 dock doors. When a truck runs late, the driver sends a message, in English, Hindi or Hinglish. The system reads it, offers dock slots that are actually feasible, and a planner approves. The design rule is simple: the AI reads, the code and the database decide, people approve. When we fired competing requests for one slot at the same moment, 10 and 20 in a local proof and 50 in the test suite, exactly one won each time; for 10 and 20 we also counted the claims in the database, and nothing overlapped. This is a synthetic pilot; production is switched off by the system itself."
 4. **Technical concepts:** none yet; just name the three roles (AI, code, people).
 5. **Decisions and rationale:** positioning the AI as a reader, not an operator, is the decision everything else follows from.
 6. **Business relevance:** the costly failure is a broken promise at the dock, not a slow chat reply.
@@ -261,8 +300,8 @@
 ## Slide 12: Tests prove the rules; evaluations measure the model
 
 1. **Purpose:** quality engineering beyond unit tests.
-2. **Key message:** 2,080 tests gate every release; pilot findings become regression cases.
-3. **Script:** "2,080 tests pass in CI on the exact release, on PostgreSQL 17.9 like the pilot, plus 678 through a Data API emulator. The activation workflow reruns the full suite before it may switch booking on. Concurrency: twenty drivers race for one slot and one wins. Live: an eleven-check smoke test on the pilot, plus drills for dead-letter queues, worker crashes and approvals. On the right is the loop: a trace shows a failure, it becomes a golden or regression case, we evaluate, fix, rerun everything, and release through a gated workflow. Tests check that code does what we specified; evals check how well the model reads people."
+2. **Key message:** the full test suite gates every release (2,080 tests on the 26 Nov release shown; 2,233 on `main` since); pilot findings become regression cases.
+3. **Script:** "2,080 tests passed in CI on the 26 Nov release, and 2,233 on `main` since, on PostgreSQL 17.9 like the pilot, plus 678 through a Data API emulator. The activation workflow reruns the full suite before it may switch booking on. Concurrency: twenty drivers race for one slot and one wins. Live: an eleven-check smoke test on the pilot, plus drills for dead-letter queues, worker crashes and approvals. On the right is the loop: a trace shows a failure, it becomes a golden or regression case, we evaluate, fix, rerun everything, and release through a gated workflow. Tests check that code does what we specified; evals check how well the model reads people."
 4. **Technical concepts:** testing nondeterminism (scripted model for logic, golden sets for the model); emulated vs real backend; drills.
 5. **Decisions:** run CI on the pilot's database version, not the newest.
 6. **Business relevance:** no silent regressions in the rules that protect bookings.
@@ -340,7 +379,7 @@
 
 ---
 
-## Slide 17 (appendix): A real conversation: the driver confirms, the planner approves
+## Slide 17 (appendix): The driver confirms; authorized staff approve
 
 1. **Purpose:** answer "what does the driver actually see?" and "what does AUTO change?".
 2. **Key message:** YES is a confirmation; only a staff approval (a planner in the demo) or an eligible AUTO rule makes a booking. *Accuracy note: as implemented, `operations` and `ops_lead` can also approve a STANDARD request; the owner has confirmed that this stays (Business Workflow, approval note).*
@@ -406,9 +445,9 @@
 > - FIFO dedup;
 > - a processing lease with a heartbeat and a fence, so a worker that lost its lease commits nothing;
 > - idempotency keys;
-> - a per-dock lock plus an EXCLUDE constraint, tested with 20 and 50 concurrent requests (one winner, no overlap).
+> - a per-dock lock plus an EXCLUDE constraint, tested locally with 10, 20 and 50 concurrent requests (one winner each time; for 10 and 20 the claims were counted in the database: no overlap).
 >
-> 2,080 tests run in CI on the pilot's PostgreSQL version, plus a live 11-check smoke test."
+> More than 2,000 tests run in CI on the pilot's PostgreSQL version, plus a live 11-check smoke test."
 
 **FDE evaluator (90 s).**
 > "I started from decision rights, not models. I wrote down what each persona may decide, mapped every requirement to a capability and a proof, and kept a decision register. I shipped to a real cloud pilot under owner approvals and measured cost and latency, including the targets we missed. I can also tell you exactly what's not done: user research, a business baseline, blind multi-reviewer judge calibration and production governance."

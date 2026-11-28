@@ -1,4 +1,4 @@
-"""Builds artifacts/fde-demo/SetuHaul_FDE_Demo.pptx (16 slides, editable) and source/diagrams_source.pptx.
+"""Builds artifacts/fde-demo/SetuHaul_FDE_Demo.pptx (17 slides, editable) and source/diagrams_source.pptx.
 
     python artifacts/fde-demo/source/build_deck.py
 
@@ -57,12 +57,13 @@ def build_deck():
         box(s, x, 4.3, 2.8, 1.75, "", fill="1F2E52", line="2C3E66", radius=0.06)
         text(s, x + 0.15, 4.4, 2.5, 0.4, h, size=13, bold=True, color=AMBER)
         text(s, x + 0.15, 4.8, 2.5, 1.2, b, size=13, color=WHITE)
-    text(s, 0.7, 6.55, 12, 0.4, "Synthetic pilot on AWS Sydney · release 4b9ac56 (evidence head e3c5bbe) · "
-         "26 Nov 2026 · production off", size=12, color="AEB8CC")
+    text(s, 0.7, 6.55, 12, 0.4, "Synthetic pilot on AWS Sydney · release d6b20b4 (recorded 27 Nov 2026) · "
+         "production off", size=12, color="AEB8CC")
     notes(s, "Open with the one-line value proposition. SetuHaul is a driver-exception and dock re-scheduling "
           "service. The AI reads messages; code and the database decide; planners approve. Say what was tested, not a "
-          "guarantee: 20 concurrent requests for one slot (local proof) and 50 in the suite produced one winner and "
-          "no overlap, and live smoke check 4 passed on the pilot. Everything you will see is "
+          "guarantee: 10 and 20 concurrent requests for one slot (local proof) produced one winner and no overlap "
+          "counted in the database, a 50-request test in the suite produced one winner by the service's "
+          "answers, and live smoke check 4 passed on the pilot. Everything you will see is "
           "synthetic data on a synthetic pilot in AWS Sydney; production is switched off by the system itself. "
           "(30 s)")
 
@@ -121,8 +122,8 @@ def build_deck():
              "Smoke checks 6–7; cost ledger"]]
     table(s, 0.5, 3.45, 12.33, rows, [3.6, 4.83, 3.9], size=12, row_h=0.5)
     text(s, 0.5, 6.1, 12.33, 0.7, [[("Non-functional: ", {"bold": True, "color": NAVY}),
-                                    ("correctness under contention over throughput · every decision audited · no "
-                                     "message text or direct identifiers in traces · Sydney region only · production refused until a "
+                                    ("correctness under contention over throughput · every decision audited · driver "
+                                     "name, phone and credentials never in traces · Sydney region only · production refused until a "
                                      "separate decision.", {})]], size=12.5)
     notes(s, "As an FDE, the first deliverable was not code: it was decision rights. Who may decide what. "
           "The dispatcher role, for example, can request but never decide. Each requirement maps to a capability and "
@@ -146,7 +147,7 @@ def build_deck():
               "Event-driven Lambdas around one PostgreSQL that owns booking state",
               "infra/setuhaul_stack.py, CloudFormation outputs (26 Nov), docs/release/09_LOW_COST_PILOT_PLAN.md")
     D.d_architecture(s)
-    dec = [("The database owns booking state", "46 forward-only migrations; booking, holds and approvals are "
+    dec = [("The database owns booking state", "50 forward-only migrations; booking, holds and approvals are "
             "PostgreSQL functions"),
            ("Scale to zero", "Lambda + Data API: no NAT, no proxy. Idle ≈ $7/month (estimate)"),
            ("Ordered, de-duplicated turns", "FIFO order per driver and dedup ids; lease + fence keep business effects idempotent"),
@@ -169,7 +170,7 @@ def build_deck():
     side = [("LLM reasoning", "Reads one message into record_driver_report. Decides nothing.", AI_FILL, AI_LINE),
             ("Orchestration", "A fixed pipeline in code: no agent loop, no free tool choice.", DET_FILL, DET_LINE),
             ("Deterministic logic", "Feasibility, holds and approvals in Python + PostgreSQL.", DET_FILL, DET_LINE),
-            ("Human approval", "A planner decides every booking request.", HUM_FILL, HUM_LINE),
+            ("Human approval", "Pilot is MANUAL: a person decides. AUTO can confirm eligible chat bookings.", HUM_FILL, HUM_LINE),
             ("When the model fails", "≤ 1 retry, then the rules reader. Budget reserved before each call.",
              RISK_FILL, RISK_LINE)]
     for i, (h, b, f, l) in enumerate(side):
@@ -230,7 +231,7 @@ def build_deck():
     # 8 ------------------------------------------------------------------------------------------------------------
     s = frame(p, 8, "Seven layers of guardrails; prompts are not one of the controls",
               "Every rule that matters is enforced in code or in PostgreSQL",
-              "setuhaul/api/security.py, agent/extraction.py, notify/telegram.py, migrations 0001–0046, "
+              "setuhaul/api/security.py, agent/extraction.py, notify/telegram.py, migrations 0001–0050, "
               "ops/kill_switch.py, ops/renewal.py")
     D.d_guardrails(s)
     qa = [("If the LLM ignores instructions?", "It can only fill a form: extra keys are rejected and code decides "
@@ -371,7 +372,7 @@ def build_deck():
 
     # 12 -----------------------------------------------------------------------------------------------------------
     s = frame(p, 12, "Tests prove the rules; evaluations measure the model",
-              "2,080 tests gate every release; failures found in the pilot become regression cases",
+              "The full suite gates every release (2,080 tests on 26 Nov; 2,233 on main since); pilot failures become regression cases",
               "CI run 45836948268 (e3c5bbe), activate-booking runs 45833537353 / 45836951650, "
               "docs/challenge/INTEGRITY_PROOF.md, docs/release/evidence/drill_*.json")
     D.d_testing(s)
@@ -499,7 +500,7 @@ def build_deck():
     text(s, 0.6, 0.35, 12, 0.6, "What it proves, and what production still needs", size=28, bold=True, color=WHITE,
          font="Arial")
     cols = [("Measured (synthetic data)", "6FCF97",
-             ["Concurrency tests: 1 winner, 0 overlapping claims (20 and 50 requests)",
+             ["Concurrency: 1 winner at 10, 20 and 50; 0 overlaps counted at 10 and 20",
               "0 hard-gate violations in 64 live replay scenarios (62 passed)",
               "Held-out intent (p5): 100% model vs 61% rules", "Live smoke on the deployed release: 11/11"]),
             ("Expected (not yet measured)", AMBER,
@@ -531,7 +532,7 @@ def build_deck():
           "Then invite questions. (60 s)")
 
     # 17 (appendix) ------------------------------------------------------------------------------------------------
-    s = frame(p, 17, "A real conversation: the driver confirms, the planner approves",
+    s = frame(p, 17, "The driver confirms; authorized staff approve",
               "Telegram templates as deployed; MANUAL vs AUTO by booking type",
               "setuhaul/agent/replies.py, notify/telegram.py OFFER_REPLIES, notify/outbound.py TEMPLATES, migrations 0047, 0048")
     D.d_conversation(s)
@@ -539,7 +540,7 @@ def build_deck():
           "chat booking, from the deployed templates. YES is a confirmation, and the reply says plainly it is not "
           "confirmed yet; only the planner's decision produces 'confirmed by the warehouse'. Right: MANUAL vs AUTO. "
           "AUTO only ever confirms an eligible driver-chat booking; dispatcher offers, time changes and cancellations "
-          "always need a planner. (60 s)")
+          "always need a planner or ops lead. (60 s)")
 
     path = OUT / "SetuHaul_FDE_Demo.pptx"
     p.save(path)
