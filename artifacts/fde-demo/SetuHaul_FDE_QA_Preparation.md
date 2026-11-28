@@ -704,7 +704,7 @@ the $0.25 cap or "ids only", group M and the Evidence Register Part D take prece
 ## N. The business workflow (added 27 Nov 2026; `SetuHaul_FDE_Business_Workflow.md`)
 
 **N1. What is the difference between the driver confirming and the planner approving?**
-- **S:** Two events. The driver's YES (or Accept) only holds the slot and creates a request, and the reply says "NOT confirmed yet". Only a planner's approval, or an eligible AUTO rule, makes the booking; then the driver reads "confirmed by the warehouse".
+- **S:** Two events. The driver's YES (or Accept) only holds the slot and creates a request, and the reply says "NOT confirmed yet". Only a staff approval (a planner in the demo), or an eligible AUTO rule, makes the booking; then the driver reads "confirmed by the warehouse". If asked who may approve: a planner or ops lead for every request kind; as implemented, `operations` can also approve a STANDARD request (`approval_role_rules`). The owner has confirmed that this permission stays.
 - **E:** `replies.py` (`pending`), `outbound.py` (`booking_approved`); smoke checks 2a–2c.
 
 **N2. What exactly does AUTO approve?**

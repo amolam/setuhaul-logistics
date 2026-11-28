@@ -1,0 +1,34 @@
+# Data audit re-run, 28 Nov 2026 (local, SQLite, read-only)
+2026-11-28T07:27:17+05:30
+A01  HIGH   rows=  4  Same driver assigned to overlapping in-flight shipments (physically impossible)
+A02  HIGH   rows=  2  Same vehicle used by overlapping shipments (incl. a different driver)
+A03  HIGH   rows=  2  Active appointment on a dock whose weight limit is below the load
+A04  HIGH   rows=  4  Expected unload time does not fit in the booked slot (spills into next slot, which the model does not reserve)
+A05  HIGH   rows=  1  Pending booking that cannot start until after the driver's latest ETA, and whose unload overruns the slot end
+A06  HIGH   rows=  2  Confirmed appointment already made infeasible by the driver's latest ETA (stale promise)
+A07  MEDIUM rows=  4  Original plan booked a slot that starts before the planned ETA (planner promise was infeasible from day one)
+A08  HIGH   rows=  1  Confirmed appointment on a dock with an overlapping breakdown/maintenance event, slot not blocked
+A09  MEDIUM rows=  3  OPEN slots that overlap a dock event (view v_slot_availability would show them AVAILABLE or OCCUPIED, not BLOCKED)
+A10  MEDIUM rows=  1  docks.dock_status says ACTIVE while a breakdown event is open at the snapshot
+A11  MEDIUM rows=  1  In-dock truck has overrun its expected unload; next confirmed booking on that dock is affected
+A12  HIGH   rows=  1  Historical double booking: two appointments were active on the same slot at the same time (index would reject this today)
+A13  MEDIUM rows=  5  Snapshot has no single as-of time: records were last updated across a 9-hour span
+A14  MEDIUM rows=  6  Confirmed slot that already started past the no-show grace with no check-in and no NO_SHOW mark (relative to latest snapshot time)
+A15  MEDIUM rows=  4  OPEN slots that start after the facility LAST_NEW_START_TIME rule (bookable without the required approval)
+A16  LOW    rows=  2  Facility rules are incomplete or duplicated across facilities (GGN lacks early-checkin, last-start, reefer, heavy rules; grace defined twice)
+A17  LOW    rows=  1  Reefer rule is hard-coded to a dock code (RULE003 says "D5") instead of a capability
+A18  MEDIUM rows=  1  Duplicate exception rows share one dedupe_key (no UNIQUE constraint), and the retry opened a second thread
+A19  MEDIUM rows=  1  Duplicate driver messages: same driver + same text, different external ids
+A20  MEDIUM rows=  1  Conversation not linked to a shipment while the driver has more than one active assignment
+A21  HIGH   rows=  1  Escalation notification failed or went to an address that is not a known facility contact
+A22  LOW    rows=  1  Facility contact missing email (cannot receive email escalations)
+A23  MEDIUM rows=  2  Pending confirmations with no expiry: request sent/queued but no confirmation, no TTL field exists
+A24  MEDIUM rows=  1  Escalated thread whose appointment is still CONFIRMED (system of record disagrees with conversation state)
+A25  MEDIUM rows=  4  Live shipment with no current active appointment (needs a slot, nobody owns it)
+A26  LOW    rows=  1  Exception delay does not reconcile with declared ETA minus original ETA (early arrival cannot be expressed)
+A27  LOW    rows=  1  Exception with a stated time preference but no latest-finish captured (open question to the driver)
+A28  INFO   rows=  2  Low-confidence / range ETAs the scheduler must not treat as a point estimate
+A29  INFO   rows=  2  No compatible feasible slot for the reefer shipment after its declared ETA (expected escalation case)
+A30  INFO   rows=  2  Integrity gaps the two partial unique indexes do NOT cover (structural, proven by schema inspection)
+
+Wrote G:\FDE-Projects\setUhaul_Logistics\.claude\worktrees\fde-submission\docs\1-frame\audit_results.md

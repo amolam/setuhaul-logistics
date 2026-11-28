@@ -1,5 +1,7 @@
 # Release plan deliverables (phases A–G)
 
+> **Superseded as the current release overview (28 Nov 2026).** The "Current state" block below is the state on 23 Nov 2026 and is kept as a record; statements such as "Booking stays OFF" and "not deployed" describe that date. For the current pilot state, read the root [`README.md`](../../README.md#live-synthetic-pilot) and the [`Evidence Register`](../../artifacts/fde-demo/SetuHaul_FDE_Evidence_Register.md). The phase documents listed here remain the record of each phase.
+
 > **Current state (23 Nov 2026)**
 > - **Option A pilot: deployed and AWS-verified.**
 >   - Stack `SetuHaulPilot` in `ap-southeast-2`, deployed from `eaad598` by run 45039719968.

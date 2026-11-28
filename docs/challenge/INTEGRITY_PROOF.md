@@ -64,7 +64,8 @@ script refuses to run the race unless that is true.
 ### 2. The competing requests
 
 - **How many:** 20 hold requests, one per driver.
-- **From whom:** 20 distinct drivers. Each request came through the production path: signed WhatsApp webhook →
+- **From whom:** 20 distinct drivers. Each request came through the full application path, run locally (the same code that is deployed, with a local
+  WhatsApp test provider; this is not a pilot or production run): signed WhatsApp webhook →
   booking service → `hold_option()` database function → constraint.
 - **How they were launched:** 20 threads, each with its own HTTP client and its own database connection, all
   waiting on one barrier and released together.
@@ -238,7 +239,9 @@ is.
 ### Limits of this proof
 
 - Run locally on PostgreSQL 18.6, not on Aurora through the Data API. The same SQL and constraint are deployed
-  (migrations are checksummed, see `tests/test_migrations.py`). The live pilot runs with the booking switch OFF,
-  so no live race has been run (`option_a.json` A2: "no appointment").
+  (migrations are checksummed, see `tests/test_migrations.py`). **No race has been run on the pilot.**
+  When the N = 20 run was recorded (23 Nov 2026) the pilot's booking switch was off (`option_a.json` A2: "no
+  appointment"); since then pilot booking has been on only under owner-approved activations, for approved smoke
+  checks. This proof is local evidence, not pilot evidence.
 - The race goes through `/tools/*`, the orchestrator's tool API. It does not go through the model-driven
   orchestrator. `/demo/race` and `test_replay.py` cover the orchestrator, and the model only *requests* tools.

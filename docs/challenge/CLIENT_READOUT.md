@@ -1,56 +1,39 @@
 # SetuHaul delay desk: one-page readout
 
-**For:** the Head of Operations and the warehouse planners.
+**For:** the Head of Operations and the warehouse planners. **State:** 28 Nov 2026. Built and tested on made-up data and on your 4 August 2026 snapshot. Nothing is in production.
 
-**State on 27 Nov 2026:** synthetic data only.
-- Drivers use a Telegram test bot (two test drivers). WhatsApp is off.
-- Booking is on for the pilot under an owner approval, with both facilities in MANUAL.
-- Production use is refused by the system.
+## What it does
+- A late driver writes in their own words: *"tyre burst, 90 minutes late"*.
+- The service reads the new arrival time back and asks one question only if something is missing.
+- It offers only dock times that fit the truck, the load, the dock rules and the other bookings.
 
-**What it does.**
-- A driver writes in their own words: *"tyre burst, 90 minutes late"*.
-- The service reads the new arrival time back to the driver and asks one question if anything is missing.
-- It then offers only dock times that fit the truck, the load, the dock rules and the other bookings.
-- Code chooses the times, not the AI. The AI only reads the message, and replies are fixed templates.
+## What is automated
+- **Reading the message.** An AI model or a rules reader turns the text into facts, and does nothing else.
+- **Choosing dock times.** Code and the database do this, never the AI. Replies are fixed sentences.
+- **Stopping double bookings.** The database refuses a second truck on the same dock at the same time.
 
 ## Booking policy
-- **A driver's YES is a request, not a booking.** The slot is held for 3 minutes. The driver is told *"NOT confirmed yet"* until the warehouse decides.
-- **Competing drivers:** the first valid request wins. Everyone else hears *"That slot was just taken"* and gets new options straight away. The database makes a double booking impossible.
-- **MANUAL or AUTO, per facility.** Every facility starts in MANUAL.
-  - In MANUAL, a planner decides every booking.
-  - In AUTO, only a safe standard booking is confirmed by rule.
-  - A planner always decides cargo that is critical or refrigerated, anything after hours or contradictory, dispatcher offers, time changes and cancellations.
-  - Changing the mode needs a reason and is logged.
-- **Priority** belongs to your planners, not to typing speed.
-  - A scheduling tool proposes the order for the facility. It never books.
-  - An ops lead applies moves one at a time.
+- **A YES is a request, not a booking.** The slot is held for 3 minutes and the driver is told *"NOT confirmed yet"* until the warehouse decides.
+- **When drivers compete, the first valid request wins.** Everyone else hears *"That slot was just taken"* and gets new options at once.
+- **A person confirms every booking** (MANUAL mode). A planner or ops lead decides anything critical, refrigerated, after hours or offered by a dispatcher. An operations coordinator can also decide a standard booking.
+- **AUTO mode exists but is off.** It would confirm only safe standard bookings.
+- **Priority belongs to your people.** A scheduling tool only proposes an order; an ops lead applies each move.
 
-## People stay in charge
-- **No feasible slot:** the driver hears *"A coordinator has your details and will reply within 10 minutes"*, and the coordinator gets a complete hand-off. No slot is invented.
-- **Always handled by a person:**
-  - safety incidents (the coordinator calls within 5 minutes);
-  - contradictory data;
-  - penalties;
-  - customer commitments.
-- **Kill switch:** an ops lead can stop all new bookings at once. Every action is logged.
-
-## No-show and rebooking
-- A truck not at the gate by slot start plus the grace time (Jaipur 30 minutes, Gurugram 20) is marked NO_SHOW. Its dock time is released and the driver is told.
-- The dispatcher then chooses either to **rebook** (a planner approves) or to **request cancellation** (a planner decides).
+## What stays with people
+- **No workable slot:** the driver hears *"A coordinator has your details and will reply within 10 minutes"*, and the coordinator receives the full case. No slot is invented.
+- **Always a person:** safety incidents, contradictory data, penalties, customer commitments, time changes and cancellations.
+- **Stop button:** an ops lead can stop all new bookings at once. Every action is logged.
 
 ## Limits
-- **No GPS:** ETAs come from the plan, the driver, staff and gate-in. Gate-in is entered by hand.
-- **Dispatcher offers:** one option per offer. Drivers cannot cancel a confirmed booking themselves.
-- **AI cost:** AI spend is capped daily. When the cap is reached, a rules reader takes over. Booking safety does not depend on the AI.
-- **Proof:** double-booking safety is proven locally. With 10 and 20 drivers racing for one slot, the database was checked: 0 double bookings. A 50-driver test also gives the slot to exactly one driver. No AWS load test has been run.
+- **No GPS.** Arrival times come from the plan, the driver, your staff and a hand-entered gate arrival.
+- **Small sample.** The snapshot has two facilities, nine docks and 21 shipments. Your real volume has not been load-tested.
+- **Proof is local.** With 10, 20 and 50 drivers racing for one slot, exactly one got it each time. For 10 and 20 we also counted double bookings in the database: zero.
+- **WhatsApp is not connected.** A private pilot uses Telegram with two test drivers.
+- **Not measured yet:** driver waiting time at the dock, dock utilisation and priority-rule breaches.
 
-## Decisions and risks for you
+## Risks and decisions for you
 1. **Confirmation deadlines per shift.** Gurugram has no night cover.
-2. **Priority weights and the default scheduling rule.**
-   - On the Jaipur snapshot, "earliest arrival first" gave less waiting.
-   - Our rule kept more promises already given to drivers.
-3. **A written policy before AUTO is switched on anywhere.**
-4. **Real WhatsApp** needs a Meta number and approved Hindi/Hinglish templates.
-5. **Source data quality.**
-   - The snapshot has double-assigned drivers and trucks, overweight bookings and docks marked ACTIVE during breakdowns.
-   - We escalate these cases and never book them, but the source systems need fixing.
+2. **Priority weights and the scheduling rule.** On the Jaipur snapshot, "earliest arrival first" gave less waiting; our rule kept more promises already given.
+3. **A written policy** before AUTO is switched on anywhere.
+4. **Real WhatsApp** needs a Meta number and approved Hindi and Hinglish templates.
+5. **Source data quality.** The snapshot has drivers and trucks assigned twice, overweight bookings and docks marked active during a breakdown. We send these to a person, but the source systems need fixing.

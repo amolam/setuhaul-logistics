@@ -2,9 +2,9 @@
 
 **Name:** Amol Mithari
 
-**Repo link:** https://github.com/amolam/setuhaul-logistics (public). The submission is on branch `feat/fde-challenge-submission`, which becomes `main` once merged.
+**Repo link:** https://github.com/amolam/setuhaul-logistics (public). The submission is on branch `main` (merged from `feat/fde-challenge-submission` by PR #58 on 27 Nov 2026).
 
-**Live demo link:** none public. The deployed synthetic AWS pilot uses a private staff console (Cognito sign-in with two-step verification) and a Telegram test bot limited to two allowlisted test drivers, so there is no URL an evaluator can open. The prototype runs locally with one command (item 3).
+**Live demo link:** none public. The deployed synthetic AWS pilot uses a private staff console (Cognito sign-in with TOTP MFA required) and live Telegram limited to two owner-authorised synthetic test drivers, so there is no URL an evaluator can open. The prototype runs locally with one command (item 3).
 
 **Stack used:**
 - Python 3.14: FastAPI, Pydantic, psycopg 3.
@@ -79,7 +79,7 @@ The zero-double-booking result is **measured in the database only for N = 10 and
 
 ### 6. Client readout
 
-**Link:** [`docs/challenge/CLIENT_READOUT.md`](CLIENT_READOUT.md), one page: booking policy, MANUAL/AUTO, escalation, no-show and rebooking, limits, risks and decisions.
+**Link:** [`docs/challenge/CLIENT_READOUT.md`](CLIENT_READOUT.md), one page: what it does, what is automated, booking policy, what stays with people, limits, and risks and decisions.
 
 ### Optional scheduling tool
 
@@ -103,6 +103,8 @@ It is a deterministic three-pass scoring planner (`w·wait + 2w·lateness + 30·
 - **No video** of the scenario run was recorded.
 - **No public live demo.** The pilot console is private.
 - **The booking path cannot run on the snapshot.** The supplied snapshot is dated 4 Aug 2026, and a hold then would be a booking in the past for the database. Booking under contention is shown on synthetic data (Run A and the integrity proof).
+- **Ladder levels 3, 4 and 5 are not run on the supplied snapshot's named cases.** The snapshot run covers levels 1, 2 and 6. Rules and compatibility (level 3), competing trucks (level 4) and a mid-conversation change (level 5) are shown on synthetic data (Run A, the integrity proof and the test suite), and as worked examples on the snapshot (`docs/1-frame/worked_examples.md`).
+- **Both scenario runs use the deterministic rules reader, not the AI model.** No model reads a message in the recorded evidence; the model reader is evaluated separately (`evals/`).
 - **Three brief measures are not measured:**
   - average driver waiting from gate-in to dock-in;
   - warehouse slot utilisation;
@@ -121,7 +123,7 @@ It is a deterministic three-pass scoring planner (`w·wait + 2w·lateness + 30·
 - **AI reader:** spend is capped daily; at the cap the rules reader takes over, and it understands less varied phrasing. The paid evaluation of the date and reschedule prompt (p6) is deferred pending owner approval. The Hindi and Hinglish date replies await native-speaker review.
 
 **External dependencies**
-- **Real WhatsApp** needs a Meta test number and approved message templates. The pilot uses a Telegram test bot for two allowlisted test drivers.
+- **Real WhatsApp** needs a Meta test number and approved message templates. The pilot uses live Telegram for two owner-authorised synthetic test drivers. WhatsApp outbound is off, and inbound WhatsApp delivery in the pilot is not verified (root `README.md`, *Live synthetic pilot*).
 - **No AWS load test** has been run at the brief's spike (35 messages in 30 minutes) or at 10× that. Double-booking safety is proven locally.
 - **The pilot database is PostgreSQL 17.9**, a pilot-only exception (T33-P). Production needs 18.
 
@@ -136,7 +138,7 @@ It is a deterministic three-pass scoring planner (`w·wait + 2w·lateness + 30·
 
 ## Verification for this submission (27 Nov 2026)
 
-Every command below was run on this branch, against a fresh local PostgreSQL 18.6 cluster. There were no AWS calls and no paid model calls.
+Every command below was run on branch `feat/fde-challenge-submission` before it was merged, against a fresh local PostgreSQL 18.6 cluster. There were no AWS calls and no paid model calls.
 
 | Check | Command | Result |
 |---|---|---|
@@ -163,6 +165,21 @@ Every command below was run on this branch, against a fresh local PostgreSQL 18.
 - In run 46045442429, all 4 tests in the file passed. Against the earlier run 46040343715 (on `479e253`, before the file existed: 2,229 passed, 1 skipped), the suite grew by exactly 4 passes, and the single skip is unchanged: it is the by-design Data API skip.
 
 **Not run for this submission:** anything against AWS, and any paid model evaluation.
+
+## Fresh local re-run (28 Nov 2026)
+
+The recorded evidence above is the historical record (23 and 27 Nov 2026). On 28 Nov 2026 the same evidence was reproduced on `main` (`700a84b`), on a brand-new private local PostgreSQL 18.6 cluster, with no AWS call and no paid model call. New output only was written, to [`evidence/rerun_20261128/`](evidence/rerun_20261128/README.md); no earlier evidence file was changed.
+
+| Evidence | Fresh result, 28 Nov 2026 |
+|---|---|
+| Data audit | 30 of 30 checks executed; `audit_results.md` regenerated byte for byte, so all row counts match |
+| Scenario, six items (Run A) | Test passed; each of the six brief items is asserted, and the run ends in the escalation |
+| Scenario, supplied snapshot (Run B) | PASS 6/6; SHP1015 escalates `NO_FEASIBLE_SLOT` |
+| Integrity, N = 10 | PASS 9/9: 1 winner, 9 `LOST`, 0 double bookings counted in the database |
+| Integrity, N = 20 | PASS 9/9: 1 winner, 19 `LOST`, 0 double bookings counted in the database |
+| Integrity, N = 50 | Test passed: 1 `OK`, 49 `LOST`, fresh options for every loser. Service answers only; no database count |
+
+**Four kinds of evidence, kept apart:** historical local evidence (23 and 27 Nov), this fresh local re-run (28 Nov), CI evidence (run 46045442429), and the pilot's status, which is owner-confirmed on 28 Nov 2026 and was not re-checked in AWS for this submission.
 
 ## Requirement-to-evidence checklist
 

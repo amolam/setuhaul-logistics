@@ -1,0 +1,12 @@
+# 50-driver test re-run, 28 Nov 2026. Target: host=localhost port=55440 user=postgres
+============================= test session starts =============================
+platform win32 -- Python 3.14.7, pytest-9.2.0, pluggy-1.6.0 -- C:\Python314\python.exe
+cachedir: .pytest_cache
+rootdir: G:\FDE-Projects\setUhaul_Logistics\.claude\worktrees\fde-submission
+configfile: pyproject.toml
+plugins: anyio-4.16.0, platformdirs-4.13.0, typeguard-2.13.3
+collecting ... collected 1 item
+
+tests/test_api.py::test_fifty_drivers_race_for_one_slot PASSED           [100%]
+
+======================== 1 passed in 184.09s (0:03:04) ========================
