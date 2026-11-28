@@ -533,7 +533,7 @@ def build_deck():
 
     # 17 (appendix) ------------------------------------------------------------------------------------------------
     s = frame(p, 17, "The driver confirms; authorized staff approve",
-              "Telegram templates as deployed; MANUAL vs AUTO by booking type",
+              "Appendix: Telegram templates as deployed; MANUAL vs AUTO by booking type",
               "setuhaul/agent/replies.py, notify/telegram.py OFFER_REPLIES, notify/outbound.py TEMPLATES, migrations 0047, 0048")
     D.d_conversation(s)
     notes(s, "Use when asked how it feels for a driver, or what AUTO changes. Left: the exact texts a driver sees in a "
