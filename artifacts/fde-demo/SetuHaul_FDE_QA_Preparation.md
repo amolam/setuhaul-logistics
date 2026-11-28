@@ -49,7 +49,7 @@ the $0.25 cap or "ids only", group M and the Evidence Register Part D take prece
 **A4. What business value is created?**
 - **S:** Fewer coordinator calls per delay, faster re-slotting, and correct slot allocation under contention. Only the last has evidence, from synthetic concurrency tests; the first two are expected but not measured.
 - **D:**
-  - Measured (synthetic data): competing requests for one slot gave one winner and 0 overlapping claims (20 concurrent in the local proof, 50 in the suite, plus live smoke check 4); 0 hard-gate violations in 64 live replay scenarios.
+  - Measured (synthetic data): competing requests for one slot gave one winner and 0 overlapping claims (10 and 20 concurrent in the local proof, counted in the database, plus live smoke check 4; a 50-request test in the suite also gave one winner, by the service's answers); 0 hard-gate violations in 64 live replay scenarios.
   - Preliminary (reported, uncommitted, 6 exchanges): reply → outbound p95 1.3 s against 58.6 s before.
   - Expected: coordinator time saved and faster rebooking. Those need a baseline from a real facility.
 - **E:** `INTEGRITY_PROOF.md`; `replay_v4_live_*.json`; commit `ff4076d`.
@@ -91,7 +91,7 @@ the $0.25 cap or "ids only", group M and the Evidence Register Part D take prece
 - **S:** Because correctness lives in transactions, row locks, row-level security and exclusion constraints. The exclusion constraint makes the database refuse an overlapping claim on the same dock, whoever writes it; the concurrency tests exercise exactly that.
 - **D:** `dock_occupancy` has an EXCLUDE constraint (`ex_one_truck_per_dock`). Holds take a per-dock lock. Approvals, evidence guard, kill switch and provisional authorization are tables plus definer functions. The usage ledger reserves model budget atomically. 46 forward-only migrations.
 - **E:** `migrations/0001_core_schema.sql`, `0023`, `0026`, `0030`, `0032`.
-- **F:** "Isn't putting logic in the DB hard to test?" → 2,080 tests run against PostgreSQL 17.9 in CI, plus a Data API emulator path.
+- **F:** "Isn't putting logic in the DB hard to test?" → More than 2,000 tests (2,080 on the 26 Nov release; 2,233 on `main` since) run against PostgreSQL 17.9 in CI, plus a Data API emulator path.
 
 **B4. Why LangChain?**
 - **S:** It isn't used. That's a correction to the brief.
@@ -449,7 +449,7 @@ the $0.25 cap or "ids only", group M and the Evidence Register Part D take prece
 
 **I1. How do you test nondeterministic workflows?**
 - **S:** Separate the nondeterminism. Logic is tested with a scripted model; the model is evaluated with golden sets and replay.
-- **D:** The orchestrator, tools and database run against a `FakeModel` in 2,080 tests. Model quality is measured offline with approved, capped runs.
+- **D:** The orchestrator, tools and database run against a `FakeModel` in more than 2,000 tests. Model quality is measured offline with approved, capped runs.
 - **E:** `tests/`; `evals/`.
 - **F:** "Flaky tests?" → One redaction test was flaky in local runs (reported); the earlier flaky allowlist test was fixed in PR #19.
 
@@ -467,7 +467,7 @@ the $0.25 cap or "ids only", group M and the Evidence Register Part D take prece
 
 **I4. How do you prevent duplicate bookings?**
 - **S:** With a per-dock lock and an exclusion constraint, so two overlapping claims can't be stored by anyone.
-- **D:** 20 concurrent "hold" requests within 5 ms gave exactly 1 winner. The 19 losers were told and re-offered, with 0 overlaps. Even a forced database-administrator insert was refused. The suite also runs 50 concurrent requests. Live smoke check 4 passed on the pilot.
+- **D:** 20 concurrent "hold" requests within 5 ms gave exactly 1 winner. The 19 losers were told and re-offered, with 0 overlaps. Even a forced database-administrator insert was refused. The suite also runs 50 concurrent requests and checks the service's answers (1 OK, 49 LOST); it does not count claims in the database. Live smoke check 4 passed on the pilot.
 - **E:** `INTEGRITY_PROOF.md`; smoke check 4.
 - **F:** "Across facilities?" → Docks belong to one facility; the scheduler runs per facility.
 

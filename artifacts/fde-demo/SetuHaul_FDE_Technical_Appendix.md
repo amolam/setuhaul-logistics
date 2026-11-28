@@ -83,7 +83,7 @@ flowchart LR
 | Rules reader | `setuhaul/agent/rules_extractor.py` | Deterministic fallback extractor | Code |
 | Replies | `setuhaul/agent/replies.py` | Templates in EN / HI / Hinglish; grounding post-check | Code |
 | Domain | `setuhaul/domain/feasibility.py`, `optimizer.py` (12 hard constraints), `eta.py`, `scheduling.py` | Feasibility, ranking (ranking OFF by default), ETA fusion, facility proposals | Code |
-| Database | `migrations/0001–0046` | State, locks, constraints, RLS, definer functions, audit, ledger, evidence guard | **Database is final** |
+| Database | `migrations/0001–0050` | State, locks, constraints, RLS, definer functions, audit, ledger, evidence guard | **Database is final** |
 | Approval workflow | `setuhaul/workflow/approval_workflow.asl.json`, `aws/stepfunctions.py` | Waits for a planner (task token); expires | People |
 | Outbound | `setuhaul/notify/outbound.py`, `telegram.py`, `kick.py` | Claim notifications, fence, send, retry; allowlist; event-driven kick | Code |
 | Online judge | `setuhaul/agent/online_judge.py`, `judge_core.py` | Advisory quality scores after a turn | **Never decides** |
@@ -169,7 +169,7 @@ Staff-only operations are **not** agent tools: `decide_booking_request`, `move_a
 **Successful example:** the driver writes "haan ji, kar do" after a read-back.
 1. The model returns `intent=BOOK`, `explicit_confirmation=true`.
 2. The service checks that the option was read back and is the driver's latest word.
-3. `hold_option` takes the per-dock lock. The `ex_one_truck_per_dock` EXCLUDE constraint makes the database refuse an overlapping claim (tested with 20 and 50 concurrent requests and live smoke check 4).
+3. `hold_option` takes the per-dock lock. The `ex_one_truck_per_dock` EXCLUDE constraint makes the database refuse an overlapping claim (tested locally with 10 and 20 concurrent requests, with the claims counted in the database, and by live smoke check 4; a 50-request test checks the service's answers only).
 4. `submit_booking_request` returns `PENDING_APPROVAL`.
 5. The template says the request is "NOT confirmed yet".
 
@@ -177,7 +177,7 @@ Staff-only operations are **not** agent tools: `decide_booking_request`, `move_a
 - Kill switch engaged → `BOOKING_KILLED`, escalated, nothing booked (live smoke check 6).
 - An agent identity, another facility, or no identity tries to decide → refused (check 5).
 - A declined offer then "book it" → refused (migration 0040).
-- Two holds on the same dock time → one winner (check 4; integrity proof with 20 and 50 concurrent requests).
+- Two holds on the same dock time → one winner (check 4; integrity proof with 10 and 20 concurrent requests; a 50-request test on the service's answers).
 
 **Idempotency and retries:**
 - Inbound is de-duplicated by the FIFO dedup id plus `inbound_receipts`.
