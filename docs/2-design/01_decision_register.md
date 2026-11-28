@@ -2,6 +2,12 @@
 
 > **Revised after external review (17 Nov 2026).** Where this file and `06_review_response.md` differ, `06_review_response.md` wins. Key changes: JWT for people / IAM for services; India-only models (`in.anthropic.claude-sonnet-5`, `in.anthropic.claude-haiku-4-5`); deterministic orchestration (no autonomous tool selection); `submit_booking_request` replaces `confirm_booking`; select → read-back → explicit yes before any hold; Data API = IAM + Secrets Manager, RLS set inside each transaction; outbox is at-least-once; AgentCore Memory deferred; truck-level exclusion constraint; MVP vertical slice.
 
+> **Reading this register against the built system (28 Nov 2026).** Part A (D1–D13) is the brief's deliverable and states what was built; where a decision still quotes design wording, it says so. Part B is the technology decision log, and it keeps planned choices that were later superseded. The ones that matter most:
+> - **Scheduler (T8, D7, D8):** the shipped scheduling tool is a **deterministic score-based planner with no solver library**. CP-SAT / OR-Tools was planned and tried in the Frame spike only; it is not in the product.
+> - **Platform and model (T1–T4, T38, T52):** AgentCore, Strands and the India Bedrock models were planned. The built system uses a plain Python orchestrator and Claude Haiku 4.5 through OpenRouter (T52), with a rules reader as the fallback.
+> - **API authorisation (T10):** the API Gateway JWT authoriser was planned and **not built**; the application verifies the Cognito token.
+> - **Environment:** there is no production deployment. The only deployment is the private synthetic pilot (root `README.md`, *Live synthetic pilot*).
+
 Brief deliverable #2: *"Your answer, reason and evidence for each of the decisions in this brief."* Part A answers the brief's 13 decisions. Part B records the technology and architecture decisions this design depends on.
 
 Every decision cites evidence that someone can re-run:
@@ -44,7 +50,7 @@ The fields are listed in the `record_driver_report` schema, `docs/1-frame/02_var
 
 #### D2. How does a conversation link to the right driver, shipment and appointment?
 
-**Answer.** Verified sender identity → driver: the signed WhatsApp webhook in the original design; in the current synthetic pilot, an allowlisted Telegram test account. Or a Cognito identity. Then → `drivers.phone_e164` → live shipments (not CANCELLED or COMPLETED).
+**Answer.** Verified sender identity → driver: the signed WhatsApp webhook in the original design; in the current synthetic pilot, a Telegram account that staff linked to the driver with a single-use, expiring code, bound to Telegram's numeric `from.id` and limited to the owner's allowlist. Drivers have no Cognito account. Then → `drivers.phone_e164` → live shipments (not CANCELLED or COMPLETED).
 - **One live shipment:** link the thread automatically.
 - **Several:** ask with the order references ("ORD-…-004 or ORD-…-020?"). Never guess.
 
@@ -146,6 +152,8 @@ Side exits:
 - **AT_RISK:** a new ETA makes the booking infeasible. Re-schedule.
 - **NO_SHOW:** the no-show grace period passed.
 
+**Wording as built.** The driver texts in the table are the design wording. The built replies are fixed templates in `setuhaul/agent/replies.py`: after the driver's YES, *"Request sent for dock {dock} at {start}. It is NOT confirmed yet; the warehouse will reply and I will tell you."* The built reply does not state a confirmation deadline. The states and who moves each one are as built.
+
 **Reason.** Showing is not reserving. Reserving is not confirming.
 
 **Evidence.** State machines in `04_tool_contracts_and_states.md`. Pending TTL per facility and shift (APT1014A booked 09:52 would expire at 10:07).
@@ -230,7 +238,7 @@ The objective in plain words: less weighted waiting, fewer missed appointments, 
 | Problem | Handling |
 |---|---|
 | **Stale option** | `hold_option` re-checks against current state. If the option's `schedule_version` is older and it is no longer feasible, the driver hears *"D1 13:00 was just taken; here are the current options"* with fresh options |
-| **Cancellation** | The occupancy row is released, `schedule_version` bumps, and the scheduler is triggered. Drivers holding expired options in that area are not auto-notified, but their next request sees the capacity |
+| **Cancellation** | The occupancy row is released, and `schedule_version` bumps. Nothing re-plans automatically (D8: proposals are on demand). Drivers holding expired options in that area are not auto-notified, but their next request sees the capacity |
 | **Duplicate message** | Unique `(channel, external_message_id)`, plus a content-hash window for retries that arrive with new ids. Unique `dedupe_key` on exceptions |
 | **Retries of tool calls** | Idempotency key (thread, tool, args, turn) returns the stored result |
 
@@ -242,7 +250,13 @@ The objective in plain words: less weighted waiting, fewer missed appointments, 
 - **Stale option:** the contention test's 1,990 losers all received LOST, not an error (VAL §2).
 - **Retry:** the idempotency table contract (`04_…`).
 
-**Status:** Decided.
+The four cases above come from the design phase (seed rows and the Phase 2 validation schema). **On the built system**, each case is replayed by a test in the suite:
+- **Stale option:** `tests/test_booking_flow.py::test_lost_hold_returns_fresh_options`, and item 5 of the scenario run (`tests/test_scenario_run.py`): driver C's option was taken before C confirmed, and C was told and re-offered.
+- **Cancellation:** `tests/test_reassign_cancel_telegram_out.py::test_cancellation_approved_releases_capacity_in_the_same_transaction`.
+- **Duplicate message:** `tests/test_concurrency.py::test_simultaneous_duplicate_webhooks_store_and_enqueue_once` and `tests/test_flows.py::test_f6_duplicate_webhooks_and_a_redelivered_event_give_one_reply_on_the_phone`.
+- **Retry:** `tests/test_db_requests.py::test_submit_and_hold_are_idempotent` and `tests/test_api.py::test_webhook_retry_recovers_a_failed_attestation`.
+
+**Status:** Decided and implemented.
 
 ### FAIL SAFELY
 
@@ -254,7 +268,9 @@ The objective in plain words: less weighted waiting, fewer missed appointments, 
 
 **Evidence.** The SHP1015 escalation message: *"No reefer dock is free tonight because of planned maintenance from 6 PM. An operations coordinator is reviewing options and will message you by 16:45. Please continue to Jaipur safely."* The hand-off record is in `docs/1-frame/02_variables.md` §7. Delivery goes to the durable queue first; e-mail is a best-effort notification, so the OM004-style failure cannot lose it.
 
-**Status:** Decided.
+**As built.** The message above is the design wording. The built reply is the fixed template `coordinator` in `setuhaul/agent/replies.py`: *"A coordinator has your details and will reply within 10 minutes."* It does not give the driver the reason. The hand-off record is built by the database; for SHP1015 on the supplied snapshot it holds reason `NO_FEASIBLE_SLOT`, mode `DECIDE`, queue `FAC-JAI-01`, priority `HIGH`, the driver, shipment and thread, an acknowledgement SLA of 10 minutes and what the driver was told (`docs/challenge/evidence/snapshot_scenario_run.json`; `tests/test_snapshot_scenario.py`).
+
+**Status:** Decided and implemented.
 
 #### D11. What do we say when the preferred slot is not granted?
 
@@ -295,6 +311,8 @@ The objective in plain words: less weighted waiting, fewer missed appointments, 
 - Escalations and takeover: `0009`, `0018`, `0022`.
 - Facility approval mode, MANUAL (default) or AUTO for auto-eligible safe cases only: T53, `0047`.
 - SLAs and safety wording are pending client confirmation.
+- **Who may approve, as implemented.** The database table `approval_role_rules` lets `operations`, `planner` and `ops_lead` decide a STANDARD request; `planner` and `ops_lead` decide AFTER_HOURS_START, DOCK_DOWNGRADE and PLANNER_REVIEW; only `ops_lead` decides MOVE_CONFIRMED_PROMISE, PRIORITY_OVERRIDE and SCHEDULE_PROPOSAL (`migrations/0015_approval_workflow.sql` §8, `0016`; `tests/test_approvals.py::test_q2_role_rules_match_the_agreed_table`). A `dispatcher` cannot decide any request (`0037`).
+- **Owner decision (28 Nov 2026): the `operations` permission to decide STANDARD requests is intentionally retained.** Earlier business documents said that only a planner approves a booking; they now state the implemented rule. No code, migration or permission change is required.
 
 ### PROVE
 
@@ -337,7 +355,7 @@ The objective in plain words: less weighted waiting, fewer missed appointments, 
 | T7 | Integrity mechanism | `dock_occupancy` + exclusion constraint + compatibility trigger + per-dock advisory lock | Correct by construction under any concurrency | App-level locks only; slot-row uniqueness only (the seed's gap) | VAL |
 | T8 | Scheduling solver | Planned: **OR-Tools CP-SAT** (Lambda container) with a dispatch-rule fallback. **As built (27 Nov 2026 correction): no solver library.** A deterministic greedy scoring planner (`setuhaul/domain/scheduling.py`, see D7/D8), plus exhaustive per-truck option ranking (`optimizer.py`) | The spike showed the size does not need CP-SAT, and the ortools wheel would change the Lambda build | OptaPlanner / Timefold (JVM; Python discontinued) | SPK |
 | T9 | Ingest | API Gateway (HTTP API) → ingest Lambda → **SQS FIFO** (`MessageGroupId = driver_id`, dedupe = message id) | Per-driver ordering plus dedupe for free | Direct synchronous agent call from the webhook (timeouts, no ordering) | AUD-A18/A19 |
-| T10 | Auth | **People:** Cognito user pool JWT, validated by the API Gateway **JWT authoriser**, then FastAPI RBAC/ABAC. **Services:** IAM roles. **Agent:** AgentCore Identity + Policy. **Webhook:** Meta HMAC. No identity pool | Separate trust mechanisms per caller type; the browser does not need AWS credentials (owner-approved after review) | Identity pool + SigV4 from the browser; API keys | `06_review_response.md` |
+| T10 | Auth | **As built (28 Nov 2026 correction): there is no API Gateway authoriser.** API Gateway forwards `ANY /` and `{proxy+}` to the API Lambda, and FastAPI alone verifies the Cognito access token; staff MFA is TOTP; drivers have no Cognito account; AgentCore is not used. Planned: **People:** Cognito user pool JWT, validated by the API Gateway **JWT authoriser**, then FastAPI RBAC/ABAC. **Services:** IAM roles. **Agent:** AgentCore Identity + Policy. **Webhook:** Meta HMAC. No identity pool | Separate trust mechanisms per caller type; the browser does not need AWS credentials (owner-approved after review) | Identity pool + SigV4 from the browser; API keys | `06_review_response.md` |
 | T11 | Timers and long waits | **EventBridge Scheduler** (hold and pending expiry, approval timeouts) and **Step Functions** (`waitForTaskToken` approvals), plus a 1-minute reconciler | Exact-time triggers, at-least-once with idempotent handlers | Cron polling only | — |
 | T12 | Notifications | Transactional **outbox** → EventBridge → WhatsApp (Cloud API via Lambda), **AWS End User Messaging** SMS, **SES** e-mail, with delivery tracking. **At-least-once** with idempotent consumers keyed on `notification_id` | No lost events; the consumer suppresses duplicates, and any residual duplicate is harmless (same reference) | Fire-and-forget e-mail (OM004) | AUD-A21 |
 | T13 | ETA signals | Tiered: FASTag (ULIP partner), WhatsApp location pins, targeted SIM tracking, existing telematics; deterministic `fuse_eta()` | Cost-optimal evidence beyond the driver's word | Fleet-wide GPS rollout | Phase 1 `04_…` |

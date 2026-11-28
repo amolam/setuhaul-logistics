@@ -96,7 +96,7 @@
 `SetuHaul_FDE_Business_Workflow.md`. The AI-reading detail it used to show is on slides 6–7.)*
 
 1. **Purpose:** show the whole lifecycle by actor, with the decision points, before any technology.
-2. **Key message:** drivers confirm, planners approve (or an eligible AUTO rule), operations record arrival, and no-shows go back to dispatch. Automation fills the gaps between people; it never takes their decisions.
+2. **Key message:** drivers confirm, planners approve (or an eligible AUTO rule), operations record arrival, and no-shows go back to dispatch. *Accuracy note: in the demo a planner approves. As implemented, `operations` and `ops_lead` can also approve a STANDARD request; the owner has confirmed that this stays (Business Workflow, approval note).* Automation fills the gaps between people; it never takes their decisions.
 3. **Script:**
 
    "Here is one booking from start to finish. An order arrives with a driver but no dock slot.
@@ -343,7 +343,7 @@
 ## Slide 17 (appendix): A real conversation: the driver confirms, the planner approves
 
 1. **Purpose:** answer "what does the driver actually see?" and "what does AUTO change?".
-2. **Key message:** YES is a confirmation; only a planner (or an eligible AUTO rule) makes a booking.
+2. **Key message:** YES is a confirmation; only a staff approval (a planner in the demo) or an eligible AUTO rule makes a booking. *Accuracy note: as implemented, `operations` and `ops_lead` can also approve a STANDARD request; the owner has confirmed that this stays (Business Workflow, approval note).*
 3. **Script:** "These are the deployed templates, word for word. The driver says they're late, gets two slots, picks one and says YES, and the reply says plainly 'NOT confirmed yet'. Only when the planner approves does the driver read 'confirmed by the warehouse'. In AUTO, an eligible chat booking is confirmed straight away: we saw 'Confirmed: dock D3 at 3:00 PM on 28 Nov' live. Dispatcher offers, time changes and cancellations always need a planner."
 4. **Evidence:** `setuhaul/agent/replies.py`, `notify/telegram.py` (`OFFER_REPLIES`), `notify/outbound.py` (`TEMPLATES`), migration 0047.
 5. **Time:** as needed in Q&A.

@@ -23,12 +23,12 @@ The brief's measures are computed from these files: [`evidence/scenario_measures
 - the signed WhatsApp webhook and the API;
 - the PostgreSQL roles, functions and row-level security;
 - the feasibility engine and the orchestrator;
-- the production **rules reader**: no AI model was called, so there was no cost;
+- the **rules reader**, the same deterministic reader the deployed service falls back to: no AI model was called, so there was no cost;
 - the approval-workflow port, the console decision route and the facility scheduling tool.
 
 **What is local:** WhatsApp (a local provider), Step Functions (a local workflow) and the database (local PostgreSQL 18.6).
 
-The booking path runs under the local test harness, as in every flow test. **The deployed pilot's booking switch stays OFF.** All data is synthetic.
+The booking path runs under the local test harness, as in every flow test. **This run is local evidence, not pilot evidence.** When it was recorded (23 Nov 2026) the deployed pilot's booking switch was off. All data is synthetic.
 
 | # | Brief item | Time (s) | What happened | Evidence |
 |---|---|---:|---|---|
@@ -44,7 +44,7 @@ The booking path runs under the local test harness, as in every flow test. **The
 **Found during this run:** the rules reader read *"anything after 05:26"* as 17:26. A zero-padded 24-hour time now keeps its morning meaning, while a driver's *"after 5"* still means the evening. Regression test: `test_a_zero_padded_24_hour_time_keeps_its_morning_meaning`.
 
 **Not shown here:**
-- the live AWS pilot runs with booking OFF, so items 4–5 cannot happen there. The AWS end-to-end evidence is in `docs/release/evidence/option_a.json`;
+- the AWS pilot. On 23 Nov 2026 its booking switch was off, so items 4–5 could not happen there; the AWS evidence of that date is `docs/release/evidence/option_a.json`. Later pilot booking evidence is separate from this hand-in and is indexed in `artifacts/fde-demo/SetuHaul_FDE_Evidence_Register.md`;
 - the AI model reader. Its accuracy evidence is the held-out set, `docs/3-build/README.md` (B-EV-1b).
 
 ---

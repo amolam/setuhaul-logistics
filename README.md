@@ -14,7 +14,39 @@ synthetic.**
 |---|---|
 | Challenge hand-ins 1–6 and the optional scheduling tool | Done, each with reproducible evidence: [`docs/challenge/README.md`](docs/challenge/README.md) |
 | Local prototype | Runs with one command (below) on PostgreSQL 18. Booking runs under the local harness |
-| AWS synthetic pilot (`ap-southeast-2`) | Deployed, **synthetic data only**. Telegram test bot for two allowlisted test drivers; WhatsApp off; booking on only through an owner-approved activation with fresh evidence, behind a database kill switch; production refused by the code. This is **beyond the brief** and not needed to assess it |
+| AWS synthetic pilot (`ap-southeast-2`) | Deployed, private, **synthetic data only**. Live Telegram for two owner-authorised synthetic test drivers; WhatsApp outbound off (internal test sink); booking on only through an owner-approved activation with fresh evidence, behind a database kill switch; production refused by the code. This is **beyond the brief** and not needed to assess it. See [Live synthetic pilot](#live-synthetic-pilot) |
+
+## Live synthetic pilot
+
+The pilot is **beyond the FDE brief**. It is private, it is not production, and it does not replace any of the six hand-ins. The challenge evidence is local and CI evidence; pilot evidence is kept apart from it.
+
+| Item | State | Source |
+|---|---|---|
+| Stack | One stack, `SetuHaulPilot`, in `ap-southeast-2`, `environment_name="pilot"`. There is **no production stack or environment**; the code refuses `production` and `prod` | `infra/setuhaul_stack.py` |
+| Data | Synthetic only | stack tag `DataClass=synthetic` |
+| Database | Aurora PostgreSQL 17.9 through the Data API (pilot exception T33-P; the local prototype uses PostgreSQL 18) | `docs/release/10_EXPRESS_AURORA.md` |
+| Driver channel | **Live Telegram**, inbound and outbound, for two owner-authorised synthetic test drivers (allowlist). A driver is linked by a staff-issued, single-use, expiring code, bound to Telegram's numeric `from.id`. The webhook has a generated secret, and inbound and outbound have separate kill switches. The `test_bot` mode is local tooling only (`scripts/telegram_test_bot.py`) | `setuhaul/notify/telegram.py`; Evidence Register |
+| WhatsApp | Outbound is **off** and goes to an internal test sink. The inbound route `/webhooks/whatsapp` is always registered and checks `X-Hub-Signature-256` against `META_APP_SECRET`. CDK seeds that secret as an empty string. The existence of the route does not show that inbound WhatsApp works in the pilot: inbound delivery is **not verified** and is not claimed to be operational or secured. The owner has confirmed that WhatsApp is disabled and out of scope for the current pilot, so the deployed secret was not checked (28 Nov 2026) | `setuhaul/api/app.py`, `infra/setuhaul_stack.py` |
+| Staff sign-in | Cognito, TOTP MFA required for every staff user. Roles: `planner`, `operations`, `ops_lead`, `dispatcher`. `operations`, `planner` and `ops_lead` can approve a STANDARD request; every other request kind needs `planner` or `ops_lead` (owner decision 28 Nov 2026: retained as implemented) | `infra/setuhaul_stack.py`, `docs/release/11_STAFF_CONSOLE.md` |
+| API authorisation | Done by the application (FastAPI verifies the Cognito access token per route) and by row-level security in the database. There is **no API Gateway authoriser** | `infra/setuhaul_stack.py` (`ANY /`, `{proxy+}`), `setuhaul/api/security.py` |
+| Booking | On only under a fresh, release-bound owner approval, behind a database kill switch. Last recorded activation: 27 Nov 2026, release `d6b20b4`, `OWNER-APPROVAL-20261127-DEMO-05`. **Owner-confirmed on 28 Nov 2026:** the pilot is in working condition with this configuration. This is the owner's confirmation, not a fresh AWS check made for this document | `artifacts/fde-demo/README.md`, Evidence Register Part D |
+| Facility approval mode | Both facilities in MANUAL (recorded 27 Nov 2026; owner-confirmed 28 Nov 2026). Nothing is confirmed by an AUTO rule | Evidence Register Part D |
+| Schedules | Recovery, outbound and approval-relay rules are disabled when idle: the pilot is asleep by default | Evidence Register |
+| Public demo URL | None | — |
+
+**Where pilot evidence lives.** The evidence of record is on branch `release/fde-sydney-pilot`, under `docs/release/evidence/`, and is indexed by [`artifacts/fde-demo/SetuHaul_FDE_Evidence_Register.md`](artifacts/fde-demo/SetuHaul_FDE_Evidence_Register.md). The copies on `main` under `docs/release/evidence/renewal_gates` and `provisional_gates` are older (24 Nov 2026) and are not the latest pilot evidence. Activation and operations: [`docs/operations/FULL_ACTIVATION_RUNBOOK.md`](docs/operations/FULL_ACTIVATION_RUNBOOK.md). As-built architecture: [`artifacts/fde-demo/SetuHaul_FDE_Technical_Appendix.md`](artifacts/fde-demo/SetuHaul_FDE_Technical_Appendix.md). `docs/2-design/02_architecture.md` is the earlier target design, not the as-built system.
+
+## Test environments
+
+| Environment | Database and infrastructure | Purpose |
+|---|---|---|
+| Local development | A throwaway PostgreSQL 18 cluster on `localhost` (18.6 for the recorded evidence) | The challenge prototype, the scenario run, the integrity proof and local tests |
+| CI | PostgreSQL 17.9 service containers, Python 3.13; one job runs a subset of the database tests through an emulated Data API | Automated checks on every change |
+| Synthetic pilot | Aurora PostgreSQL 17.9 through the Data API, in AWS | The private pilot. Only approved smoke checks run there |
+
+> **Warning: never point the tests or the challenge scripts at the pilot or any shared database.** `tests/conftest.py`, `scripts/integrity_proof.py`, `scripts/snapshot_scenario.py` and `scripts/local_console.py` run `DROP DATABASE … WITH (FORCE)` on the server named by `SETUHAUL_TEST_DSN`. Use only the local cluster that `scripts/start_local.py` creates.
+
+A result from one environment is not evidence for another: a local integrity run is not pilot evidence, and pilot evidence is not production evidence.
 
 ## Architecture
 
@@ -124,7 +156,7 @@ Without `SETUHAUL_TEST_DSN` only the database-free tests run; the rest are skipp
 |---|---|
 | `setuhaul/` | The application package. `domain/` holds ETA fusion, feasibility, the scheduling planner and the per-truck optimizer. `agent/` holds the orchestrator, readers and reply templates. `api/` holds the API, booking service, inbound queue and staff console. `workflow/` holds the approvals. `notify/` holds outbound and Telegram. `observability/` holds tracing and redaction. `aws/` holds the Lambda entry points |
 | `migrations/` | PostgreSQL migrations 0001–0050. Database functions own booking, approval and lifecycle state |
-| `tests/` | The test suite (about 1,100 tests) |
+| `tests/` | The test suite: 80 files, about 1,360 test functions. With parametrised cases, CI run 46045442429 reported 2,233 passed and 1 skipped |
 | `scripts/` | `start_local.py`, `integrity_proof.py`, `snapshot_scenario.py`, `scenario_measures.py`, `scheduling_compare.py`; Frame audit, prototype and spike (`frame/`); design validator (`design/`); AWS operations scripts |
 | `data/` | The supplied data package: SQLite snapshot, schema and seed SQL, data dictionary, ER diagram, guide |
 | `docs/brief/` | The client brief (PDF) and data package as received |

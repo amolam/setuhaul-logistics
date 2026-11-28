@@ -1,0 +1,14 @@
+# Scenario tests re-run, 28 Nov 2026. Target: host=localhost port=55440 user=postgres. SETUHAUL_RECORD_SCENARIO unset (no evidence file rewritten)
+============================= test session starts =============================
+platform win32 -- Python 3.14.7, pytest-9.2.0, pluggy-1.6.0 -- <python>
+cachedir: .pytest_cache
+rootdir: <repo>
+configfile: pyproject.toml
+plugins: anyio-4.16.0, platformdirs-4.13.0, typeguard-2.13.3
+collecting ... collected 3 items
+
+tests/test_scenario_run.py::test_scenario_run_shows_all_six_items_and_ends_in_an_escalation PASSED [ 33%]
+tests/test_scenario_run.py::test_a_zero_padded_24_hour_time_keeps_its_morning_meaning PASSED [ 66%]
+tests/test_snapshot_scenario.py::test_snapshot_scenario_passes_and_shp1015_escalates PASSED [100%]
+
+======================== 3 passed in 63.14s (0:01:03) =========================

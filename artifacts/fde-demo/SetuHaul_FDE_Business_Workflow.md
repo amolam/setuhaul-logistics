@@ -22,8 +22,10 @@ Diagrams: `diagrams/17_business_workflow_by_actor.png` (deck slide 4) and
 | **Driver** (Telegram) | Accepts or declines an offer; reports a delay or asks for a slot or a day in their own words; picks an option and confirms with YES | Books anything by themselves: a driver's YES is a confirmation, not a booking |
 | **Agent + code + database** | Reads the driver's message (the only AI step), reads it back, finds feasible slots, holds the slot, creates the request, applies MANUAL / AUTO, marks no-shows automatically, sends every driver message from fixed templates | Approves on a person's behalf; promises a slot before it is confirmed |
 | **Planner** (console) | Approves or rejects booking requests and time changes; decides cancellations; sees escalations needing a decision; resolves escalations | Approves a request they made themselves (the database refuses it) |
-| **Operations** (console) | Records Arrived at gate, At dock and Completed; resolves escalations; requests cancellations | Approves bookings |
+| **Operations** (console) | Records Arrived at gate, At dock and Completed; resolves escalations; requests cancellations. **As implemented, can also approve a STANDARD booking request** (see the note below the table) | Approves dispatcher offers, time changes, cancellations, or critical, refrigerated or after-hours bookings |
 | **Ops lead** (console) | Everything operations does, plus the Controls tab (kill switch, booking holds, automation pause), moving confirmed bookings, and approving | — |
+
+**Approval permission, as implemented (28 Nov 2026).** The database rule `approval_role_rules` lets `operations`, `planner` and `ops_lead` approve a **STANDARD** request: a plain driver-chat booking that is not critical, refrigerated, after hours, a dock downgrade or a dispatcher offer. Every other request kind needs a `planner` or `ops_lead` (`migrations/0015_approval_workflow.sql` §8, `0016`, `0035`; `tests/test_approvals.py::test_q2_role_rules_match_the_agreed_table`). **Owner decision (28 Nov 2026): this permission is intentionally retained.** No code, migration or permission change is required.
 
 ## 2. MANUAL versus AUTO approval
 

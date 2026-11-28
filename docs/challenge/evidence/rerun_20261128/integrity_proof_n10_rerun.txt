@@ -1,0 +1,64 @@
+SetuHaul integrity proof - 10 drivers, one slot
+run at 2026-11-28T01:59:02+00:00  |  database setuhaul_integrity_proof on host=localhost port=55440 user=postgres
+server: PostgreSQL 18.6 on x86_64-windows, compiled by msvc-19.44.35228, 64-bit
+
+== 1. Initial state
+facility FAC-JAI-01, docks in the facility: 1 (DOCK-JAI-D1)
+slot every driver was offered and said YES to: dock D1, 2026-11-29 14:00-14:55 IST (dock occupancy window incl. unload + changeover)
+active claims (holds/bookings/blocks) on that window before the race: 0
+drivers with a confirmed (attested) YES for this exact slot: 10
+
+== 2. The race: 10 hold requests released by one barrier, 10 threads, 10 HTTP clients, 10 DB connections
+spread of request start times: 9.1 ms; first answer after 1185.7 ms; requests already sent before the first answer came back: 10/10
+
+== 3. What each driver's request got back (service envelope)
+  SHP-01-1b479a  status=LOST   code=None fresh_options=3
+  SHP-02-8e7faa  status=LOST   code=None fresh_options=3
+  SHP-03-57c4d9  status=LOST   code=None fresh_options=3
+  SHP-04-fb6ce5  status=LOST   code=None fresh_options=3
+  SHP-05-ce8730  status=LOST   code=None fresh_options=3
+  SHP-06-231955  status=LOST   code=None fresh_options=3
+  SHP-07-163501  status=OK    HELD 2026-11-28T07:32:50.807567+05:30
+  SHP-08-c4e417  status=LOST   code=None fresh_options=3
+  SHP-09-312520  status=LOST   code=None fresh_options=3
+  SHP-10-daa43f  status=LOST   code=None fresh_options=3
+totals: OK=1 LOST=9 other=0
+
+== 4. What a losing driver is told (the orchestrator's fixed template, setuhaul/agent/replies.py)
+  That slot was just taken.
+  Available slots:
+  1. Dock D1, 3:00 PM on 29 Nov
+  2. Dock D1, 4:00 PM on 29 Nov
+  3. Dock D1, 5:00 PM on 29 Nov
+  Reply with the number you want.
+
+== 4b. Database right after the race, before anything else happens
+  id=1 kind=HOLD shipment=SHP-07-163501 14:00-14:55 active=True hold_expires=07:32:50
+
+winner SHP-07-163501 submits the booking request: OK PENDING APT-e6df754d0a704407a0a485fa4eccd3cc
+
+== 5. ACTUAL database outcome
+dock_occupancy rows touching the raced window (all, active or not):
+  id=1 dock=DOCK-JAI-D1 kind=APPOINTMENT shipment=SHP-07-163501 14:00-14:55 active=True
+Q5 fresh options handed to losers: 27; of those overlapping the taken window: 0
+Q1 shipments with an active claim on that dock window: 1
+Q2 active HOLD rows on that window: 0
+Q3 active appointments among the 10 racing shipments: 1 -> [('APT-e6df754d0a704407a0a485fa4eccd3cc', 'SHP-07-163501', 'PENDING_CONFIRMATION')]
+Q4 pairs of active claims of DIFFERENT shipments overlapping on ANY dock (whole database): 0
+
+== 6. Bypass attempt: insert a second overlapping claim directly, as the database superuser
+   (superuser bypasses row-level security and grants; only the EXCLUDE constraint is left)
+   result: REFUSED sqlstate=23P01 conflicting key value violates exclusion constraint "ex_one_truck_per_dock"
+
+== 7. Invariant checks
+  [PASS] exactly one of 10 hold requests succeeded
+  [PASS] the other 9 were told LOST (slot taken)
+  [PASS] every loser received fresh options in the same answer
+  [PASS] no fresh option offered to a loser overlaps the taken window
+  [PASS] one shipment holds the dock window in the database
+  [PASS] at most one active HOLD on the window
+  [PASS] exactly one active appointment among the racers (the winner's)
+  [PASS] zero overlapping claims of different shipments on any dock
+  [PASS] direct superuser insert of an overlapping claim is refused (23P01)
+
+RESULT: PASS  (9/9 checks)  elapsed 51.4 s

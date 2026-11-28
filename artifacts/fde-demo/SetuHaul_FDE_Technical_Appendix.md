@@ -219,7 +219,7 @@ flowchart TB
 |---|---|---|
 | planner | Approve or reject booking requests in scope; view Ops, Optimizer, Observability | Decide own request; move confirmed appointments |
 | ops_lead | Everything a planner can; `move_appointment`; kill switch | Bypass the database checks |
-| operations | Console operations and escalations; dispatcher actions (compatibility) | Approve |
+| operations | Console operations and escalations; dispatcher actions (compatibility); approve a STANDARD booking request (`approval_role_rules`, migration 0015) | Approve any other request kind (PLANNER_REVIEW, AFTER_HOURS_START, DOCK_DOWNGRADE, moves). The STANDARD permission for `operations` is intentionally retained (owner decision, 28 Nov 2026) |
 | dispatcher | Offer and reassign loads; request cancellation | Decide anything (migration 0037) |
 | agent (service) | Tools listed in §5 | Decide approvals (smoke check 5) |
 

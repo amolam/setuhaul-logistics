@@ -1,5 +1,7 @@
 # Phase 1 · Frame — High-Level Design
 
+> **Historical Frame-phase design (Phase 1, November 2026). This is not the as-built system.** It is kept unchanged as the record of the first design. In particular, the IAM (SigV4) authorisation for every API call, the driver sign-in by phone OTP and the AgentCore platform shown here were not built. For what exists, read the root [`README.md`](../../README.md#live-synthetic-pilot), assumptions S1a–S1c in [`01_problem_definition_sheet.md`](01_problem_definition_sheet.md) and the as-built [`Technical Appendix`](../../artifacts/fde-demo/SetuHaul_FDE_Technical_Appendix.md).
+
 This is the shape of the system and where each responsibility sits. Phase 2 (Design) turns it into the full architecture, decision register, service-by-service specification and cost model.
 
 ---

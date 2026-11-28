@@ -1,0 +1,37 @@
+# Snapshot scenario re-run, 28 Nov 2026. Target: host=localhost port=55440 user=postgres (private local cluster .local/pgdata)
+SetuHaul scenario run on the supplied snapshot (data/setuhaul_freight_operations.db)
+database setuhaul_snapshot_scenario on host=localhost port=55440 user=postgres; reader: deterministic rules reader (no model call)
+seed: bookings the database refused (known-bad, audit A03/A04/A08): ['APT1004', 'APT1005', 'APT1014A', 'APT1015A']
+
+== L1 (ladder level 1) THR011 DRV001 SHP1017 at 10:02 IST
+   driver: 'What slots are possible after 1 PM if I reach around 12:45?'
+   agent : 'Available slots:\n1. Dock D1, 2:00 PM on 4 Aug\n2. Dock D2, 2:00 PM on 4 Aug\n3. Dock D3, 2:00 PM on 4 Aug\nReply with the number you want.'
+   path  : ['options', 'phrase:template']   (2399 ms)
+
+== L2a (ladder level 2) THR003 DRV013 SHP1013 at 09:19 IST
+   driver: 'I am late by one hour.'
+   agent : 'Do you mean you will now reach the gate around 11:00 AM? Reply YES, or send your arrival time.'
+   path  : ['ask:delay_kind']   (1458 ms)
+
+== L2b (ladder level 2) THR010 DRV004 (two live shipments) at 09:31 IST
+   driver: 'I will be late by 45 minutes.'
+   agent : 'You have more than one shipment today. Which order is this about?\n1. ORD-260804-004\n2. ORD-260804-020\nReply with the number.'
+   path  : ['ask-shipment']   (1276 ms)
+
+== L6 (ladder level 6) THR005 DRV015 SHP1015 at 16:24 IST
+   driver: 'Evening traffic. ETA 6:30. Can the reefer unload tonight?'
+   agent : 'A coordinator has your details and will reply within 10 minutes.'
+   path  : ['options', 'escalated:NO_FEASIBLE_SLOT']   (2466 ms)
+   escalation: NO_FEASIBLE_SLOT mode=DECIDE status=OPEN
+   hand-off  : {"mode": "DECIDE", "queue": "FAC-JAI-01", "reason": "NO_FEASIBLE_SLOT", "built_by": "database", "priority": "HIGH", "driver_id": "DRV015", "thread_id": "THR005", "ack_sla_min": 10, "shipment_id": "SHP1015", "thread_status": "OPEN", "driver_last_message": "(asked for a slot)", "what_driver_was_told": "A coordinator has your details and will reply within 10 minutes."}
+   why: snapshot engine says NO_FEASIBLE_SLOT; Jaipur reefer docks: 1; their events: [('D5', 'MAINTENANCE', '2026-08-04T18:00:00+05:30', '2026-08-04T22:00:00+05:30')]; capability REEFER, ready 17:55
+
+== Checks
+  [PASS] L1: options shown, nothing held or requested
+  [PASS] L2a: asks one clarification question before any option
+  [PASS] L2b: asks which shipment (two live), offers nothing
+  [PASS] L6: NO_FEASIBLE_SLOT escalation, OPEN, with a hand-off record
+  [PASS] L6: no slot invented or held for the escalated shipment
+  [PASS] L6: independent check: snapshot engine also finds no feasible slot
+
+RESULT: PASS  (6/6 checks)  elapsed 11.1 s
