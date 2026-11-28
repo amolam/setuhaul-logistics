@@ -113,7 +113,7 @@ export SETUHAUL_TEST_DSN="host=localhost port=55432 user=postgres"
 | 5. Integrity proof | `python scripts/integrity_proof.py 10` | `RESULT: PASS (9/9)`: 1 claim, 9 LOST, 0 double bookings |
 | 5. Integrity test, 50 drivers | `python -m pytest -q tests/test_api.py::test_fifty_drivers_race_for_one_slot` | passed: 1 OK, 49 LOST (service answers; not a database count) |
 | + Scheduling comparison | `python scripts/scheduling_compare.py` | FCFS vs EARLIEST_ETA vs FACILITY_SCORE tables |
-| Full suite (5 to 20 minutes) | `python -m pytest tests -q` | CI on PR #58: 2,229 passed, 1 skipped (`docs/challenge/SUBMISSION.md`) |
+| Full suite (5 to 20 minutes) | `python -m pytest tests -q` | Recorded in CI run [46045442429](https://github.com/amolam/setuhaul-logistics/actions/runs/46045442429) on `7824f30`, the final verified commit of PR #58: 2,233 passed and 1 skipped; Data API mode 749 passed; synth passed; deploy skipped as designed. Details are in `docs/challenge/SUBMISSION.md` |
 
 Without `SETUHAUL_TEST_DSN` only the database-free tests run; the rest are skipped. Configuration names are in
 `.env.example` (placeholders only).
