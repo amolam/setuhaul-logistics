@@ -552,11 +552,11 @@ def d_conversation(s, ox=0.5, oy=1.55):
     rx = ox + 6.2
     rows = [["", "MANUAL", "AUTO"],
             ["Driver-chat booking", "authorized staff decide", "confirmed by rule if eligible*; else authorized staff"],
-            ["Dispatcher offer accepted", "authorized staff decide", "authorized staff decide (always)"],
-            ["Dispatcher time change", "authorized staff decide", "authorized staff decide (always)"],
+            ["Driver accepts a dispatcher's offer", "authorized staff decide", "authorized staff decide (always)"],
+            ["Dispatcher requests a new time (driver informed, not asked)", "authorized staff decide", "authorized staff decide (always)"],
             ["Cancellation", "authorized staff decide", "authorized staff decide"]]
     table(s, rx, oy, 6.13, rows, [1.9, 1.45, 2.78], size=10, row_h=0.42)
-    text(s, rx, oy + 2.25, 6.13, 1.45, [
+    text(s, rx, oy + 2.5, 6.13, 1.45, [
         {"t": "Two separate events: the driver CONFIRMS (YES / Accept), which only holds the slot and asks; the "
               "AUTHORIZED STAFF APPROVE (or an eligible AUTO rule), which alone makes the booking. Authorized staff: a "
               "planner or ops lead for every row; operations only for a standard driver-chat booking.", "bullet": True},
@@ -565,7 +565,7 @@ def d_conversation(s, ox=0.5, oy=1.55):
          "bullet": True},
         {"t": "Seen live on 27 Nov with AUTO on Jaipur: \"Confirmed: dock D3 at 3:00 PM on 28 Nov.\" straight "
               "after YES.", "bullet": True}], size=10, space_after=3)
-    text(s, rx, oy + 3.85, 6.13, 1.2, [
+    text(s, rx, oy + 4.1, 6.13, 1.2, [
         {"t": "No-show (automatic) and completion, as sent:", "bold": True},
         {"t": "\"You did not reach the gate for order … within the grace period, so the slot was released. "
               "Your dispatcher will arrange the next step.\"", "size": 9.5, "color": MUTED},
