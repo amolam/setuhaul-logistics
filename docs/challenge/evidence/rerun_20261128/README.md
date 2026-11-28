@@ -15,4 +15,6 @@ This folder holds new output only. No earlier evidence file was changed or repla
 
 **Who read the messages.** In every run above the deterministic rules reader read the driver messages (`Orchestrator(..., model=None)` in `tests/test_scenario_run.py`). No AI model was called.
 
+**Redaction.** In the text outputs, the local checkout folder is replaced by `<repo>` and the Python executable path by `<python>`. Nothing else in the tool output was changed.
+
 **What this is not.** It is local evidence. It is not CI evidence, not pilot evidence and not production evidence.

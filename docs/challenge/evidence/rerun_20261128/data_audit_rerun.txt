@@ -31,4 +31,4 @@ A28  INFO   rows=  2  Low-confidence / range ETAs the scheduler must not treat a
 A29  INFO   rows=  2  No compatible feasible slot for the reefer shipment after its declared ETA (expected escalation case)
 A30  INFO   rows=  2  Integrity gaps the two partial unique indexes do NOT cover (structural, proven by schema inspection)
 
-Wrote G:\FDE-Projects\setUhaul_Logistics\.claude\worktrees\fde-submission\docs\1-frame\audit_results.md
+Wrote <repo>\docs\1-frame\audit_results.md

@@ -1,8 +1,8 @@
 # 50-driver test re-run, 28 Nov 2026. Target: host=localhost port=55440 user=postgres
 ============================= test session starts =============================
-platform win32 -- Python 3.14.7, pytest-9.2.0, pluggy-1.6.0 -- C:\Python314\python.exe
+platform win32 -- Python 3.14.7, pytest-9.2.0, pluggy-1.6.0 -- <python>
 cachedir: .pytest_cache
-rootdir: G:\FDE-Projects\setUhaul_Logistics\.claude\worktrees\fde-submission
+rootdir: <repo>
 configfile: pyproject.toml
 plugins: anyio-4.16.0, platformdirs-4.13.0, typeguard-2.13.3
 collecting ... collected 1 item
